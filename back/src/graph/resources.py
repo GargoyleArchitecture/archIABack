@@ -6,10 +6,9 @@ from pathlib import Path
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
-from dotenv import load_dotenv
-# Ensure .env is loaded before any client that needs API keys
-_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_ENV_PATH)
+from dotenv import load_dotenv, find_dotenv
+# Automatically find and load .env regardless of where the script is started
+load_dotenv(find_dotenv())
 
 from src.services.llm_factory import get_chat_model
 from src.rag_agent import get_retriever
