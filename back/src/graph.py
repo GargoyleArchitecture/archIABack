@@ -738,6 +738,7 @@ class GraphState(TypedDict):
     # control de idioma/intención/forcing RAG
     language: Literal["en","es"]
     intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style"]
+    forced_intent: str
     force_rag: bool
 
     # etapa actual del pipeline ASR -> estilos -> tacticas -> despliegue
@@ -752,6 +753,16 @@ class GraphState(TypedDict):
     style: str #estilo actual
     selected_style: str
     last_style: str
+
+    # contexto por turno para enrutamiento compuesto
+    turn_context: dict
+    requested_outputs: list
+    response_language: Literal["en","es"]
+    context_contract_version: str
+    context_facts: dict
+    active_decisions: dict
+    pending_questions: list
+    context_summary: str
 
 class AgentState(TypedDict):
     messages: list
@@ -2234,10 +2245,13 @@ def _split_sections(text: str) -> dict:
 def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
+    turn_ctx = state.get("turn_context") or {}
+    requested = turn_ctx.get("requested_outputs") or []
+    diagram_requested = bool(intent == "diagram" or (isinstance(requested, list) and "diagram" in requested))
 
-    # 🟣 NUEVO: caso especial cuando ya tenemos un script Mermaid de diagrama
+    # 🟣 Caso especial SOLO cuando el turno pidió diagrama
     mermaid = (state.get("mermaidCode") or "").strip()
-    if mermaid:
+    if mermaid and diagram_requested:
         if lang == "es":
             head = (
                 "Aquí tienes el diagrama solicitado, generado a partir de tu "
@@ -2520,6 +2534,20 @@ class ClassifyOut(TypedDict):
     use_rag: bool
 
 def classifier_node(state: GraphState) -> GraphState:
+    forced_intent = (
+        state.get("forced_intent")
+        or ((state.get("turn_context") or {}).get("forced_intent"))
+        or ""
+    ).strip().lower()
+    if forced_intent in {"asr", "style", "tactics", "diagram", "general"}:
+        msg_for_lang = state.get("userQuestion", "") or ""
+        lang_forced = detect_lang(msg_for_lang)
+        return {
+            **state,
+            "language": "es" if lang_forced == "es" else "en",
+            "intent": forced_intent,
+        }
+
     msg = state.get("userQuestion", "") or ""
     prompt = f"""
 Classify the user's last message. Return JSON with:
@@ -2556,11 +2584,10 @@ User message:
     
     diagram_triggers = [
         "component diagram", "diagram", "diagrama", "diagrama de componentes",
-        "uml", "plantuml", "c4", "bpmn",
-        "this asr", "este asr", "el asr", "ese asr", "anterior asr"
+        "uml", "plantuml", "c4", "bpmn", "despliegue", "deployment"
     ]
-    # No pises estilo ni ASR cuando solo dicen "this ASR"
-    if any(k in low for k in diagram_triggers) and intent not in ("asr", "style"):
+    # No pises intenciones de ASR/STYLE/TACTICS salvo pedido explicito de diagrama
+    if any(k in low for k in diagram_triggers) and intent not in ("asr", "style", "tactics"):
         intent = "diagram"
 
 

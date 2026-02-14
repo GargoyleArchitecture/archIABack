@@ -35,6 +35,36 @@ def detect_lang(q: str) -> str:
     ascii_ratio = sum(1 for c in q if ord(c) < 128) / max(1, len(q))
     return "en" if ascii_ratio > 0.97 else "es"
 
+
+def _merge_context_text(base: str, incoming: str, max_chars: int = 4000) -> str:
+    b = (base or "").strip()
+    i = (incoming or "").strip()
+    if not i:
+        return b
+    if not b:
+        return i[:max_chars]
+    if i in b:
+        return b[:max_chars]
+    merged = (b + "\n\n" + i).strip()
+    return merged[-max_chars:]
+
+
+def _build_context_summary(seed: dict, max_chars: int = 1400) -> str:
+    active = seed.get("active_decisions") or {}
+    facts = seed.get("context_facts") or {}
+    lines = [
+        f"Stage: {active.get('arch_stage', '')}",
+        f"Quality Attribute: {active.get('quality_attribute', '')}",
+        f"Current ASR: {active.get('current_asr', '')}",
+        f"Architecture style: {active.get('style', '')}",
+        f"Tactics: {active.get('tactics', [])}",
+        f"Domain: {facts.get('domain', '')}",
+        f"Constraints: {facts.get('constraints', [])}",
+        f"NFR focus: {facts.get('nfr_focus', [])}",
+        f"Business / Context: {seed.get('add_context', '')}",
+    ]
+    return "\n".join(lines).strip()[:max_chars]
+
 # ===================== Lifespan ==========================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -198,6 +228,16 @@ def _wants_style(txt: str) -> bool:
     return any(k in low for k in keys) or ("style" in low and "asr" in low)
 
 
+def _wants_asr(txt: str) -> bool:
+    low = (txt or "").lower()
+    keys = [
+        "asr", "qas", "quality attribute scenario",
+        "requisito significativo", "requisito arquitectonico",
+        "genera asr", "genera un asr", "genera asrs", "create asr", "make asr",
+    ]
+    return any(k in low for k in keys) or _looks_like_make_asr(txt)
+
+
 def _wants_tactics(txt: str) -> bool:
     low = (txt or "").lower()
     keys = [
@@ -211,12 +251,15 @@ def _wants_tactics(txt: str) -> bool:
 
 def _wants_deployment(txt: str) -> bool:
     low = (txt or "").lower()
-    keys = [
-        "despliegue", "deployment", "deployment diagram",
-        "diagrama de despliegue",
-        "plantuml", "mermaid"
+    patterns = [
+        r"\bdespliegue\b",
+        r"\bdeployment\b",
+        r"\bdeployment\s+diagram\b",
+        r"\bdiagrama\s+de\s+despliegue\b",
+        r"\bplantuml\b",
+        r"\bmermaid\b",
     ]
-    return any(k in low for k in keys)
+    return any(re.search(p, low) for p in patterns)
 
 
 # ===================== Health ===========================
@@ -314,25 +357,53 @@ async def message(
         save_arch_flow(user_id, af)
         arch_flow = af  # usarlo ya mismo
 
-    memory_text = (
-        f"Stage: {arch_flow.get('stage','')}\n"
-        f"Quality Attribute: {arch_flow.get('quality_attribute','')}\n"
-        f"Business / Context: {arch_flow.get('add_context','')}\n"
-        f"Current ASR:\n{arch_flow.get('current_asr','')}\n\n"
-        f"Architecture style: {arch_flow.get('style','')}\n"
-        f"Tactics so far: {arch_flow.get('tactics', [])}\n"
-        f"User last topic: {last_topic}"
-    ).strip() or "N/A"
+    # ---- Context Contract v1 (source of truth per turn) ----
+    response_lang = detect_lang(message)
+    context_facts = {
+        "domain": "",
+        "constraints": [],
+        "nfr_focus": [arch_flow.get("quality_attribute", "")] if arch_flow.get("quality_attribute") else [],
+        "open_assumptions": [],
+    }
+    active_decisions = {
+        "arch_stage": arch_flow.get("stage", ""),
+        "current_asr": arch_flow.get("current_asr", ""),
+        "quality_attribute": arch_flow.get("quality_attribute", ""),
+        "style": arch_flow.get("style", ""),
+        "tactics": arch_flow.get("tactics", []) or [],
+        "decision_log": [],
+    }
+    turn_context = {
+        "user_message": message,
+        "intent": "general",
+        "references": [],
+        "attachments": {
+            "images": int(bool(image_path1)) + int(bool(image_path2)),
+            "pdfs": int(bool(doc_context.strip())),
+        },
+        "doc_only": doc_only,
+    }
+    state_seed = {
+        "context_facts": context_facts,
+        "active_decisions": active_decisions,
+        "turn_context": turn_context,
+        "arch_stage": arch_flow.get("stage", ""),
+        "quality_attribute": arch_flow.get("quality_attribute", ""),
+        "current_asr": arch_flow.get("current_asr", ""),
+        "style": arch_flow.get("style", ""),
+        "tactics_list": arch_flow.get("tactics", []) or [],
+        "add_context": arch_flow.get("add_context", ""),
+    }
+    memory_text = _build_context_summary(state_seed) or "N/A"
 
     # --- ASR pegado por el usuario (si lo hay) ---
     asr_in_msg = _extract_asr_from_message(message)
     if asr_in_msg:
         memory_set(user_id, "current_asr", asr_in_msg)
-    made_asr = _looks_like_make_asr(message)
 
-    # --- Config del grafo ---
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 20}
-    user_lang = detect_lang(message)
+    # --- Config base del grafo ---
+    config_base = {"recursion_limit": 20}
+    user_lang = response_lang
 
     # --- Heurísticas locales ---
     topic_hint = _extract_topic_from_text(message) or _extract_topic_from_text(last_topic)
@@ -348,35 +419,59 @@ async def message(
     if doc_only:
         force_rag = False  # DOC-ONLY desactiva RAG
 
-    user_intent = "general"
-    if not arch_flow.get("current_asr"):
-        # Si aún no hay ASR, cualquier cosa va a ASR primero
-        user_intent = "asr"
-    elif _wants_style(message):
-        # Ya hay ASR y el usuario está pidiendo estilos
-        user_intent = "style"
-    elif _wants_tactics(message):
-        user_intent = "tactics"
-    elif _wants_deployment(message):
-        user_intent = "diagram"
+    requested_outputs = []
+    if _wants_asr(message):
+        requested_outputs.append("asr")
+    if _wants_style(message):
+        requested_outputs.append("style")
+    if _wants_tactics(message):
+        requested_outputs.append("tactics")
+    if _wants_deployment(message):
+        requested_outputs.append("diagram")
 
+    if not requested_outputs:
+        if not arch_flow.get("current_asr"):
+            requested_outputs = ["asr"]
+        elif _wants_style(message):
+            requested_outputs = ["style"]
+        elif _wants_tactics(message):
+            requested_outputs = ["tactics"]
+        elif _wants_deployment(message):
+            requested_outputs = ["diagram"]
+        else:
+            requested_outputs = ["general"]
 
-    # --- Limpieza parcial del estado (sin borrar historial persistente del grafo) ---
-    try:
-        graph.update_state(config, {"values": {
+    if (
+        not arch_flow.get("current_asr")
+        and any(x in requested_outputs for x in ["style", "tactics"])
+        and "asr" not in requested_outputs
+    ):
+        requested_outputs = ["asr"] + requested_outputs
+
+    ordered = [x for x in ["asr", "style", "tactics", "diagram"] if x in requested_outputs]
+    run_intents = ordered if ordered else [requested_outputs[0]]
+
+    def _clear_turn_state(run_config):
+        reset_values = {
             "endMessage": "",
             "mermaidCode": "",
-            "diagram": {},  # FIX: dict vacío, no None
+            "diagram": {},
             "hasVisitedDiagram": False,
             "turn_messages": [],
-            "current_asr": memory_get(user_id, "current_asr", ""),
-        }})
-    except Exception:
-        pass
+            "current_asr": memory_get(user_id, "current_asr", "") or arch_flow.get("current_asr", ""),
+        }
+        try:
+            graph.update_state(run_config, reset_values)
+        except Exception as e:
+            try:
+                graph.update_state(run_config, {"values": reset_values})
+            except Exception as e2:
+                print(f"[warn] state reset skipped: {e}; fallback failed: {e2}")
 
-    # --- Invocación del grafo ---
-    try:
-        result = graph.invoke(
+    def _invoke_once(forced_intent: str, current_flow: dict, run_config: dict):
+        _clear_turn_state(run_config)
+        current_asr = memory_get(user_id, "current_asr", "") or current_flow.get("current_asr", "")
+        return graph.invoke(
             {
                 "messages": turn_messages,
                 "userQuestion": message,
@@ -394,27 +489,101 @@ async def message(
                 "mermaidCode": "",
                 "turn_messages": [],
                 "retrieved_docs": [],
-                "memory_text": memory_text,  # memoria rica
+                "memory_text": memory_text,
                 "suggestions": [],
                 "language": user_lang,
-                "intent": user_intent,
+                "response_language": user_lang,
+                "intent": forced_intent,
+                "forced_intent": forced_intent,
                 "force_rag": force_rag,
-                "topic_hint": topic_hint,  # opcional; el grafo puede ignorarlo
-                "current_asr": memory_get(user_id, "current_asr", ""),
-                "style": arch_flow.get("style", ""),
-                "selected_style": arch_flow.get("style", ""),
-                "last_style": arch_flow.get("style", ""),
-                "arch_stage": arch_flow.get("stage", ""),
-                "quality_attribute": arch_flow.get("quality_attribute", ""),
-                "add_context": arch_flow.get("add_context", ""),
-                "tactics_list": arch_flow.get("tactics", []),
+                "context_contract_version": "v1",
+                "context_facts": context_facts,
+                "active_decisions": {
+                    "arch_stage": current_flow.get("stage", ""),
+                    "current_asr": current_asr,
+                    "quality_attribute": current_flow.get("quality_attribute", ""),
+                    "style": current_flow.get("style", ""),
+                    "tactics": current_flow.get("tactics", []) or [],
+                    "decision_log": [],
+                },
+                "turn_context": {
+                    **turn_context,
+                    "intent": forced_intent,
+                    "forced_intent": forced_intent,
+                    "requested_outputs": requested_outputs,
+                },
+                "pending_questions": [],
+                "context_summary": memory_text,
+                "topic_hint": topic_hint,
+                "current_asr": current_asr,
+                "style": current_flow.get("style", ""),
+                "selected_style": current_flow.get("style", ""),
+                "last_style": current_flow.get("style", ""),
+                "arch_stage": current_flow.get("stage", ""),
+                "quality_attribute": current_flow.get("quality_attribute", ""),
+                "add_context": current_flow.get("add_context", ""),
+                "tactics_list": current_flow.get("tactics", []),
             },
-            config,
+            run_config,
         )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Graph error: {e}")
+
+    results_by_intent = {}
+    last_result = {}
+    combined_turn_messages = []
+    combined_suggestions = []
+    for forced_intent in run_intents:
+        if forced_intent in ("style", "tactics") and not (arch_flow.get("current_asr") or memory_get(user_id, "current_asr", "")):
+            continue
+        run_config = {
+            **config_base,
+            "configurable": {
+                "thread_id": f"{thread_id}:{message_id}:{forced_intent}",
+            },
+        }
+        try:
+            result = _invoke_once(forced_intent, arch_flow, run_config)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Graph error: {e}")
+
+        last_result = result
+        results_by_intent[forced_intent] = result
+        combined_turn_messages.extend(result.get("turn_messages", []) or [])
+        for s in (result.get("suggestions", []) or []):
+            if s and s not in combined_suggestions:
+                combined_suggestions.append(s)
+
+        end_msg_partial = result.get("endMessage", "") or ""
+        asr_from_result = _extract_asr_from_result_text(end_msg_partial)
+        if asr_from_result:
+            memory_set(user_id, "current_asr", asr_from_result)
+        elif forced_intent == "asr" and len(end_msg_partial) > 80:
+            memory_set(user_id, "current_asr", end_msg_partial.strip())
+
+        if result.get("hasVisitedASR") or forced_intent == "asr":
+            arch_flow["current_asr"] = memory_get(user_id, "current_asr", "") or arch_flow.get("current_asr", "")
+            arch_flow["quality_attribute"] = result.get("asr_quality_attribute", arch_flow.get("quality_attribute", ""))
+            arch_flow["add_context"] = result.get("asr_context", arch_flow.get("add_context", ""))
+            arch_flow["stage"] = "ASR"
+
+        style_text = result.get("style") or result.get("selected_style") or result.get("last_style")
+        if style_text and (result.get("arch_stage") == "STYLE" or forced_intent == "style"):
+            arch_flow["style"] = style_text
+            arch_flow["stage"] = "STYLE"
+
+        tactics_json = result.get("tactics_struct") or None
+        tactics_md = result.get("tactics_md") or ""
+        if forced_intent == "tactics" and (tactics_json or tactics_md):
+            arch_flow["tactics"] = tactics_json or arch_flow.get("tactics", [])
+            arch_flow["stage"] = "TACTICS"
+
+        updated_ctx = (result.get("add_context") or "").strip()
+        if updated_ctx:
+            arch_flow["add_context"] = _merge_context_text(arch_flow.get("add_context", ""), updated_ctx, max_chars=4000)
+
+    result = last_result or {}
+    user_intent = run_intents[-1] if run_intents else "general"
 
     # --- Feedback inicial ---
     upsert_feedback(session_id=session_id, message_id=message_id, up=0, down=0)
@@ -428,77 +597,73 @@ async def message(
     if "asr" in low:
         memory_set(user_id, "asr_notes", message)
 
-    # --- Captura ASR desde la respuesta del grafo (si redactó uno) ---
-    end_msg = result.get("endMessage", "") or ""
-    asr_from_result = _extract_asr_from_result_text(end_msg)
-    if asr_from_result:
-        memory_set(user_id, "current_asr", asr_from_result)
-    elif made_asr and len(end_msg) > 80:
-        memory_set(user_id, "current_asr", end_msg.strip())
-
-    # Actualizar arch_flow con el ASR generado/refinado
-    if result.get("hasVisitedASR"):
-        arch_flow["current_asr"] = memory_get(user_id, "current_asr", "")
-        arch_flow["quality_attribute"] = result.get(
-            "asr_quality_attribute",
-            arch_flow.get("quality_attribute", "")
-        )
-        arch_flow["add_context"] = result.get(
-            "asr_context",
-            arch_flow.get("add_context", "")
-        )
-        arch_flow["stage"] = "ASR"
-
-    style_text = (
-    result.get("style")
-    or result.get("selected_style")
-    or result.get("last_style")
-    )
-
-    if style_text and result.get("arch_stage") == "STYLE":
-        arch_flow["style"] = style_text
-        arch_flow["stage"] = "STYLE"
-
-
-    # --- Persistir tácticas si este turno fue de tácticas ---
-    tactics_json = result.get("tactics_struct") or None
-    tactics_md   = result.get("tactics_md") or ""
-    if user_intent == "tactics" and (tactics_json or tactics_md):
-        arch_flow["tactics"] = tactics_json or []
-        arch_flow["stage"] = "TACTICS"
-
-        # ===================== DIAGRAMA =====================
+    # ===================== DIAGRAMA =====================
     # Ya no generamos SVG/PNG ni usamos Kroki.
     # Solo devolvemos el script de Mermaid que construye el grafo con ASR + estilo + tácticas.
     diagram_obj = {}
 
-    # Si el usuario pidió explícitamente un diagrama de despliegue, marcamos el stage
-    if _wants_deployment(message):
+    # Si el usuario pidió explícitamente un diagrama, marcamos el stage
+    diagram_requested = "diagram" in run_intents
+    if diagram_requested:
         arch_flow["stage"] = "DEPLOYMENT"
 
     # Persistimos el flujo ADD 3.0 actualizado (ASR, estilo, tácticas, stage, etc.)
     save_arch_flow(user_id, arch_flow)
 
-    # Mermaid generado por el grafo (diagram_orchestrator_node)
-        # Mermaid generado por el grafo (diagram_orchestrator_node)
-    mermaid_code = (result.get("mermaidCode") or "").strip()
+    def _section_text(intent_key: str) -> str:
+        return (results_by_intent.get(intent_key, {}) or {}).get("endMessage", "") or ""
 
-    # Siempre que tengamos Mermaid, pegamos el bloque ```mermaid``` al final.
-    # (Da igual si el intent que vimos era "diagram" o no.)
-    if mermaid_code:
-        mermaid_help = (
-            "\n\n---\n"
-            "Here is the **Mermaid script** for this diagram.\n"
-            "You can copy & paste it into the Mermaid live editor (https://mermaid.live), "
-            "a VS Code Mermaid plugin, or any compatible renderer:\n\n"
-            "```mermaid\n"
-            f"{mermaid_code}\n"
-            "```"
-        )
+    end_msg = result.get("endMessage", "") or ""
+    if len(run_intents) > 1:
+        sections = []
+        asr_txt = _section_text("asr")
+        style_txt = _section_text("style")
+        tactics_txt = _section_text("tactics")
+        if user_lang == "es":
+            if asr_txt:
+                sections.append("ASR propuesto:\n" + asr_txt)
+            if style_txt:
+                sections.append("Estilo(s) recomendado(s):\n" + style_txt)
+            if tactics_txt:
+                sections.append("Tacticas recomendadas:\n" + tactics_txt)
+        else:
+            if asr_txt:
+                sections.append("Proposed ASR:\n" + asr_txt)
+            if style_txt:
+                sections.append("Recommended style(s):\n" + style_txt)
+            if tactics_txt:
+                sections.append("Recommended tactics:\n" + tactics_txt)
+        if sections:
+            end_msg = "\n\n---\n\n".join(sections)
+
+    mermaid_code = ""
+    if diagram_requested:
+        mermaid_code = ((results_by_intent.get("diagram") or {}).get("mermaidCode") or result.get("mermaidCode") or "").strip()
+
+    if diagram_requested and mermaid_code:
+        if user_lang == "es":
+            mermaid_help = (
+                "\n\n---\n"
+                "Aqui tienes el **script Mermaid** de este diagrama.\n"
+                "Puedes copiarlo y pegarlo en Mermaid live (https://mermaid.live), "
+                "en un plugin de Mermaid para VS Code o en cualquier renderizador compatible:\n\n"
+                "```mermaid\n"
+                f"{mermaid_code}\n"
+                "```"
+            )
+        else:
+            mermaid_help = (
+                "\n\n---\n"
+                "Here is the **Mermaid script** for this diagram.\n"
+                "You can copy & paste it into the Mermaid live editor (https://mermaid.live), "
+                "a VS Code Mermaid plugin, or any compatible renderer:\n\n"
+                "```mermaid\n"
+                f"{mermaid_code}\n"
+                "```"
+            )
         end_msg = (end_msg + mermaid_help).strip()
 
     else:
-        # Aseguramos que end_msg esté definido
         end_msg = end_msg.strip()
 
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
@@ -506,11 +671,11 @@ async def message(
         "endMessage": end_msg,
         "mermaidCode": mermaid_code,
         "diagram": diagram_obj,  # ahora siempre vacío; ya no mandamos SVG
-        "messages": result.get("turn_messages", []),
+        "messages": combined_turn_messages or result.get("turn_messages", []),
         "session_id": session_id,
         "message_id": message_id,
         "thread_id": thread_id,
-        "suggestions": result.get("suggestions", []),
+        "suggestions": combined_suggestions or result.get("suggestions", []),
     }
 
     return clean_payload
