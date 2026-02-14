@@ -494,6 +494,7 @@ async def message(
                 "language": user_lang,
                 "response_language": user_lang,
                 "intent": forced_intent,
+                "forced_intent": forced_intent,
                 "force_rag": force_rag,
                 "context_contract_version": "v1",
                 "context_facts": context_facts,
