@@ -25,7 +25,6 @@ from src.memory import (
     save_arch_flow,
 )
 from src.services.doc_ingest import extract_pdf_text
-from src.graph.utils import _build_context_summary, _merge_context_text
 memory_init()
 
 # ===================== Detección simple de idioma (ES/EN) ==========================
@@ -35,6 +34,36 @@ def detect_lang(q: str) -> str:
     if re.search(r"\b(what|how|why|when|which|where|who|the|and|or|if|is|are|can|do|does|should|would)\b", ql): return "en"
     ascii_ratio = sum(1 for c in q if ord(c) < 128) / max(1, len(q))
     return "en" if ascii_ratio > 0.97 else "es"
+
+
+def _merge_context_text(base: str, incoming: str, max_chars: int = 4000) -> str:
+    b = (base or "").strip()
+    i = (incoming or "").strip()
+    if not i:
+        return b
+    if not b:
+        return i[:max_chars]
+    if i in b:
+        return b[:max_chars]
+    merged = (b + "\n\n" + i).strip()
+    return merged[-max_chars:]
+
+
+def _build_context_summary(seed: dict, max_chars: int = 1400) -> str:
+    active = seed.get("active_decisions") or {}
+    facts = seed.get("context_facts") or {}
+    lines = [
+        f"Stage: {active.get('arch_stage', '')}",
+        f"Quality Attribute: {active.get('quality_attribute', '')}",
+        f"Current ASR: {active.get('current_asr', '')}",
+        f"Architecture style: {active.get('style', '')}",
+        f"Tactics: {active.get('tactics', [])}",
+        f"Domain: {facts.get('domain', '')}",
+        f"Constraints: {facts.get('constraints', [])}",
+        f"NFR focus: {facts.get('nfr_focus', [])}",
+        f"Business / Context: {seed.get('add_context', '')}",
+    ]
+    return "\n".join(lines).strip()[:max_chars]
 
 # ===================== Lifespan ==========================
 @asynccontextmanager
