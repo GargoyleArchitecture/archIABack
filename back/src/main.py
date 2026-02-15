@@ -25,6 +25,7 @@ from src.memory import (
     save_arch_flow,
 )
 from src.services.doc_ingest import extract_pdf_text
+from src.graph.resources import rag_trace_reset, rag_trace_get, rag_trace_set_session
 memory_init()
 
 # ===================== Detección simple de idioma (ES/EN) ==========================
@@ -376,6 +377,8 @@ async def message(
 
     # --- Invocación del grafo ---
     try:
+        rag_trace_set_session(session_id)
+        rag_trace_reset(session_id)
         result = graph.invoke(
             {
                 "messages": turn_messages,
@@ -511,6 +514,7 @@ async def message(
         "message_id": message_id,
         "thread_id": thread_id,
         "suggestions": result.get("suggestions", []),
+        "rag_trace": rag_trace_get(session_id),
     }
 
     return clean_payload

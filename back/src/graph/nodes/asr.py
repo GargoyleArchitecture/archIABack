@@ -3,7 +3,7 @@ import re
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
-from src.graph.resources import llm, retriever
+from src.graph.resources import llm, retriever, rag_trace_record
 from src.graph.utils import (
     _clip_text, 
     _dedupe_snippets, 
@@ -39,6 +39,7 @@ def asr_node(state: GraphState) -> GraphState:
             query = f"{concern} quality attribute scenario latency measure stimulus environment artifact response response measure"
             docs_raw = list(retriever.invoke(query))
             docs_list = docs_raw[:6]
+            rag_trace_record(query=query, docs=docs_list)
         except Exception:
             docs_list = []
 
