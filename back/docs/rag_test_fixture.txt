@@ -1,5 +1,0 @@
-RAG_UNIQUE_PHRASE_7F3A9C:
-The system must sustain exactly 12,345 requests per second while keeping p95 latency under 47 ms,
-with an error rate below 0.25% during a 10x traffic spike for 15 minutes.
-
-This requirement is intentionally unique for RAG testing.

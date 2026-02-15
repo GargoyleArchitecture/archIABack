@@ -1,6 +1,5 @@
 
 from typing import Literal
-import os
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langgraph.prebuilt import create_react_agent
 
@@ -16,7 +15,6 @@ def researcher_node(state: GraphState) -> GraphState:
     force_rag = bool(state.get("force_rag", False))
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
-    always_rag = os.getenv("ALWAYS_RAG", "0") == "1"
 
     # ⛔ GUARD 1: si estamos en turno ASR y NO se forzó RAG, no investigues
     if intent == "asr" and not force_rag:
@@ -75,16 +73,6 @@ def researcher_node(state: GraphState) -> GraphState:
     tools = ([LLM] + ([LLMWithImages] if _HAS_VERTEX else [])) if doc_only else ([local_RAG, LLM] + ([LLMWithImages] if _HAS_VERTEX else []))
     agent = create_react_agent(llm, tools=tools)
 
-    # Forzar RAG antes de razonar si ALWAYS_RAG=1 (y no DOC-ONLY)
-    rag_context_message = None
-    if always_rag and not doc_only:
-        try:
-            rag_result = local_RAG(state.get("userQuestion", ""))
-            rag_context_message = SystemMessage(content=f"LOCAL_RAG_RESULT:\n{rag_result}")
-            _push_turn(state, role="system", name="local_rag_result", content=rag_result)
-        except Exception:
-            rag_context_message = None
-
     # HINT corto (solo si no estamos en DOC-ONLY)
     hint_lines = []
     if (force_rag or intent in ("architecture",)) and not doc_only:
@@ -94,12 +82,7 @@ def researcher_node(state: GraphState) -> GraphState:
     hint = _clip_text("\n".join(hint_lines).strip(), 100) if hint_lines else ""
 
     short_history = _last_k_messages(state["messages"], k=6)
-    messages_with_system = [system_message]
-    if context_message:
-        messages_with_system.append(context_message)
-    if rag_context_message:
-        messages_with_system.append(rag_context_message)
-    messages_with_system += short_history
+    messages_with_system = [system_message] + ([context_message] if context_message else []) + short_history
 
     payload = {
         "messages": messages_with_system + ([HumanMessage(content=hint)] if hint else []),

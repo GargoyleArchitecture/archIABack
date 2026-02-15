@@ -3,7 +3,7 @@ import re
 import math
 from pathlib import Path
 from langchain_core.tools import tool
-from src.graph.resources import llm, retriever, _HAS_VERTEX, Image, GenerativeModel, rag_trace_record
+from src.graph.resources import llm, retriever, _HAS_VERTEX, Image, GenerativeModel
 from src.graph.state import investigatorSchema, evaluatorSchema
 from src.graph.consts import (
     EVAL_THEORY_PREFIX, EVAL_VIABILITY_PREFIX, 
@@ -66,8 +66,6 @@ def local_RAG(prompt: str) -> str:
             pass
         if len(docs_all) >= 8:
             break
-    # Trace RAG usage (even if empty)
-    rag_trace_record(query=q, docs=docs_all)
 
     # preview solo 2 y cada uno 400 chars
     preview = []
