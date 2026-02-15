@@ -12,7 +12,7 @@ try:
 except Exception:  # pragma: no cover
     from langchain_community.vectorstores import Chroma
 
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # ================== Paths / Config ==================
@@ -59,9 +59,8 @@ def _load_docs() -> List:
     Carga en memoria las páginas de los PDFs permitidos, con metadatos uniformes.
     """
     all_pdfs = sorted(list(DOCS_DIR.glob("*.pdf")))
-    all_texts = sorted([*DOCS_DIR.glob("*.txt"), *DOCS_DIR.glob("*.md")])
-    if not all_pdfs and not all_texts:
-        print(f"[build] No se encontraron PDFs ni TXT/MD en {DOCS_DIR}.")
+    if not all_pdfs:
+        print(f"[build] No se encontraron PDFs en {DOCS_DIR}.")
         return []
 
     docs = []
@@ -84,25 +83,6 @@ def _load_docs() -> List:
                 "source_path": str(fpath),                       # ruta absoluta
                 "page": md.get("page", md.get("page_number")),   # número de página (int)
                 "page_label": md.get("page_label"),              # etiqueta (si existe)
-            }
-        docs.extend(pages)
-
-    # Cargar TXT/MD (notas locales, fixtures de prueba, etc.)
-    for fpath in all_texts:
-        try:
-            loader = TextLoader(str(fpath), encoding="utf-8")
-            pages = loader.load()
-        except Exception:
-            loader = TextLoader(str(fpath), encoding="latin-1")
-            pages = loader.load()
-        for d in pages:
-            md = d.metadata or {}
-            d.metadata = {
-                "title": Path(md.get("source") or fpath).name,
-                "source_title": "Local Notes",
-                "source_path": str(fpath),
-                "page": md.get("page", md.get("page_number", 0)),
-                "page_label": md.get("page_label"),
             }
         docs.extend(pages)
 
