@@ -369,6 +369,9 @@ async def message(
             "diagram": {},  # FIX: dict vacío, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": [],
             "current_asr": memory_get(user_id, "current_asr", ""),
         }})
     except Exception:
@@ -386,6 +389,9 @@ async def message(
                 "hasVisitedEvaluator": False,
                 "hasVisitedASR": False,
                 "nextNode": "supervisor",
+                "requested_nodes": [],
+                "pending_nodes": [],
+                "completed_nodes": [],
                 "imagePath1": image_path1,
                 "imagePath2": image_path2,
                 "doc_only": doc_only,
@@ -486,15 +492,26 @@ async def message(
     # Siempre que tengamos Mermaid, pegamos el bloque ```mermaid``` al final.
     # (Da igual si el intent que vimos era "diagram" o no.)
     if mermaid_code:
-        mermaid_help = (
-            "\n\n---\n"
-            "Here is the **Mermaid script** for this diagram.\n"
-            "You can copy & paste it into the Mermaid live editor (https://mermaid.live), "
-            "a VS Code Mermaid plugin, or any compatible renderer:\n\n"
-            "```mermaid\n"
-            f"{mermaid_code}\n"
-            "```"
-        )
+        if user_lang == "es":
+            mermaid_help = (
+                "\n\n---\n"
+                "Aquí tienes el **script Mermaid** de este diagrama.\n"
+                "Puedes copiarlo y pegarlo en Mermaid Live (https://mermaid.live), "
+                "un plugin de Mermaid en VS Code o cualquier renderizador compatible:\n\n"
+                "```mermaid\n"
+                f"{mermaid_code}\n"
+                "```"
+            )
+        else:
+            mermaid_help = (
+                "\n\n---\n"
+                "Here is the **Mermaid script** for this diagram.\n"
+                "You can copy & paste it into the Mermaid live editor (https://mermaid.live), "
+                "a VS Code Mermaid plugin, or any compatible renderer:\n\n"
+                "```mermaid\n"
+                f"{mermaid_code}\n"
+                "```"
+            )
         end_msg = (end_msg + mermaid_help).strip()
 
     else:

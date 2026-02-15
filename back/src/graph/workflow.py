@@ -29,6 +29,9 @@ def boot_node(state: GraphState) -> GraphState:
         "mermaidCode": "",
         "diagram": {},
         "endMessage": "",
+        "requested_nodes": [],
+        "pending_nodes": [],
+        "completed_nodes": [],
     }
 
 def router(state: GraphState) -> Literal["investigator","creator","evaluator","diagram_agent","tactics","asr","style","unifier"]:
@@ -83,9 +86,9 @@ builder.add_edge("investigator", "supervisor")
 builder.add_edge("creator", "supervisor")
 builder.add_edge("diagram_agent", "supervisor")
 builder.add_edge("evaluator", "supervisor")
-builder.add_edge("asr", "unifier")
-builder.add_edge("style", "unifier")
-builder.add_edge("tactics", "unifier")
+builder.add_edge("asr", "supervisor")
+builder.add_edge("style", "supervisor")
+builder.add_edge("tactics", "supervisor")
 builder.add_edge("unifier", END)
 
 graph = builder.compile(checkpointer=sqlite_saver)

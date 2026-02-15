@@ -126,6 +126,11 @@ class GraphState(TypedDict):
     hasVisitedDiagram: bool
     
     nextNode: Literal["investigator", "creator", "evaluator", "diagram_agent", "tactics", "asr", "style", "unifier"]
+
+    # planificación multi-intent por turno
+    requested_nodes: list
+    pending_nodes: list
+    completed_nodes: list
     
     doc_only: bool
     doc_context: str

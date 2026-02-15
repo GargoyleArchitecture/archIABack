@@ -12,6 +12,12 @@ def _last_ai_by(state: GraphState, name: str) -> str:
             return m.content
     return ""
 
+def _last_turn_by(state: GraphState, name: str) -> str:
+    for m in reversed(state.get("turn_messages", [])):
+        if isinstance(m, dict) and m.get("name") == name and m.get("content"):
+            return str(m.get("content"))
+    return ""
+
 def _strip_all_markdown(text: str) -> str:
     text = re.sub(r"```.*?```", "", text, flags=re.S)
     text = re.sub(r"^\s*#.*$", "", text, flags=re.M)
@@ -56,6 +62,70 @@ def _split_sections(text: str) -> dict:
 def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
+
+    requested_nodes = list(state.get("requested_nodes", []) or [])
+    requested_set = set(requested_nodes)
+
+    # Caso compuesto: si el usuario pidió varias salidas explícitas, consolidarlas juntas.
+    if len(requested_set) >= 2:
+        asr_txt = (
+            _last_ai_by(state, "asr_recommender")
+            or state.get("last_asr")
+            or state.get("current_asr")
+            or ""
+        ).strip()
+        asr_txt = _strip_tactics_sections(asr_txt) if asr_txt else ""
+
+        style_txt = (
+            _last_ai_by(state, "style_recommender")
+            or _last_turn_by(state, "style_recommender")
+            or ""
+        ).strip()
+
+        tactics_txt = (
+            state.get("tactics_md")
+            or _last_ai_by(state, "tactics_advisor")
+            or _last_turn_by(state, "tactics_advisor")
+            or ""
+        ).strip()
+
+        mermaid = (state.get("mermaidCode") or "").strip()
+
+        blocks = []
+        if lang == "es":
+            if asr_txt and "asr" in requested_set:
+                blocks.append(f"ASR:\n{asr_txt}")
+            if style_txt and "style" in requested_set:
+                blocks.append(f"Estilos arquitectónicos:\n{style_txt}")
+            if tactics_txt and "tactics" in requested_set:
+                blocks.append(f"Tácticas:\n{tactics_txt}")
+            if mermaid and "diagram_agent" in requested_set:
+                blocks.append("Diagrama: te incluyo el script Mermaid en esta misma respuesta.")
+            followups = [
+                "Refinar el ASR con métricas más estrictas.",
+                "Aterrizar estas tácticas en un plan de implementación por fases.",
+            ]
+        else:
+            if asr_txt and "asr" in requested_set:
+                blocks.append(f"ASR:\n{asr_txt}")
+            if style_txt and "style" in requested_set:
+                blocks.append(f"Architecture styles:\n{style_txt}")
+            if tactics_txt and "tactics" in requested_set:
+                blocks.append(f"Tactics:\n{tactics_txt}")
+            if mermaid and "diagram_agent" in requested_set:
+                blocks.append("Diagram: I included the Mermaid script in this same response.")
+            followups = [
+                "Refine the ASR with stricter metrics.",
+                "Turn these tactics into a phased implementation plan.",
+            ]
+
+        if blocks:
+            end_text = "\n\n".join(blocks).strip()
+            state["suggestions"] = followups
+            state["turn_messages"] = state.get("turn_messages", []) + [
+                {"role": "assistant", "name": "unifier", "content": end_text}
+            ]
+            return {**state, "endMessage": end_text, "intent": ("diagram" if "diagram_agent" in requested_set else intent)}
 
     # 🟣 NUEVO: caso especial cuando ya tenemos un script Mermaid de diagrama
     mermaid = (state.get("mermaidCode") or "").strip()
