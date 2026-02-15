@@ -5,7 +5,7 @@ import json
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
-from src.graph.resources import llm, retriever, log
+from src.graph.resources import llm, retriever, log, rag_trace_record
 from src.utils.json_helpers import (
     extract_json_array,
     strip_first_json_fence,
@@ -77,6 +77,7 @@ def tactics_node(state: GraphState) -> GraphState:
                 if len(gathered) >= 6:
                     break
             docs_list = gathered
+            rag_trace_record(query=" | ".join(queries), docs=docs_list)
         except Exception:
             docs_list = []
         book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)

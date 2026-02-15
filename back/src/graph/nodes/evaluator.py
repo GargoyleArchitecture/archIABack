@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from src.graph.state import GraphState
-from src.graph.resources import llm, retriever, _HAS_VERTEX
+from src.graph.resources import llm, retriever, _HAS_VERTEX, rag_trace_record
 from src.graph.utils import _push_turn
 from src.graph.nodes.supervisor import _looks_like_eval
 from src.graph.nodes.tools import theory_tool, viability_tool, needs_tool, analyze_tool
@@ -27,6 +27,7 @@ def _book_snippets_for_eval(retriever, concern_hint: str = "") -> str:
         q = concern_hint + " " + q
     try:
         docs = list(retriever.invoke(q))
+        rag_trace_record(query=q, docs=docs)
     except Exception:
         docs = []
     # 4 fragmentos de 300 chars c/u
