@@ -52,19 +52,22 @@ User message:
     if any(k in low for k in tactics_triggers):
         intent = "tactics"
     
-    diagram_triggers = [
+    diagram_keywords = [
         "component diagram", "diagram", "diagrama", "diagrama de componentes",
-        "uml", "plantuml", "c4", "bpmn",
-        "this asr", "este asr", "el asr", "ese asr", "anterior asr"
+        "diagrama de despliegue", "deployment diagram", "mermaid",
+        "uml", "plantuml", "c4", "bpmn", "despliegue", "deployment"
     ]
-    # No pises estilo ni ASR cuando solo dicen "this ASR"
-    if any(k in low for k in diagram_triggers) and intent not in ("asr", "style"):
+    # Evita enrutar a diagrama por frases tipo "ese ASR" sin pedir diagrama explícito.
+    if any(k in low for k in diagram_keywords) and intent not in ("asr", "style", "tactics"):
         intent = "diagram"
 
 
+    # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
+    lang = state.get("language") or out["language"]
+
     return {
         **state,
-        "language": out["language"],
+        "language": lang,
         "intent": intent if intent in [
         "greeting",
         "smalltalk",
