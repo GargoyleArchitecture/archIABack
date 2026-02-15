@@ -1,4 +1,4 @@
-# src/main.py
+﻿# src/main.py
 
 from typing import Optional
 from pathlib import Path
@@ -28,10 +28,10 @@ from src.services.doc_ingest import extract_pdf_text
 from src.graph.resources import rag_trace_reset, rag_trace_get, rag_trace_set_session
 memory_init()
 
-# ===================== Detección simple de idioma (ES/EN) ==========================
+# ===================== DetecciÃ³n simple de idioma (ES/EN) ==========================
 def detect_lang(q: str) -> str:
     ql = (q or "").lower()
-    if re.search(r"[áéíóúñ¿¡]", ql): return "es"
+    if re.search(r"[Ã¡Ã©Ã­Ã³ÃºÃ±Â¿Â¡]", ql): return "es"
     if re.search(r"\b(what|how|why|when|which|where|who|the|and|or|if|is|are|can|do|does|should|would)\b", ql): return "en"
     ascii_ratio = sum(1 for c in q if ord(c) < 128) / max(1, len(q))
     return "en" if ascii_ratio > 0.97 else "es"
@@ -127,13 +127,13 @@ def _extract_topic_from_text(q: str) -> str:
 
 def _needs_topic_hint(q: str) -> bool:
     low = (q or "").lower()
-    mentions_tactics = bool(re.search(r"\btactic|\btáctic|\btactica|\btáctica", low))
+    mentions_tactics = bool(re.search(r"\btactic|\btÃ¡ctic|\btactica|\btÃ¡ctica", low))
     has_topic = bool(_extract_topic_from_text(low))
     return mentions_tactics and not has_topic
 
 # ===================== ASR helpers =======================
 ASR_HEAD_RE = re.compile(
-    r"\b(ASR|Architecture[-\s]?Significant[-\s]?Requirement|Requisit[oa]\s+Significativ[oa]\s+de\s+Arquitectura)\b[:：]?",
+    r"\b(ASR|Architecture[-\s]?Significant[-\s]?Requirement|Requisit[oa]\s+Significativ[oa]\s+de\s+Arquitectura)\b[:ï¼š]?",
     re.I,
 )
 
@@ -145,11 +145,11 @@ def _looks_like_make_asr(msg: str) -> bool:
 
 def _extract_asr_from_message(msg: str) -> str:
     if not msg: return ""
-    m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*[:：]\s*(.+)$", msg, re.I | re.S)
+    m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*[:ï¼š]\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
     m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr[\s,)\-:]*\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
-    m = re.search(r"\basr\s*[:：]\s*(.+)$", msg, re.I | re.S)
+    m = re.search(r"\basr\s*[:ï¼š]\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
     m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*\((.+)\)", msg, re.I | re.S)
     if m: return m.group(1).strip()
@@ -165,9 +165,9 @@ def _extract_asr_from_result_text(text: str) -> str:
     if m:
         start = m.start()
         asr = text[start:]
-        asr = re.split(r"\n\s*#{1,6}\s|\n\s*(?:Rationale|Razonamiento|Conclusiones)\s*[:：]", asr, maxsplit=1)[0]
+        asr = re.split(r"\n\s*#{1,6}\s|\n\s*(?:Rationale|Razonamiento|Conclusiones)\s*[:ï¼š]", asr, maxsplit=1)[0]
         return asr.strip()
-    m = re.search(r"(?:^|\n)\s*[-*]\s*ASR\s*[:：]\s*(.+)", text, re.I)
+    m = re.search(r"(?:^|\n)\s*[-*]\s*ASR\s*[:ï¼š]\s*(.+)", text, re.I)
     if m: return m.group(1).strip()
     return ""
 
@@ -191,21 +191,21 @@ def _wants_style(txt: str) -> bool:
         "what style", "which style",
         # ES
         "estilo de arquitectura",
-        "estilo arquitectónico",
+        "estilo arquitectÃ³nico",
         "estilos para este asr",
-        "qué estilo", "que estilo",
+        "quÃ© estilo", "que estilo",
     ]
-    # también capturamos frases donde simplemente se combinan "style" y "asr"
+    # tambiÃ©n capturamos frases donde simplemente se combinan "style" y "asr"
     return any(k in low for k in keys) or ("style" in low and "asr" in low)
 
 
 def _wants_tactics(txt: str) -> bool:
     low = (txt or "").lower()
     keys = [
-        "táctica", "tactica", "tácticas", "tacticas",
+        "tÃ¡ctica", "tactica", "tÃ¡cticas", "tacticas",
         "tactic", "tactics",
         "estrategia", "estrategias", "strategy", "strategies",
-        "cómo cumplir", "como cumplir",
+        "cÃ³mo cumplir", "como cumplir",
         "how to satisfy", "how to meet", "how to achieve"
     ]
     return any(k in low for k in keys)
@@ -243,7 +243,7 @@ async def message(
     if not session_id:
         raise HTTPException(status_code=400, detail="No session ID provided")
 
-    # Identidad simple por sesión
+    # Identidad simple por sesiÃ³n
     user_id = request.headers.get("X-User-Id") or session_id
     arch_flow = load_arch_flow(user_id)
 
@@ -304,7 +304,7 @@ async def message(
     # --- Memoria previa (MEJORADA) ---
     last_topic = memory_get(user_id, "topic", "")
 
-    # ➜ FIX: antes se usaba uploaded_pdf_snippets (no existe). Usamos doc_context.
+    # âžœ FIX: antes se usaba uploaded_pdf_snippets (no existe). Usamos doc_context.
     pdf_context_turn = doc_context  # FIX
 
     if pdf_context_turn:
@@ -335,13 +335,13 @@ async def message(
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 20}
     user_lang = detect_lang(message)
 
-    # --- Heurísticas locales ---
+    # --- HeurÃ­sticas locales ---
     topic_hint = _extract_topic_from_text(message) or _extract_topic_from_text(last_topic)
     msg_low = message.lower()
     force_rag = (
         _needs_topic_hint(message) or
         bool(re.search(
-            r"\b(add|qas|asr|tactic|táctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
+            r"\b(add|qas|asr|tactic|tÃ¡ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
             msg_low
         ))
     )
@@ -351,10 +351,10 @@ async def message(
 
     user_intent = "general"
     if not arch_flow.get("current_asr"):
-        # Si aún no hay ASR, cualquier cosa va a ASR primero
+        # Si aÃºn no hay ASR, cualquier cosa va a ASR primero
         user_intent = "asr"
     elif _wants_style(message):
-        # Ya hay ASR y el usuario está pidiendo estilos
+        # Ya hay ASR y el usuario estÃ¡ pidiendo estilos
         user_intent = "style"
     elif _wants_tactics(message):
         user_intent = "tactics"
@@ -367,7 +367,7 @@ async def message(
         graph.update_state(config, {"values": {
             "endMessage": "",
             "mermaidCode": "",
-            "diagram": {},  # FIX: dict vacío, no None
+            "diagram": {},  # FIX: dict vacÃ­o, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
             "requested_nodes": [],
@@ -378,7 +378,7 @@ async def message(
     except Exception:
         pass
 
-    # --- Invocación del grafo ---
+    # --- InvocaciÃ³n del grafo ---
     try:
         rag_trace_set_session(session_id)
         rag_trace_reset(session_id)
@@ -437,7 +437,7 @@ async def message(
     if "asr" in low:
         memory_set(user_id, "asr_notes", message)
 
-    # --- Captura ASR desde la respuesta del grafo (si redactó uno) ---
+    # --- Captura ASR desde la respuesta del grafo (si redactÃ³ uno) ---
     end_msg = result.get("endMessage", "") or ""
     asr_from_result = _extract_asr_from_result_text(end_msg)
     if asr_from_result:
@@ -469,63 +469,31 @@ async def message(
         arch_flow["stage"] = "STYLE"
 
 
-    # --- Persistir tácticas si este turno fue de tácticas ---
+    # --- Persistir tÃ¡cticas si este turno fue de tÃ¡cticas ---
     tactics_json = result.get("tactics_struct") or None
     tactics_md   = result.get("tactics_md") or ""
     if user_intent == "tactics" and (tactics_json or tactics_md):
         arch_flow["tactics"] = tactics_json or []
         arch_flow["stage"] = "TACTICS"
+    # ===================== DIAGRAMA =====================
+    # The orchestrator now generates DOT and renders SVG with Graphviz.
+    diagram_obj = result.get("diagram") or {}
 
-        # ===================== DIAGRAMA =====================
-    # Ya no generamos SVG/PNG ni usamos Kroki.
-    # Solo devolvemos el script de Mermaid que construye el grafo con ASR + estilo + tácticas.
-    diagram_obj = {}
-
-    # Si el usuario pidió explícitamente un diagrama de despliegue, marcamos el stage
+    # If user explicitly asked for a deployment diagram, mark the stage.
     if _wants_deployment(message):
         arch_flow["stage"] = "DEPLOYMENT"
 
-    # Persistimos el flujo ADD 3.0 actualizado (ASR, estilo, tácticas, stage, etc.)
+    # Persist updated ADD flow.
     save_arch_flow(user_id, arch_flow)
 
-    # Mermaid generado por el grafo (diagram_orchestrator_node)
-        # Mermaid generado por el grafo (diagram_orchestrator_node)
-    mermaid_code = (result.get("mermaidCode") or "").strip()
-
-    # Siempre que tengamos Mermaid, pegamos el bloque ```mermaid``` al final.
-    # (Da igual si el intent que vimos era "diagram" o no.)
-    if mermaid_code:
-        if user_lang == "es":
-            mermaid_help = (
-                "\n\n---\n"
-                "Aquí tienes el **script Mermaid** de este diagrama.\n"
-                "Puedes copiarlo y pegarlo en Mermaid Live (https://mermaid.live), "
-                "un plugin de Mermaid en VS Code o cualquier renderizador compatible:\n\n"
-                "```mermaid\n"
-                f"{mermaid_code}\n"
-                "```"
-            )
-        else:
-            mermaid_help = (
-                "\n\n---\n"
-                "Here is the **Mermaid script** for this diagram.\n"
-                "You can copy & paste it into the Mermaid live editor (https://mermaid.live), "
-                "a VS Code Mermaid plugin, or any compatible renderer:\n\n"
-                "```mermaid\n"
-                f"{mermaid_code}\n"
-                "```"
-            )
-        end_msg = (end_msg + mermaid_help).strip()
-
-    else:
-        # Aseguramos que end_msg esté definido
-        end_msg = end_msg.strip()
+    # Ensure end message is defined.
+    end_msg = end_msg.strip()
 
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
         "endMessage": end_msg,
-        "mermaidCode": mermaid_code,
-        "diagram": diagram_obj,  # ahora siempre vacío; ya no mandamos SVG
+        "mermaidCode": "",
+        "diagram": diagram_obj,
         "messages": result.get("turn_messages", []),
         "session_id": session_id,
         "message_id": message_id,
@@ -556,10 +524,14 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
         raise HTTPException(status_code=400, detail="No message provided")
 
     return {
-        "mermaidCode": "flowchart LR\nA-->B",
+        "mermaidCode": "",
+        "diagram": {"ok": True, "format": "svg", "svg_b64": ""},
         "endMessage": "this is a response to " + message,
         "messages": [
             {"name": "Supervisor", "text": "Mensaje del supervisor"},
             {"name": "researcher", "text": "Mensaje del investigador"},
         ],
     }
+
+
+

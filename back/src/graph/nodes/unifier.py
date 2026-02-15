@@ -1,4 +1,4 @@
-
+﻿
 import re
 from langchain_core.messages import AIMessage
 
@@ -66,7 +66,7 @@ def unifier_node(state: GraphState) -> GraphState:
     requested_nodes = list(state.get("requested_nodes", []) or [])
     requested_set = set(requested_nodes)
 
-    # Caso compuesto: si el usuario pidió varias salidas explícitas, consolidarlas juntas.
+    # Caso compuesto: si el usuario pidiÃ³ varias salidas explÃ­citas, consolidarlas juntas.
     if len(requested_set) >= 2:
         asr_txt = (
             _last_ai_by(state, "asr_recommender")
@@ -89,21 +89,21 @@ def unifier_node(state: GraphState) -> GraphState:
             or ""
         ).strip()
 
-        mermaid = (state.get("mermaidCode") or "").strip()
+        has_diagram = bool((state.get("diagram") or {}).get("ok"))
 
         blocks = []
         if lang == "es":
             if asr_txt and "asr" in requested_set:
                 blocks.append(f"ASR:\n{asr_txt}")
             if style_txt and "style" in requested_set:
-                blocks.append(f"Estilos arquitectónicos:\n{style_txt}")
+                blocks.append(f"Estilos arquitectÃ³nicos:\n{style_txt}")
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"Tácticas:\n{tactics_txt}")
-            if mermaid and "diagram_agent" in requested_set:
-                blocks.append("Diagrama: te incluyo el script Mermaid en esta misma respuesta.")
+                blocks.append(f"TÃ¡cticas:\n{tactics_txt}")
+            if has_diagram and "diagram_agent" in requested_set:
+                blocks.append("Diagrama: renderizado listo en esta misma respuesta.")
             followups = [
-                "Refinar el ASR con métricas más estrictas.",
-                "Aterrizar estas tácticas en un plan de implementación por fases.",
+                "Refinar el ASR con mÃ©tricas mÃ¡s estrictas.",
+                "Aterrizar estas tÃ¡cticas en un plan de implementaciÃ³n por fases.",
             ]
         else:
             if asr_txt and "asr" in requested_set:
@@ -112,8 +112,8 @@ def unifier_node(state: GraphState) -> GraphState:
                 blocks.append(f"Architecture styles:\n{style_txt}")
             if tactics_txt and "tactics" in requested_set:
                 blocks.append(f"Tactics:\n{tactics_txt}")
-            if mermaid and "diagram_agent" in requested_set:
-                blocks.append("Diagram: I included the Mermaid script in this same response.")
+            if has_diagram and "diagram_agent" in requested_set:
+                blocks.append("Diagram: rendered output is included in this same response.")
             followups = [
                 "Refine the ASR with stricter metrics.",
                 "Turn these tactics into a phased implementation plan.",
@@ -127,75 +127,14 @@ def unifier_node(state: GraphState) -> GraphState:
             ]
             return {**state, "endMessage": end_text, "intent": ("diagram" if "diagram_agent" in requested_set else intent)}
 
-    # 🟣 NUEVO: caso especial cuando ya tenemos un script Mermaid de diagrama
-    mermaid = (state.get("mermaidCode") or "").strip()
-    if mermaid:
-        if lang == "es":
-            head = (
-                "Aquí tienes el diagrama solicitado, generado a partir de tu "
-                "escenario de calidad (ASR), el estilo arquitectónico seleccionado "
-                "y las tácticas priorizadas.\n\n"
-                "Puedes copiar y pegar este script Mermaid en tu editor preferido "
-                "(por ejemplo, mermaid.live o un plugin de VS Code):\n"
-            )
-            footer = ""
-            suggestions = [
-                "Formular un nuevo ASR para otro escenario de calidad.",
-                "Generar un diagrama de componentes a partir de este sistema.",
-                "Generar un diagrama de despliegue para este mismo sistema.",
-            ]
-        else:
-            head = (
-                "Here is the requested diagram, generated from your quality "
-                "scenario (ASR), the selected architectural style and the "
-                "prioritized tactics.\n\n"
-                "You can copy & paste this Mermaid script into your favorite "
-                "editor (for example, mermaid.live or a VS Code Mermaid plugin):\n"
-            )
-            footer = ""
-            suggestions = [
-                "Generate a new ASR for another quality scenario.",
-                "Generate a component diagram from this system.",
-                "Generate a deployment diagram for this same system.",
-            ]
-        
-        # Dentro del unifier, rama "if intent == 'diagram' and state.get('mermaidCode')"
-        mermaid = state.get("mermaidCode") or ""
-        if lang == "es":
-            head = "Aquí tienes el diagrama generado a partir del ASR, el estilo y las tácticas seleccionadas."
-            footer = ""
-            suggestions = [
-                "Formular un nuevo ASR para otro escenario de calidad.",
-                "Generar un diagrama de componentes a partir de este sistema.",
-                "Generar un diagrama de despliegue para este mismo sistema.",
-            ]
-        else:
-            head = (
-                "Here is the diagram generated from your quality scenario (ASR), "
-                "the selected architecture style and the prioritized tactics."
-            )
-            footer = ""
-            suggestions = [
-                "Generate a new ASR for another quality scenario.",
-                "Generate a component diagram from this system.",
-                "Generate a deployment diagram for this same system.",
-            ]
-
-        end_text = head  # 👈 ya NO incluimos el código mermaid en el texto
-
-        state["suggestions"] = suggestions
-        state["turn_messages"] = state.get("turn_messages", []) + [
-            {"role": "assistant", "name": "unifier", "content": end_text}
-        ]
-        return {**state, "endMessage": end_text, "intent": "diagram"}
-
-    # 0) Mostrar el diagrama si existe (intención "diagram") - LÓGICA ANTIGUA, LA MANTENEMOS
+    # 0) Show rendered diagram if available
+    # 0) Mostrar el diagrama si existe (intenciÃ³n "diagram") - LÃ“GICA ANTIGUA, LA MANTENEMOS
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
         data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
         if lang == "es":
-            head = "Aquí tienes el diagrama solicitado:"
-            footer = "¿Qué te gustaría hacer ahora con este diagrama?"
+            head = "AquÃ­ tienes el diagrama solicitado:"
+            footer = "Â¿QuÃ© te gustarÃ­a hacer ahora con este diagrama?"
             tips = [
                 "Generar un diagrama de componentes a partir de este sistema.",
                 "Generar un diagrama de despliegue para este mismo sistema.",
@@ -218,7 +157,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = tips
         return {**state, "endMessage": end_text, "intent": "diagram"}
 
-    # 🔴 Caso especial para ESTILOS
+    # ðŸ”´ Caso especial para ESTILOS
     if intent == "style":
         style_txt = (
             _last_ai_by(state, "style_recommender")
@@ -228,8 +167,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = state.get("suggestions") or [
-                "Diseña tácticas concretas para este ASR usando el estilo recomendado.",
-                "Compárame más a fondo estos dos estilos para este ASR.",
+                "DiseÃ±a tÃ¡cticas concretas para este ASR usando el estilo recomendado.",
+                "CompÃ¡rame mÃ¡s a fondo estos dos estilos para este ASR.",
             ]
         else:
             followups = state.get("suggestions") or [
@@ -243,7 +182,7 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": style_txt}
 
-    # 🔴 Caso especial para TÁCTICAS
+    # ðŸ”´ Caso especial para TÃCTICAS
     if intent == "tactics":
         tactics_md = (
             state.get("tactics_md")
@@ -255,8 +194,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = [
-                "Genera un diagrama de componentes aplicando estas tácticas.",
-                "Genera un diagrama de despliegue alineado con estas tácticas.",
+                "Genera un diagrama de componentes aplicando estas tÃ¡cticas.",
+                "Genera un diagrama de despliegue alineado con estas tÃ¡cticas.",
             ]
             refs_label = "Referencias"
         else:
@@ -274,14 +213,14 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": end_text}
 
-    # 🔴 Caso especial para ASR
+    # ðŸ”´ Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (
             _last_ai_by(state, "asr_recommender")
             or state.get("endMessage")
             or "No ASR content found for this turn."
         )
-        # si el LLM coló tácticas, las quitamos del ASR
+        # si el LLM colÃ³ tÃ¡cticas, las quitamos del ASR
         last_asr = _strip_tactics_sections(raw_asr)
 
         asr_src_txt = _last_ai_by(state, "asr_sources")
@@ -289,8 +228,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = [
-                "Propón estilos arquitectónicos para este ASR.",
-                "Refina este ASR con métricas y escenarios más específicos.",
+                "PropÃ³n estilos arquitectÃ³nicos para este ASR.",
+                "Refina este ASR con mÃ©tricas y escenarios mÃ¡s especÃ­ficos.",
             ]
             refs_label = "Referencias"
         else:
@@ -308,10 +247,10 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = followups
         return {**state, "endMessage": end_text}
 
-    # 🔴 Caso especial: saludo / smalltalk
+    # ðŸ”´ Caso especial: saludo / smalltalk
     if intent in ("greeting", "smalltalk"):
         if lang == "es":
-            hello = "¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"
+            hello = "Â¡Hola! Â¿Sobre quÃ© tema de arquitectura quieres profundizar?"
             nexts = [
                 "Formular un ASR (requerimiento de calidad) para mi sistema.",
                 "Revisar un ASR que ya tengo.",
@@ -335,7 +274,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = nexts
         return {**state, "endMessage": end_text}
 
-    # 🔵 Caso por defecto: síntesis de investigador / evaluador / etc.
+    # ðŸ”µ Caso por defecto: sÃ­ntesis de investigador / evaluador / etc.
     researcher_txt = _last_ai_by(state, "researcher")
     evaluator_txt = _last_ai_by(state, "evaluator")
     creator_txt = _last_ai_by(state, "creator")
@@ -364,13 +303,13 @@ def unifier_node(state: GraphState) -> GraphState:
         + "\n\n".join(buckets)
     )
 
-    directive = "Responde en español." if lang == "es" else "Answer in English."
+    directive = "Responde en espaÃ±ol." if lang == "es" else "Answer in English."
     prompt = f"""{directive}
 You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
-- Use 6–12 concise lines (bullets or short sentences). No code fences, no mermaid.
-- If useful, at the end include a short 'References:' block listing 3–6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
+- Use 6â€“12 concise lines (bullets or short sentences). No code fences, no mermaid.
+- If useful, at the end include a short 'References:' block listing 3â€“6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:
 - Use the user's language.
@@ -394,7 +333,7 @@ SOURCE:
     chips = []
     if secs.get("Next"):
         for ln in secs["Next"].splitlines():
-            ln = ln.strip(" -•\t")
+            ln = ln.strip(" -â€¢\t")
             if ln:
                 chips.append(ln)
     state["suggestions"] = chips[:6] if chips else []
@@ -403,3 +342,5 @@ SOURCE:
     _push_turn(state, role="assistant", name="unifier", content=final_text)
 
     return {**state, "endMessage": final_text}
+
+

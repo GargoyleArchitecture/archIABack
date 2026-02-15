@@ -1,4 +1,4 @@
-
+﻿
 """
 Constants and static prompts for the graph module.
 """
@@ -6,9 +6,9 @@ Constants and static prompts for the graph module.
 # ========== Tactics helpers
 TACTICS_HEADINGS = [
     r"design tactics(?: to consider)?",
-    r"tácticas(?: de diseño)?",
+    r"tÃ¡cticas(?: de diseÃ±o)?",
     r"arquitectural tactics",
-    r"decisiones (?:arquitectónicas|de diseño)",
+    r"decisiones (?:arquitectÃ³nicas|de diseÃ±o)",
 ]
 
 # --- Safe JSON example for tactics (avoid braces in f-strings) ---
@@ -57,7 +57,7 @@ NOT to draw the user sentence itself.
 
 HARD RULES
 - Output ONLY PlantUML between @startuml and @enduml (no prose, no fences).
-- Use only ASCII (no arrows like →, etc.). Use <<stereotypes>> and -> arrows.
+- Use only ASCII (no arrows like â†’, etc.). Use <<stereotypes>> and -> arrows.
 - Never create a component/node whose label is the text of the user request
   (e.g., "Generate a deployment diagram aligned with these tactics").
 - The ASR artifact and response must drive the structure:
@@ -159,7 +159,7 @@ HARD OUTPUT RULES (STRICT MERMAID SAFETY)
      - A --- B
 
 6. NO line may start with symbols or stray characters:
-   Forbidden prefixes: "…", "|", ")", "}", "]", "_", "-", "•"
+   Forbidden prefixes: "â€¦", "|", ")", "}", "]", "_", "-", "â€¢"
    Every line must begin with either:
      - nodeId
      - subgraph
@@ -269,6 +269,45 @@ REMINDERS
 - Follow ALL rules above strictly so that the output parses correctly in Mermaid 11.x.
 """
 
+DOT_SYSTEM = """
+You are an expert software architect and Graphviz DOT author.
+
+The HUMAN message is a multi-section prompt with context, ASR, chosen style, selected tactics,
+and user diagram request.
+Your job is to transform ASR + style + tactics into a concrete architecture diagram.
+
+HARD OUTPUT RULES
+- Output ONLY valid DOT code for a directed graph.
+- Start with: digraph G {
+- End with: }
+- Never use markdown fences or extra prose.
+- Use only ASCII characters.
+
+GRAPH QUALITY RULES
+- Include a clear entrypoint and downstream internal services.
+- Reflect selected tactics with explicit components or links.
+- Show data/traffic flow with directional edges.
+- Prefer compact and readable structure over crowded graphs.
+- If request is deployment-oriented, group infra using clusters.
+- If request is component-oriented, focus on logical components and connectors.
+
+DOT SAFETY RULES
+- Set readability defaults:
+  graph [rankdir=LR, splines=ortho, nodesep=0.5, ranksep=0.8, fontsize=12, labelloc=t]
+  node [shape=box, style="rounded,filled", fillcolor="#F8FAFC", color="#334155", fontname="Helvetica", fontsize=10]
+  edge [color="#475569", arrowsize=0.7, penwidth=1.1]
+- Node IDs must be simple identifiers (letters, numbers, underscore).
+- Keep labels short and specific.
+- Use subgraph clusters for boundaries (region/zone/layer) when relevant.
+- Ensure every edge references declared node IDs.
+- Do not emit HTML-like labels.
+
+TRACEABILITY
+- The generated structure must visibly support the ASR response measure (latency, throughput,
+  availability, resilience, etc.).
+- Tactics should appear as concrete mechanisms (cache, autoscaling, circuit breaker,
+  queue, replica, CDN, fallback, etc.) when applicable.
+"""
 prompt_researcher = (
     "You are an expert in software architecture (ADD, quality attributes, tactics, views). "
     "When the question is architectural, you MUST call the tool `local_RAG` first, then optionally complement with LLM/LLMWithImages. "
@@ -293,3 +332,4 @@ EVAL_NEEDS_PREFIX = (
 ANALYZE_PREFIX = (
     "Compare two diagrams for the SAME component/system. Identify mismatches, missing elements and how they affect quality attributes."
 )
+
