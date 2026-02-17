@@ -293,9 +293,11 @@ GRAPH QUALITY RULES
 
 DOT SAFETY RULES
 - Set readability defaults:
-  graph [rankdir=LR, splines=ortho, nodesep=0.5, ranksep=0.8, fontsize=12, labelloc=t]
-  node [shape=box, style="rounded,filled", fillcolor="#F8FAFC", color="#334155", fontname="Helvetica", fontsize=10]
-  edge [color="#475569", arrowsize=0.7, penwidth=1.1]
+  graph [rankdir=LR, splines=ortho, nodesep=0.5, ranksep=0.8, fontsize=12, labelloc=t, bgcolor="transparent"]
+  node [shape=box, style="rounded,filled", fillcolor="#2D3748", color="#4A5568", fontname="Helvetica", fontsize=10, fontcolor="#FFFFFF"]
+  edge [color="#A0AEC0", arrowsize=0.7, penwidth=1.1, fontcolor="#FFFFFF"]
+  /* Cluster (subgraph) styling */
+  cluster [style="rounded,filled", fillcolor="#1A202C", color="#718096", fontcolor="#CBD5E0", fontsize=11]
 - Node IDs must be simple identifiers (letters, numbers, underscore).
 - Keep labels short and specific.
 - Use subgraph clusters for boundaries (region/zone/layer) when relevant.
