@@ -1,4 +1,4 @@
-langchain-google-vertexai
+﻿langchain-google-vertexai
 langchain-core
 langgraph
 google-cloud-aiplatform
@@ -19,3 +19,5 @@ langgraph-checkpoint-postgres
 httpx
 pymupdf
 pypdf
+graphviz
+
