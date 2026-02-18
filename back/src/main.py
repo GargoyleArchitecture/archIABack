@@ -405,7 +405,6 @@ async def message(
                 "userQuestion": message,
                 "localQuestion": "",
                 "hasVisitedInvestigator": False,
-                "hasVisitedCreator": False,
                 "hasVisitedEvaluator": False,
                 "hasVisitedASR": False,
                 "nextNode": "supervisor",

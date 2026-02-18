@@ -74,8 +74,6 @@ prompt_researcher = (
     "Prefer verbatim tactic names from sources. Answer clearly and compactly.\\n"
 )
 
-prompt_creator = "You are an expert in IT architecture. Analyze and validate the architectural request, identifying components, connectors and quality attributes."
-
 # ===== Evaluator tools =====
 EVAL_THEORY_PREFIX = (
     "You are assessing the theoretical correctness of a proposed software architecture "

@@ -278,7 +278,6 @@ def unifier_node(state: GraphState) -> GraphState:
     # ðŸ”µ Caso por defecto: sÃ­ntesis de investigador / evaluador / etc.
     researcher_txt = _last_ai_by(state, "researcher")
     evaluator_txt = _last_ai_by(state, "evaluator")
-    creator_txt = _last_ai_by(state, "creator")
     asr_src_txt = _last_ai_by(state, "asr_sources")
 
     rag_refs = ""
@@ -292,8 +291,6 @@ def unifier_node(state: GraphState) -> GraphState:
         buckets.append(f"researcher:\n{researcher_txt}")
     if evaluator_txt:
         buckets.append(f"evaluator:\n{evaluator_txt}")
-    if creator_txt and intent == "diagram":
-        buckets.append(f"creator:\n{creator_txt}")
     if asr_src_txt:
         buckets.append(f"asr_sources:\n{asr_src_txt}")
 
