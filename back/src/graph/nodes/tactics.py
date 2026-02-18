@@ -39,12 +39,17 @@ def tactics_node(state: GraphState) -> GraphState:
     ctx_add = (state.get("add_context") or "").strip()
     ctx = (ctx_doc if (doc_only and ctx_doc) else ctx_add)[:2000]
 
-    # 1) Tomamos el ASR actual (o lo inferimos del mensaje)
-    asr_text = state.get("asr_text") or state.get("last_asr") or ""
+    # 1) Tomamos el ASR actual (evita usar la pregunta del usuario como ASR)
+    asr_text = (
+        state.get("current_asr")
+        or state.get("asr_text")
+        or state.get("last_asr")
+        or ""
+    )
     if not asr_text:
         uq = state.get("userQuestion", "") or ""
         m = re.search(r"(?:^|\n)\s*ASR\s*:?\s*(.+)$", uq, flags=re.I | re.S)
-        asr_text = (m.group(1).strip() if m else uq.strip())
+        asr_text = (m.group(1).strip() if m else "")
 
     # 2) Deducimos el atributo de calidad
     qa = state.get("quality_attribute") or _guess_quality_attribute(asr_text)
@@ -216,7 +221,8 @@ STRICT RULES:
     #Marca etapa ADD 3.0
     state["arch_stage"] = "TACTICS"        # ahora estamos en la fase de selección de tácticas ADD 3.0
     state["quality_attribute"] = qa        # refuerza cuál atributo estamos atacando
-    state["current_asr"] = asr_text        # guarda el ASR que estas tácticas satisfacen
+    if asr_text:
+        state["current_asr"] = asr_text    # guarda el ASR que estas tacticas satisfacen
 
     # Señales para cortar en unifier
     state["endMessage"] = md_only

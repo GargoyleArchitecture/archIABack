@@ -176,7 +176,13 @@ def supervisor_node(state: GraphState):
                 "completed_nodes": completed_nodes}
 
     # Scheduler multi-intent
-    if pending_nodes:
+    # If ASR is part of the plan and still missing, prioritize it before style/tactics.
+    must_run_asr = ("asr" in requested_nodes) and ("asr" not in completed_nodes)
+
+    if must_run_asr:
+        next_node = "asr"
+        pending_nodes = [n for n in pending_nodes if n != "asr"]
+    elif pending_nodes:
         next_node = pending_nodes.pop(0)
     elif requested_nodes:
         remaining = [n for n in requested_nodes if n not in completed_nodes]
