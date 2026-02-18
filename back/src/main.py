@@ -28,10 +28,11 @@ from src.services.doc_ingest import extract_pdf_text
 from src.graph.resources import rag_trace_reset, rag_trace_get, rag_trace_set_session
 memory_init()
 
-# ===================== DetecciÃ³n simple de idioma (ES/EN) ==========================
+# ===================== Deteccion simple de idioma (ES/EN) ==========================
 def detect_lang(q: str) -> str:
     ql = (q or "").lower()
-    if re.search(r"[Ã¡Ã©Ã­Ã³ÃºÃ±Â¿Â¡]", ql): return "es"
+    if re.search(r"[\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00bf\u00a1]", ql):
+        return "es"
     if re.search(r"\b(what|how|why|when|which|where|who|the|and|or|if|is|are|can|do|does|should|would)\b", ql): return "en"
     ascii_ratio = sum(1 for c in q if ord(c) < 128) / max(1, len(q))
     return "en" if ascii_ratio > 0.97 else "es"
@@ -127,13 +128,13 @@ def _extract_topic_from_text(q: str) -> str:
 
 def _needs_topic_hint(q: str) -> bool:
     low = (q or "").lower()
-    mentions_tactics = bool(re.search(r"\btactic|\btÃ¡ctic|\btactica|\btÃ¡ctica", low))
+    mentions_tactics = bool(re.search(r"\btactic|\btactica|\btacticas|\bt\u00e1ctica|\bt\u00e1cticas", low))
     has_topic = bool(_extract_topic_from_text(low))
     return mentions_tactics and not has_topic
 
 # ===================== ASR helpers =======================
 ASR_HEAD_RE = re.compile(
-    r"\b(ASR|Architecture[-\s]?Significant[-\s]?Requirement|Requisit[oa]\s+Significativ[oa]\s+de\s+Arquitectura)\b[:ï¼š]?",
+    r"\b(ASR|Architecture[-\s]?Significant[-\s]?Requirement|Requisit[oa]\s+Significativ[oa]\s+de\s+Arquitectura)\b[:\uFF1A]?",
     re.I,
 )
 
@@ -145,11 +146,11 @@ def _looks_like_make_asr(msg: str) -> bool:
 
 def _extract_asr_from_message(msg: str) -> str:
     if not msg: return ""
-    m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*[:ï¼š]\s*(.+)$", msg, re.I | re.S)
+    m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*[:\uFF1A]\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
     m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr[\s,)\-:]*\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
-    m = re.search(r"\basr\s*[:ï¼š]\s*(.+)$", msg, re.I | re.S)
+    m = re.search(r"\basr\s*[:\uFF1A]\s*(.+)$", msg, re.I | re.S)
     if m: return m.group(1).strip()
     m = re.search(r"(?:review|evaluate|revisar|evalua\w*)\s+(?:this|este|esta)?\s*asr\s*\((.+)\)", msg, re.I | re.S)
     if m: return m.group(1).strip()
@@ -165,9 +166,9 @@ def _extract_asr_from_result_text(text: str) -> str:
     if m:
         start = m.start()
         asr = text[start:]
-        asr = re.split(r"\n\s*#{1,6}\s|\n\s*(?:Rationale|Razonamiento|Conclusiones)\s*[:ï¼š]", asr, maxsplit=1)[0]
+        asr = re.split(r"\n\s*#{1,6}\s|\n\s*(?:Rationale|Razonamiento|Conclusiones)\s*[:\uFF1A]", asr, maxsplit=1)[0]
         return asr.strip()
-    m = re.search(r"(?:^|\n)\s*[-*]\s*ASR\s*[:ï¼š]\s*(.+)", text, re.I)
+    m = re.search(r"(?:^|\n)\s*[-*]\s*ASR\s*[:\uFF1A]\s*(.+)", text, re.I)
     if m: return m.group(1).strip()
     return ""
 
@@ -191,21 +192,21 @@ def _wants_style(txt: str) -> bool:
         "what style", "which style",
         # ES
         "estilo de arquitectura",
-        "estilo arquitectÃ³nico",
+        "estilo arquitectonico", "estilo arquitect\u00f3nico",
         "estilos para este asr",
-        "quÃ© estilo", "que estilo",
+        "que estilo", "qu\u00e9 estilo",
     ]
-    # tambiÃ©n capturamos frases donde simplemente se combinan "style" y "asr"
+    # Tambien capturamos frases donde se combinan "style" y "asr".
     return any(k in low for k in keys) or ("style" in low and "asr" in low)
 
 
 def _wants_tactics(txt: str) -> bool:
     low = (txt or "").lower()
     keys = [
-        "tÃ¡ctica", "tactica", "tÃ¡cticas", "tacticas",
+        "tactica", "tacticas", "t\u00e1ctica", "t\u00e1cticas",
         "tactic", "tactics",
         "estrategia", "estrategias", "strategy", "strategies",
-        "cÃ³mo cumplir", "como cumplir",
+        "como cumplir", "c\u00f3mo cumplir",
         "how to satisfy", "how to meet", "how to achieve"
     ]
     return any(k in low for k in keys)
@@ -335,13 +336,13 @@ async def message(
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 20}
     user_lang = detect_lang(message)
 
-    # --- HeurÃ­sticas locales ---
+    # --- Heuristicas locales ---
     topic_hint = _extract_topic_from_text(message) or _extract_topic_from_text(last_topic)
     msg_low = message.lower()
     force_rag = (
         _needs_topic_hint(message) or
         bool(re.search(
-            r"\b(add|qas|asr|tactic|tÃ¡ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
+            r"\b(add|qas|asr|tactic|tactica|t\u00e1ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
             msg_low
         ))
     )
@@ -532,6 +533,5 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
             {"name": "researcher", "text": "Mensaje del investigador"},
         ],
     }
-
 
 
