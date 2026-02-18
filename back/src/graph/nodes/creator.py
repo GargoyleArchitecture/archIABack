@@ -1,5 +1,4 @@
 
-import re
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
@@ -8,6 +7,7 @@ from src.graph.utils import _push_turn
 from src.graph.consts import prompt_creator
 
 def creator_node(state: GraphState) -> GraphState:
+    """Preparation / validation node. Diagram generation is handled by diagram_orchestrator_node (DOT/Graphviz)."""
     user_q = state["userQuestion"]
     effective_q = state.get("localQuestion") or user_q
 
@@ -23,14 +23,10 @@ If an ASR is provided, ensure components and connectors explicitly support the R
     response = llm.invoke(prompt)
     content = getattr(response, "content", "")
 
-    match = re.search(r"```mermaid\s*(.*?)```", content, re.DOTALL | re.IGNORECASE)
-    mermaid_code = (match.group(1).strip() if match else "").strip()
-
     _push_turn(state, role="assistant", name="creator", content=content)
 
     return {
         **state,
         "messages": state["messages"] + [AIMessage(content=content, name="creator")],
-        "mermaidCode": mermaid_code,
         "hasVisitedCreator": True
     }

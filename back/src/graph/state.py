@@ -139,7 +139,7 @@ class GraphState(TypedDict):
     imagePath2: str
 
     endMessage: str
-    mermaidCode: str
+
 
     diagram: dict
 

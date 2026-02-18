@@ -308,7 +308,7 @@ def unifier_node(state: GraphState) -> GraphState:
 You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
-- Use 6â€“12 concise lines (bullets or short sentences). No code fences, no mermaid.
+- Use 6â€"12 concise lines (bullets or short sentences). No code fences, no diagrams.
 - If useful, at the end include a short 'References:' block listing 3â€“6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:

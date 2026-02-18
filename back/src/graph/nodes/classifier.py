@@ -54,8 +54,8 @@ User message:
     
     diagram_keywords = [
         "component diagram", "diagram", "diagrama", "diagrama de componentes",
-        "diagrama de despliegue", "deployment diagram", "mermaid",
-        "uml", "plantuml", "c4", "bpmn", "despliegue", "deployment"
+        "diagrama de despliegue", "deployment diagram",
+        "uml", "plantuml", "c4", "bpmn", "despliegue", "deployment", "graphviz", "dot"
     ]
     # Evita enrutar a diagrama por frases tipo "ese ASR" sin pedir diagrama explícito.
     if any(k in low for k in diagram_keywords) and intent not in ("asr", "style", "tactics"):

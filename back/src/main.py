@@ -216,7 +216,7 @@ def _wants_deployment(txt: str) -> bool:
     keys = [
         "despliegue", "deployment", "deployment diagram",
         "diagrama de despliegue",
-        "plantuml", "mermaid"
+        "plantuml", "graphviz", "dot"
     ]
     return any(k in low for k in keys)
 
@@ -367,7 +367,7 @@ async def message(
     try:
         graph.update_state(config, {"values": {
             "endMessage": "",
-            "mermaidCode": "",
+
             "diagram": {},  # FIX: dict vacÃ­o, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
@@ -401,7 +401,6 @@ async def message(
                 "doc_only": doc_only,
                 "doc_context": doc_context,
                 "endMessage": "",
-                "mermaidCode": "",
                 "turn_messages": [],
                 "retrieved_docs": [],
                 "memory_text": memory_text,  # memoria rica
@@ -493,7 +492,6 @@ async def message(
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
         "endMessage": end_msg,
-        "mermaidCode": "",
         "diagram": diagram_obj,
         "messages": result.get("turn_messages", []),
         "session_id": session_id,
@@ -525,7 +523,6 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
         raise HTTPException(status_code=400, detail="No message provided")
 
     return {
-        "mermaidCode": "",
         "diagram": {"ok": True, "format": "svg", "svg_b64": ""},
         "endMessage": "this is a response to " + message,
         "messages": [

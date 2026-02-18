@@ -53,7 +53,7 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         _append_unique(out, "style")
     if "tactics_advisor" in turn_names:
         _append_unique(out, "tactics")
-    if state.get("hasVisitedDiagram") or (state.get("mermaidCode") or "").strip():
+    if state.get("hasVisitedDiagram"):
         _append_unique(out, "diagram_agent")
     return out
 
@@ -79,7 +79,7 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
     diagram_terms = [
         "diagrama", "diagrama de componentes", "diagrama de arquitectura",
         "diagram", "component diagram", "architecture diagram",
-        "mermaid", "plantuml", "c4", "bpmn", "uml", "despliegue", "deployment"
+        "plantuml", "c4", "bpmn", "uml", "despliegue", "deployment", "graphviz", "dot"
     ]
     has_diagram_terms = any(t in low for t in diagram_terms)
     wants_diagram = has_diagram_terms or fu_intent in ("component_view", "deployment_view", "functional_view")
