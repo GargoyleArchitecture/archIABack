@@ -1,4 +1,5 @@
-﻿# src/main.py
+﻿# -*- coding: utf-8 -*-
+# src/main.py
 
 from typing import Optional
 from pathlib import Path
@@ -11,7 +12,9 @@ load_dotenv(_ENV_PATH)
 
 from fastapi import UploadFile, File, Form, HTTPException, Request, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 from langchain_core.messages import HumanMessage
@@ -50,6 +53,19 @@ async def lifespan(app: FastAPI):
 
 # Una sola instancia de FastAPI
 app = FastAPI(title="ArquIA API", lifespan=lifespan)
+
+# ===================== UTF-8 Middleware =======================
+class UTF8Middleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Asegurar que la respuesta especifica UTF-8
+        if "content-type" in response.headers:
+            content_type = response.headers["content-type"]
+            if "application/json" in content_type and "charset" not in content_type:
+                response.headers["content-type"] = "application/json; charset=utf-8"
+        return response
+
+app.add_middleware(UTF8Middleware)
 
 # ===================== Paths ==========================
 BACK_DIR = Path(__file__).resolve().parent.parent  # .../back/
@@ -216,7 +232,7 @@ def _wants_deployment(txt: str) -> bool:
     keys = [
         "despliegue", "deployment", "deployment diagram",
         "diagrama de despliegue",
-        "plantuml", "mermaid"
+        "plantuml", "graphviz", "dot"
     ]
     return any(k in low for k in keys)
 
@@ -367,7 +383,7 @@ async def message(
     try:
         graph.update_state(config, {"values": {
             "endMessage": "",
-            "mermaidCode": "",
+
             "diagram": {},  # FIX: dict vacÃ­o, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
@@ -389,7 +405,6 @@ async def message(
                 "userQuestion": message,
                 "localQuestion": "",
                 "hasVisitedInvestigator": False,
-                "hasVisitedCreator": False,
                 "hasVisitedEvaluator": False,
                 "hasVisitedASR": False,
                 "nextNode": "supervisor",
@@ -401,7 +416,6 @@ async def message(
                 "doc_only": doc_only,
                 "doc_context": doc_context,
                 "endMessage": "",
-                "mermaidCode": "",
                 "turn_messages": [],
                 "retrieved_docs": [],
                 "memory_text": memory_text,  # memoria rica
@@ -493,7 +507,6 @@ async def message(
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
         "endMessage": end_msg,
-        "mermaidCode": "",
         "diagram": diagram_obj,
         "messages": result.get("turn_messages", []),
         "session_id": session_id,
@@ -503,7 +516,7 @@ async def message(
         "rag_trace": rag_trace_get(session_id),
     }
 
-    return clean_payload
+    return JSONResponse(content=clean_payload, media_type="application/json; charset=utf-8")
 
 
 
@@ -524,8 +537,7 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
 
-    return {
-        "mermaidCode": "",
+    test_response = {
         "diagram": {"ok": True, "format": "svg", "svg_b64": ""},
         "endMessage": "this is a response to " + message,
         "messages": [
@@ -533,5 +545,6 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
             {"name": "researcher", "text": "Mensaje del investigador"},
         ],
     }
+    return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
 
 

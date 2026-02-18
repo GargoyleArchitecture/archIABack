@@ -1,4 +1,5 @@
 
+# -*- coding: utf-8 -*-
 import re
 from langchain_core.messages import AIMessage
 

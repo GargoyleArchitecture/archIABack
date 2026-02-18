@@ -74,8 +74,6 @@ prompt_researcher = (
     "Prefer verbatim tactic names from sources. Answer clearly and compactly.\\n"
 )
 
-prompt_creator = "You are an expert in Mermaid and IT architecture. Generate a Mermaid diagram for the given prompt."
-
 # ===== Evaluator tools =====
 EVAL_THEORY_PREFIX = (
     "You are assessing the theoretical correctness of a proposed software architecture "

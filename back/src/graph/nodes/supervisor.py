@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 
 import re
 from langchain_core.messages import SystemMessage
@@ -53,7 +54,7 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         _append_unique(out, "style")
     if "tactics_advisor" in turn_names:
         _append_unique(out, "tactics")
-    if state.get("hasVisitedDiagram") or (state.get("mermaidCode") or "").strip():
+    if state.get("hasVisitedDiagram"):
         _append_unique(out, "diagram_agent")
     return out
 
@@ -79,7 +80,7 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
     diagram_terms = [
         "diagrama", "diagrama de componentes", "diagrama de arquitectura",
         "diagram", "component diagram", "architecture diagram",
-        "mermaid", "plantuml", "c4", "bpmn", "uml", "despliegue", "deployment"
+        "plantuml", "c4", "bpmn", "uml", "despliegue", "deployment", "graphviz", "dot"
     ]
     has_diagram_terms = any(t in low for t in diagram_terms)
     wants_diagram = has_diagram_terms or fu_intent in ("component_view", "deployment_view", "functional_view")
@@ -122,26 +123,25 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
 def makeSupervisorPrompt(state: GraphState) -> str:
     visited_nodes = []
     if state["hasVisitedInvestigator"]: visited_nodes.append("investigator")
-    if state["hasVisitedCreator"]:      visited_nodes.append("creator")
     if state["hasVisitedEvaluator"]:    visited_nodes.append("evaluator")
     if state.get("hasVisitedASR", False): visited_nodes.append("asr")
     visited_nodes_str = ", ".join(visited_nodes) if visited_nodes else "none"
     doc_flag = "ON" if state.get("doc_only") else "OFF"
-    return f"""You are a supervisor orchestrating: investigator, creator (diagrams), evaluator, and ASR advisor.
+    return f"""You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and ASR advisor.
 Choose the next worker and craft a specific sub-question.
 
 Rules:
 - DOC-ONLY mode is {doc_flag}.
 - If DOC-ONLY is ON: DO NOT call or suggest any retrieval tool (no local_RAG). Answers MUST rely only on the PROJECT DOCUMENT context provided.
 - If DOC-ONLY is OFF and user asks about ADD/architecture, prefer investigator (and it may call local_RAG).
-- If user asks for a diagram, route to creator.
+- If user asks for a diagram, route to diagram_agent.
 - If user asks for an ASR or a QAS, route to asr.
 - If two images are provided, evaluator may compare/analyze.
 - Do not go directly to unifier unless at least one worker has produced output.
 
 Visited so far: {visited_nodes_str}.
 User question: {state["userQuestion"]}
-Outputs: ['investigator','creator','evaluator','asr','unifier'].
+Outputs: ['investigator','diagram_agent','evaluator','asr','unifier'].
 """
 
 def supervisor_node(state: GraphState):
@@ -233,7 +233,7 @@ def supervisor_node(state: GraphState):
 
     # evita unifier si no se visitó nada este turno
     if next_node == "unifier" and not (
-        state.get("hasVisitedInvestigator") or state.get("hasVisitedCreator") or
+        state.get("hasVisitedInvestigator") or
         state.get("hasVisitedEvaluator") or state.get("hasVisitedASR") or
         state.get("hasVisitedDiagram") or completed_nodes
     ):

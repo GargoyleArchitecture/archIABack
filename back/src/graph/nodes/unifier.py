@@ -1,4 +1,5 @@
-﻿
+﻿# -*- coding: utf-8 -*-
+
 import re
 from langchain_core.messages import AIMessage
 
@@ -277,7 +278,6 @@ def unifier_node(state: GraphState) -> GraphState:
     # ðŸ”µ Caso por defecto: sÃ­ntesis de investigador / evaluador / etc.
     researcher_txt = _last_ai_by(state, "researcher")
     evaluator_txt = _last_ai_by(state, "evaluator")
-    creator_txt = _last_ai_by(state, "creator")
     asr_src_txt = _last_ai_by(state, "asr_sources")
 
     rag_refs = ""
@@ -291,8 +291,6 @@ def unifier_node(state: GraphState) -> GraphState:
         buckets.append(f"researcher:\n{researcher_txt}")
     if evaluator_txt:
         buckets.append(f"evaluator:\n{evaluator_txt}")
-    if creator_txt and intent == "diagram":
-        buckets.append(f"creator:\n{creator_txt}")
     if asr_src_txt:
         buckets.append(f"asr_sources:\n{asr_src_txt}")
 
@@ -308,7 +306,7 @@ def unifier_node(state: GraphState) -> GraphState:
 You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
-- Use 6â€“12 concise lines (bullets or short sentences). No code fences, no mermaid.
+- Use 6â€"12 concise lines (bullets or short sentences). No code fences, no diagrams.
 - If useful, at the end include a short 'References:' block listing 3â€“6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:

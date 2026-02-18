@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 
 import json
 from src.graph.state import GraphState

@@ -146,7 +146,6 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
                 "error": str(e),
             }
 
-    state["mermaidCode"] = ""
     state["diagram"] = diagram_obj
     state["hasVisitedDiagram"] = True
     state["intent"] = "diagram"
