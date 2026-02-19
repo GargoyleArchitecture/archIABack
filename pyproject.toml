@@ -32,7 +32,8 @@ dependencies = [
     "langgraph-checkpoint-postgres (>=3.0.4,<4.0.0)",
     "httpx (>=0.28.1,<0.29.0)",
     "pymupdf (>=1.26.7,<2.0.0)",
-    "pypdf (>=6.6.2,<7.0.0)"
+    "pypdf (>=6.6.2,<7.0.0)",
+    "graphviz (>=0.20.3,<1.0.0)",
 ]
 
 [tool.poetry]
@@ -42,3 +43,4 @@ package-mode = false
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+

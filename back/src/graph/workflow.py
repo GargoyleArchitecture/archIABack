@@ -9,7 +9,6 @@ from src.graph.resources import sqlite_saver, builder
 from src.graph.nodes.classifier import classifier_node
 from src.graph.nodes.supervisor import supervisor_node
 from src.graph.nodes.investigator import researcher_node
-from src.graph.nodes.creator import creator_node
 from src.graph.nodes.diagram import diagram_orchestrator_node
 from src.graph.nodes.evaluator import evaluator_node
 from src.graph.nodes.unifier import unifier_node
@@ -22,16 +21,17 @@ def boot_node(state: GraphState) -> GraphState:
     return {
         **state,
         "hasVisitedInvestigator": False,
-        "hasVisitedCreator": False,
         "hasVisitedEvaluator": False,
         "hasVisitedASR": False,
         "hasVisitedDiagram": False,
-        "mermaidCode": "",
         "diagram": {},
         "endMessage": "",
+        "requested_nodes": [],
+        "pending_nodes": [],
+        "completed_nodes": [],
     }
 
-def router(state: GraphState) -> Literal["investigator","creator","evaluator","diagram_agent","tactics","asr","style","unifier"]:
+def router(state: GraphState) -> Literal["investigator","evaluator","diagram_agent","tactics","asr","style","unifier"]:
     if state["nextNode"] == "unifier":
         return "unifier"
 
@@ -51,8 +51,6 @@ def router(state: GraphState) -> Literal["investigator","creator","evaluator","d
         return "tactics"
     elif state["nextNode"] == "investigator" and not state["hasVisitedInvestigator"]:
         return "investigator"
-    elif state["nextNode"] == "creator" and not state["hasVisitedCreator"]:
-        return "creator"
     elif state["nextNode"] == "diagram_agent" and not state.get("hasVisitedDiagram", False):
         return "diagram_agent"
     elif state["nextNode"] == "evaluator" and not state["hasVisitedEvaluator"]:
@@ -65,7 +63,6 @@ def router(state: GraphState) -> Literal["investigator","creator","evaluator","d
 builder.add_node("classifier", classifier_node)
 builder.add_node("supervisor", supervisor_node)
 builder.add_node("investigator", researcher_node)
-builder.add_node("creator", creator_node)
 builder.add_node("diagram_agent", diagram_orchestrator_node)  # Orquestador
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("unifier", unifier_node)
@@ -80,12 +77,11 @@ builder.add_edge("boot", "classifier")
 builder.add_edge("classifier", "supervisor")
 builder.add_conditional_edges("supervisor", router)
 builder.add_edge("investigator", "supervisor")
-builder.add_edge("creator", "supervisor")
 builder.add_edge("diagram_agent", "supervisor")
 builder.add_edge("evaluator", "supervisor")
-builder.add_edge("asr", "unifier")
-builder.add_edge("style", "unifier")
-builder.add_edge("tactics", "unifier")
+builder.add_edge("asr", "supervisor")
+builder.add_edge("style", "supervisor")
+builder.add_edge("tactics", "supervisor")
 builder.add_edge("unifier", END)
 
 graph = builder.compile(checkpointer=sqlite_saver)

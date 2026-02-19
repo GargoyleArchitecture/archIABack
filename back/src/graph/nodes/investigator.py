@@ -77,8 +77,8 @@ def researcher_node(state: GraphState) -> GraphState:
     hint_lines = []
     if (force_rag or intent in ("architecture",)) and not doc_only:
         hint_lines.append("Start by calling the tool `local_RAG` with the user's question.")
-    if intent == "architecture" and state.get("mermaidCode"):
-        hint_lines.append("Also explain the tactics in the provided Mermaid, if any.")
+    if intent == "architecture" and state.get("diagram"):
+        hint_lines.append("Also explain the tactics in the provided diagram, if any.")
     hint = _clip_text("\n".join(hint_lines).strip(), 100) if hint_lines else ""
 
     short_history = _last_k_messages(state["messages"], k=6)

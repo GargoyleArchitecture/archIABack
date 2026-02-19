@@ -122,7 +122,7 @@ def _build_component_puml(title: str, subsystem: str, comps: List[str], rels: Li
     return "\n".join(lines) + "\n"
 
 def _build_deployment_puml() -> str:
-    # Tu mínimo para despliegue (o usa mermaid/plantuml según tu elección por Kroki)
+    # Tu mínimo para despliegue (usa plantuml/graphviz según tu elección por Kroki)
     return (
         "@startuml\n"
         "skinparam backgroundColor white\n"

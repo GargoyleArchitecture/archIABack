@@ -8,7 +8,7 @@ import requests
 KROKI_BASE = os.getenv("KROKI_BASE", "https://kroki.io")
 
 ALLOWED_TYPES = {
-    "plantuml", "c4plantuml", "graphviz", "mermaid",
+    "plantuml", "c4plantuml", "graphviz",
     "erd", "vega", "vegalite", "svgbob", "structurizr"
 }
 ALLOWED_FORMATS = {"svg", "png", "pdf", "txt"}

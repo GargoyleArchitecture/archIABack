@@ -10,7 +10,6 @@ class supervisorResponse(TypedDict):
     localQuestion: Annotated[str, ..., "What is the question for the worker node?"]
     nextNode: Literal[
         "investigator",
-        "creator",
         "evaluator",
         "diagram_agent",
         "tactics",
@@ -33,7 +32,6 @@ supervisorSchema = {
             "description": "The next node to act.",
             "enum": [
                 "investigator",
-                "creator",
                 "evaluator",
                 "unifier",
                 "asr",
@@ -120,12 +118,16 @@ class GraphState(TypedDict):
     
     # Flags de visita
     hasVisitedInvestigator: bool
-    hasVisitedCreator: bool
     hasVisitedEvaluator: bool
     hasVisitedASR: bool
     hasVisitedDiagram: bool
     
-    nextNode: Literal["investigator", "creator", "evaluator", "diagram_agent", "tactics", "asr", "style", "unifier"]
+    nextNode: Literal["investigator", "evaluator", "diagram_agent", "tactics", "asr", "style", "unifier"]
+
+    # planificación multi-intent por turno
+    requested_nodes: list
+    pending_nodes: list
+    completed_nodes: list
     
     doc_only: bool
     doc_context: str
@@ -134,7 +136,7 @@ class GraphState(TypedDict):
     imagePath2: str
 
     endMessage: str
-    mermaidCode: str
+
 
     diagram: dict
 
