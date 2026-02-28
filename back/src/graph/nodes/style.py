@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 
 import json
-from src.graph.state import GraphState
+
 from src.graph.resources import llm
+from src.graph.state import GraphState
+
 
 def style_node(state: GraphState) -> GraphState:
     """
     Architecture style node (ADD 3.0):
 
-    - Proposes EXACTLY 2 candidate styles.
+    - Proposes 1-3 candidate styles.
     - Evaluates the impact of each one on the ASR.
     - Recommends one of them.
     - Stores only the recommended style as the active style in the pipeline.
@@ -30,9 +32,9 @@ def style_node(state: GraphState) -> GraphState:
 You are a software architect applying ADD 3.0.
 
 Given the following Quality Attribute Scenario (ASR) and its business context,
-propose exactly TWO different architecture styles as reasonable candidates,
-and then recommend which of the two is BETTER to satisfy this ASR,
-explaining the recommendation in terms of its impact on the quality attribute.
+propose 1-3 different architecture styles as reasonable candidates to solve this ASR,
+and then recommend which of them is BETTER to satisfy this ASR,
+explaining the recommendation in terms of its impact on the system and the quality attribute.
 
 Quality attribute focus (e.g., availability, performance, latency, security, etc.):
 {qa}
@@ -124,7 +126,7 @@ Do NOT add comments or any text outside of this JSON object.
         followups = [
             f"Explain concrete tactics for the ASR using the recommended style ({chosen_name}).",
             "Compare these two styles in more depth for this ASR.",
-            ]
+        ]
 
     content = (
         f"{header}\n\n"
