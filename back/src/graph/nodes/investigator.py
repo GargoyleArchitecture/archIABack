@@ -51,6 +51,8 @@ def researcher_node(state: GraphState) -> GraphState:
         }
 
     # ---- Agente de investigación (con RAG opcional / DOC-ONLY bloquea RAG) ----
+    resolved_index = state.get("resolved_index", "general") or "general"
+
     sys = (
         prompt_researcher +
         f"Always reply in {('Spanish' if lang=='es' else 'English')}.\n" +
@@ -58,6 +60,14 @@ def researcher_node(state: GraphState) -> GraphState:
          if not doc_only else
          "- DOC-ONLY is ON: do NOT call retrieval. Base your answer ONLY on the PROJECT DOCUMENT.\n")
     )
+
+    # Instrucción de índice: guía al agente a pasar el quality_attribute correcto
+    if not doc_only and resolved_index != "general":
+        sys += (
+            f"\n- Cuando llames a `local_RAG`, pasa siempre el argumento "
+            f"quality_attribute='{resolved_index}' para obtener documentos "
+            f"específicos del atributo de calidad '{resolved_index}'."
+        )
 
     system_message = SystemMessage(content=sys)
     _push_turn(state, role="system", name="researcher_system", content=sys)

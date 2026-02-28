@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
 from src.graph.resources import llm, retriever, log, rag_trace_record
+from src.rag_agent import get_indexed_retriever
 from src.utils.json_helpers import (
     extract_json_array,
     strip_first_json_fence,
@@ -56,7 +57,7 @@ def tactics_node(state: GraphState) -> GraphState:
     # Estilo (si lo trae el flujo de ESTILOS)
     style_text = state.get("style") or state.get("selected_style") or state.get("last_style") or ""
 
-    # 3) Contexto para grounding: DOC-ONLY → sin RAG; otro caso → RAG normal
+    # 3) Contexto para grounding: DOC-ONLY → sin RAG; otro caso → RAG indexado
     docs_list = []
     if doc_only and ctx_doc:
         book_snippets = f"[DOC] {ctx_doc[:2000]}"
@@ -68,10 +69,16 @@ def tactics_node(state: GraphState) -> GraphState:
                 "Bass Clements Kazman performance and scalability tactics",
                 "quality attribute tactics list"
             ]
+            # Usar retriever indexado por atributo de calidad y tipo de contenido "tacticas"
+            _retriever = get_indexed_retriever(
+                quality_attribute=state.get("resolved_index") or qa,
+                content_type="tacticas",
+                k=6,
+            )
             seen = set()
             gathered = []
             for q in queries:
-                for d in retriever.invoke(q):
+                for d in _retriever.invoke(q):
                     key = (d.metadata.get("source_path"), d.metadata.get("page"))
                     if key in seen:
                         continue

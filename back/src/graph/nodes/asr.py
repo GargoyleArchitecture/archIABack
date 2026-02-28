@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
 from src.graph.resources import llm, retriever, rag_trace_record
+from src.rag_agent import get_indexed_retriever
 from src.graph.utils import (
     _clip_text, 
     _dedupe_snippets, 
@@ -38,7 +39,12 @@ def asr_node(state: GraphState) -> GraphState:
     if state.get("force_rag", False) and not doc_only:
         try:
             query = f"{concern} quality attribute scenario latency measure stimulus environment artifact response response measure"
-            docs_raw = list(retriever.invoke(query))
+            _retriever = get_indexed_retriever(
+                quality_attribute=state.get("resolved_index"),
+                content_type="asr",
+                k=6,
+            )
+            docs_raw = list(_retriever.invoke(query))
             docs_list = docs_raw[:6]
             rag_trace_record(query=query, docs=docs_list)
         except Exception:

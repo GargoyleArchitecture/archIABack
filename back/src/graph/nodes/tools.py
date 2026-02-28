@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from langchain_core.tools import tool
 from src.graph.resources import llm, retriever, _HAS_VERTEX, Image, GenerativeModel, rag_trace_record
+from src.rag_agent import get_indexed_retriever
 from src.graph.state import investigatorSchema, evaluatorSchema
 from src.graph.consts import (
     EVAL_THEORY_PREFIX, EVAL_VIABILITY_PREFIX, 
@@ -35,9 +36,11 @@ def LLMWithImages(image_path: str) -> str:
         return f"Error analyzing image: {e}"
 
 @tool
-def local_RAG(prompt: str) -> str:
+def local_RAG(prompt: str, quality_attribute: str = "general") -> str:
     """Responde con documentos locales (RAG) sobre tácticas/ADD/performance.
-    Devuelve síntesis breve seguida de un bloque SOURCES para la UI."""
+    Devuelve síntesis breve seguida de un bloque SOURCES para la UI.
+    Pasa quality_attribute (e.g., 'escalabilidad', 'latencia') para obtener
+    resultados filtrados por el índice de ese atributo de calidad."""
     q = (prompt or "").strip()
     synonyms = []
     if re.search(r"\badd\b", q, re.I):
@@ -52,9 +55,12 @@ def local_RAG(prompt: str) -> str:
     docs_all = []
     seen_ids = set()
 
+    # Retriever indexado por atributo de calidad (sin filtro de content_type en RAG general)
+    _retriever = get_indexed_retriever(quality_attribute=quality_attribute, k=8)
+
     for qq in queries:
         try:
-            for d in retriever.invoke(qq):
+            for d in _retriever.invoke(qq):
                 # Basic dedup by source+page
                 doc_id = f"{d.metadata.get('source_path')}_{d.metadata.get('page')}"
                 if doc_id not in seen_ids:
