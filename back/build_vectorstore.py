@@ -1,6 +1,7 @@
 # back/build_vectorstore.py
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -26,6 +27,48 @@ PERSIST_DIR.mkdir(parents=True, exist_ok=True)
 
 COLLECTION_NAME = "arquia"
 EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+
+# Ruta al config de índices
+_INDICES_CONFIG_PATH = BASE_DIR / "config" / "indices.json"
+
+
+def _load_indices_config() -> dict:
+    """Carga la configuración de índices desde back/config/indices.json."""
+    try:
+        with open(_INDICES_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"quality_attributes": [], "content_types": []}
+
+
+def _tag_chunk(text: str, config: dict) -> Tuple[str, str]:
+    """
+    Asigna quality_attribute y content_type a un chunk mediante keyword matching.
+    Gana el QA / tipo de contenido con más matches.
+    Si ninguno supera 0 matches -> "general".
+    Retorna (quality_attribute, content_type).
+    """
+    low = text.lower()
+
+    # -- quality_attribute --
+    best_qa, best_qa_count = "general", 0
+    for qa in config.get("quality_attributes", []):
+        all_kws = qa.get("keywords_en", []) + qa.get("keywords_es", [])
+        count = sum(1 for kw in all_kws if kw.lower() in low)
+        if count > best_qa_count:
+            best_qa_count = count
+            best_qa = qa["id"]
+
+    # -- content_type --
+    best_ct, best_ct_count = "general", 0
+    for ct in config.get("content_types", []):
+        count = sum(1 for kw in ct.get("keywords", []) if kw.lower() in low)
+        if count > best_ct_count:
+            best_ct_count = count
+            best_ct = ct["id"]
+
+    return best_qa, best_ct
+
 
 # Libros permitidos (título lógico -> patrones para encontrar el PDF)
 ALLOWED_BOOKS: Dict[str, List[str]] = {
@@ -155,6 +198,13 @@ def main():
     print("[build] docs_dir          =", DOCS_DIR)
     print("[build] persist_directory =", PERSIST_DIR)
 
+    # Limpia el vectorstore anterior para evitar chunks duplicados al reconstruir
+    import shutil
+    if PERSIST_DIR.exists():
+        shutil.rmtree(PERSIST_DIR)
+        print(f"[build] Borrado vectorstore previo en {PERSIST_DIR}")
+    PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+
     docs = _load_docs()
     if not docs:
         print("[build] No hay documentos válidos. Copia los PDFs a /back/docs y reintenta.")
@@ -163,6 +213,23 @@ def main():
     chunks = _split_docs(docs)
     chunks = _truncate_oversized_chunks(chunks, max_tokens=7000)
     print(f"[build] Total chunks: {len(chunks)}")
+
+    # Tagging de índices: añade quality_attribute y content_type a cada chunk
+    indices_config = _load_indices_config()
+    if indices_config.get("quality_attributes"):
+        tag_counts: Dict[str, int] = {}
+        for chunk in chunks:
+            qa_tag, ct_tag = _tag_chunk(chunk.page_content, indices_config)
+            chunk.metadata["quality_attribute"] = qa_tag
+            chunk.metadata["content_type"] = ct_tag
+            key = f"{qa_tag}/{ct_tag}"
+            tag_counts[key] = tag_counts.get(key, 0) + 1
+        print("[build] Distribución de tags (quality_attribute/content_type):")
+        for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]):
+            print(f"   {tag}: {count} chunks")
+    else:
+        print("[build] (Aviso) No se encontró config de índices en", _INDICES_CONFIG_PATH,
+              "— chunks sin tags de quality_attribute/content_type.")
 
     # Embeddings y vectorstore
     emb = _embeddings_factory()  # usa Azure/OpenAI según .env

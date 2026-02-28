@@ -3,6 +3,7 @@ from typing import Literal
 from langchain_core.messages import SystemMessage
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
+from src.graph.index_resolver import resolve_quality_attribute
 import os
 
 llm = get_chat_model(temperature=0.0)
@@ -65,6 +66,11 @@ User message:
     # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
     lang = state.get("language") or out["language"]
 
+    # Resolución del índice QA: sólo si la pregunta es de arquitectura (use_rag)
+    resolved_index = "general"
+    if out["use_rag"]:
+        resolved_index = resolve_quality_attribute(msg, llm)
+
     return {
         **state,
         "language": lang,
@@ -79,4 +85,5 @@ User message:
     ] else "general",
 
         "force_rag": bool(out["use_rag"]),
+        "resolved_index": resolved_index,
     }

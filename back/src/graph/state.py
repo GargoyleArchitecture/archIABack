@@ -154,6 +154,7 @@ class GraphState(TypedDict):
     language: Literal["en","es"]
     intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style"]
     force_rag: bool
+    resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 
     # etapa actual del pipeline ASR -> estilos -> tacticas -> despliegue
     arch_stage: str

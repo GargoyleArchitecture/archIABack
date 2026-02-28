@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "quality_attributes": [
+    {
+      "id": "escalabilidad",
+      "display_name": "Escalabilidad",
+      "keywords_en": [
+        "scalability", "throughput", "scale", "load", "capacity",
+        "horizontal scaling", "vertical scaling", "elastic", "auto-scaling",
+        "sharding", "partitioning", "replication", "distributed", "cluster"
+      ],
+      "keywords_es": [
+        "escalabilidad", "escalable", "escalado", "carga", "capacidad", "escalar",
+        "particionamiento", "replicación", "distribuido", "clúster"
+      ],
+      "description": "Capacidad del sistema de manejar crecimiento en carga o datos"
+    },
+    {
+      "id": "latencia",
+      "display_name": "Latencia",
+      "keywords_en": [
+        "latency", "response time", "delay", "millisecond", "fast response",
+        "real-time", "low latency", "p95", "p99", "round-trip", "time-to-first-byte",
+        "throughput", "request rate", "performance"
+      ],
+      "keywords_es": [
+        "latencia", "tiempo de respuesta", "demora", "velocidad de respuesta",
+        "respuesta rápida", "tiempo real", "rendimiento", "milisegundo"
+      ],
+      "description": "Tiempo entre una solicitud y su respuesta"
+    }
+  ],
+  "content_types": [
+    {
+      "id": "asr",
+      "display_name": "ASR (Escenarios de Atributos de Calidad)",
+      "keywords": [
+        "quality attribute scenario", "QAS", "stimulus", "response measure",
+        "source of stimulus", "architectural significant requirement",
+        "ASR", "architecture significant requirement", "quality scenario",
+        "attribute-driven", "ADD", "architectural driver"
+      ]
+    },
+    {
+      "id": "estilos",
+      "display_name": "Estilos Arquitectónicos",
+      "keywords": [
+        "architecture style", "architectural style", "microservices", "event-driven",
+        "layered", "service-oriented", "SOA", "component-based", "monolithic",
+        "pipe-and-filter", "client-server", "peer-to-peer", "publish-subscribe",
+        "message bus", "hexagonal", "clean architecture", "CQRS", "event sourcing"
+      ]
+    },
+    {
+      "id": "tacticas",
+      "display_name": "Tácticas Arquitectónicas",
+      "keywords": [
+        "architectural tactic", "tactic", "tactics",
+        "performance tactic", "availability tactic", "security tactic",
+        "modifiability tactic", "scalability tactic", "interoperability tactic",
+        "manage resources", "manage resource demand", "control resource demand",
+        "limit event response", "prioritize events", "reduce overhead",
+        "bound execution times", "bound queue sizes", "schedule resources",
+        "increase resources", "increase resource efficiency", "introduce concurrency",
+        "maintain multiple copies", "arbitrate", "arbitration",
+        "detect faults", "prevent faults", "recover from faults",
+        "active redundancy", "passive redundancy", "spare",
+        "exception handling", "rollback", "retry", "timeout",
+        "graceful degradation", "degradation", "shadow",
+        "state resynchronization", "escalating restart", "non-stop forwarding",
+        "encapsulate", "use an intermediary", "restrict dependencies",
+        "defer binding", "increase semantic coherence", "abstract common services",
+        "authenticate actors", "authorize actors", "limit access",
+        "separate entities", "encrypt data",
+        "asynchronous", "queue", "queuing", "pipeline",
+        "caching", "cache", "load balancing", "circuit breaker",
+        "throttling", "rate limiting", "load shedding", "backpressure",
+        "bulkhead", "health check", "heartbeat", "failover",
+        "replication", "sharding", "partitioning",
+        "thread pool", "connection pool", "resource pooling",
+        "fault tolerance", "redundancy"
+      ]
+    }
+  ]
+}

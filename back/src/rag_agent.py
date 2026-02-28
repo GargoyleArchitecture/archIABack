@@ -93,6 +93,48 @@ def get_retriever(title: str | list[str] | None = None, k: int = 6):
     return vectorstore.as_retriever(search_kwargs={"k": k})
 
 
+def get_indexed_retriever(
+    quality_attribute: str | None = None,
+    content_type: str | None = None,
+    k: int = 6,
+):
+    """
+    Devuelve un retriever filtrado por quality_attribute y/o content_type.
+
+    - Si quality_attribute es None o "general" → no filtra por QA.
+    - Si content_type es None o "general"       → no filtra por tipo.
+    - Si ambos presentes y válidos              → usa $and en el filtro.
+    - Si ninguno                                → retriever sin filtros (igual a get_retriever()).
+
+    Esto permite retrieval indexado por atributo de calidad y tipo de contenido,
+    sin romper el comportamiento existente cuando se llama sin parámetros.
+    """
+    vectorstore = create_or_load_vectorstore()
+
+    has_qa = bool(quality_attribute and quality_attribute != "general")
+    has_ct = bool(content_type and content_type != "general")
+
+    if has_qa and has_ct:
+        filter_dict = {
+            "$and": [
+                {"quality_attribute": {"$eq": quality_attribute}},
+                {"content_type": {"$eq": content_type}},
+            ]
+        }
+    elif has_qa:
+        filter_dict = {"quality_attribute": {"$eq": quality_attribute}}
+    elif has_ct:
+        filter_dict = {"content_type": {"$eq": content_type}}
+    else:
+        filter_dict = None
+
+    search_kwargs: dict = {"k": k}
+    if filter_dict:
+        search_kwargs["filter"] = filter_dict
+
+    return vectorstore.as_retriever(search_type="similarity", search_kwargs=search_kwargs)
+
+
 def rebuild_vectorstore():
     """
     Helper opcional: si quieres reconstruir en caliente, borra el dir
