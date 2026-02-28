@@ -36,8 +36,8 @@
       "display_name": "ASR (Escenarios de Atributos de Calidad)",
       "keywords": [
         "quality attribute scenario", "QAS", "stimulus", "response measure",
-        "source of stimulus", "environment", "architectural significant requirement",
-        "ASR", "architecture significant requirement", "scenario", "quality scenario",
+        "source of stimulus", "architectural significant requirement",
+        "ASR", "architecture significant requirement", "quality scenario",
         "attribute-driven", "ADD", "architectural driver"
       ]
     },
@@ -55,11 +55,30 @@
       "id": "tacticas",
       "display_name": "Tácticas Arquitectónicas",
       "keywords": [
-        "architectural tactic", "tactic", "manage resources", "introduce redundancy",
-        "limit access", "caching", "load balancing", "circuit breaker", "throttling",
-        "queue management", "scheduling policy", "resource pooling", "fault tolerance",
-        "retry", "timeout", "bulkhead", "health check", "heartbeat", "failover",
-        "replication", "sharding tactic", "rate limiting", "backpressure"
+        "architectural tactic", "tactic", "tactics",
+        "performance tactic", "availability tactic", "security tactic",
+        "modifiability tactic", "scalability tactic", "interoperability tactic",
+        "manage resources", "manage resource demand", "control resource demand",
+        "limit event response", "prioritize events", "reduce overhead",
+        "bound execution times", "bound queue sizes", "schedule resources",
+        "increase resources", "increase resource efficiency", "introduce concurrency",
+        "maintain multiple copies", "arbitrate", "arbitration",
+        "detect faults", "prevent faults", "recover from faults",
+        "active redundancy", "passive redundancy", "spare",
+        "exception handling", "rollback", "retry", "timeout",
+        "graceful degradation", "degradation", "shadow",
+        "state resynchronization", "escalating restart", "non-stop forwarding",
+        "encapsulate", "use an intermediary", "restrict dependencies",
+        "defer binding", "increase semantic coherence", "abstract common services",
+        "authenticate actors", "authorize actors", "limit access",
+        "separate entities", "encrypt data",
+        "asynchronous", "queue", "queuing", "pipeline",
+        "caching", "cache", "load balancing", "circuit breaker",
+        "throttling", "rate limiting", "load shedding", "backpressure",
+        "bulkhead", "health check", "heartbeat", "failover",
+        "replication", "sharding", "partitioning",
+        "thread pool", "connection pool", "resource pooling",
+        "fault tolerance", "redundancy"
       ]
     }
   ]

@@ -198,6 +198,13 @@ def main():
     print("[build] docs_dir          =", DOCS_DIR)
     print("[build] persist_directory =", PERSIST_DIR)
 
+    # Limpia el vectorstore anterior para evitar chunks duplicados al reconstruir
+    import shutil
+    if PERSIST_DIR.exists():
+        shutil.rmtree(PERSIST_DIR)
+        print(f"[build] Borrado vectorstore previo en {PERSIST_DIR}")
+    PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+
     docs = _load_docs()
     if not docs:
         print("[build] No hay documentos válidos. Copia los PDFs a /back/docs y reintenta.")

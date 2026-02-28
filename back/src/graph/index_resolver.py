@@ -13,7 +13,7 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage
 
 # Ruta al config: back/config/indices.json
-_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "indices.json"
+_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "indices.json"
 
 
 def _load_indices_config() -> dict:
