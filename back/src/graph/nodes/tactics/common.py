@@ -1,11 +1,10 @@
-
 import re
 import os
 import json
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
-from src.graph.resources import llm, retriever, log, rag_trace_record
+from src.graph.resources import llm, log, rag_trace_record
 from src.rag_agent import get_indexed_retriever
 from src.utils.json_helpers import (
     extract_json_array,
@@ -18,21 +17,53 @@ from src.graph.utils import (
     _clip_text,
     _push_turn,
     _json_only_repair_pass,
-    _structured_tactics_fallback
 )
 from src.graph.consts import TACTICS_JSON_EXAMPLE
+from src.graph.qa_registry import normalize_qa
 
-def _guess_quality_attribute(text: str) -> str:
+
+def guess_quality_attribute(text: str) -> str:
+    """Heurística legacy para QA cuando no hay señal explícita."""
     low = (text or "").lower()
-    if "latenc" in low or "response time" in low: return "latency"
-    if "scalab" in low or "throughput" in low:    return "scalability"
-    if "availab" in low or "uptime" in low:       return "availability"
-    if "secur" in low:                             return "security"
-    if "modifiab" in low or "change" in low:       return "modifiability"
-    if "reliab" in low or "fault" in low:          return "reliability"
+    if "latenc" in low or "response time" in low:
+        return "latencia"
+    if "scalab" in low or "throughput" in low:
+        return "escalabilidad"
+    if "availab" in low or "uptime" in low:
+        return "availability"
+    if "secur" in low:
+        return "security"
+    if "modifiab" in low or "change" in low:
+        return "modifiability"
+    if "reliab" in low or "fault" in low:
+        return "reliability"
     return "performance"
 
-def tactics_node(state: GraphState) -> GraphState:
+
+def resolve_qa_for_tactics(state: GraphState, asr_text: str, qa_override: str | None = None) -> str:
+    """Resuelve QA final para tácticas con prioridad explícita."""
+    if qa_override:
+        qa = normalize_qa(qa_override)
+        if qa != "general":
+            return qa
+
+    qa_state = normalize_qa(state.get("quality_attribute", ""))
+    if qa_state != "general":
+        return qa_state
+
+    qa_resolved = normalize_qa(state.get("resolved_index", ""))
+    if qa_resolved != "general":
+        return qa_resolved
+
+    qa_from_asr = normalize_qa(asr_text)
+    if qa_from_asr != "general":
+        return qa_from_asr
+
+    return guess_quality_attribute(asr_text)
+
+
+def tactics_node_impl(state: GraphState, qa_override: str | None = None) -> GraphState:
+    """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
     directive = "Answer in English." if lang == "en" else "Responde en español."
     doc_only = bool(state.get("doc_only"))
@@ -40,7 +71,6 @@ def tactics_node(state: GraphState) -> GraphState:
     ctx_add = (state.get("add_context") or "").strip()
     ctx = (ctx_doc if (doc_only and ctx_doc) else ctx_add)[:2000]
 
-    # 1) Tomamos el ASR actual (evita usar la pregunta del usuario como ASR)
     asr_text = (
         state.get("current_asr")
         or state.get("asr_text")
@@ -52,12 +82,9 @@ def tactics_node(state: GraphState) -> GraphState:
         m = re.search(r"(?:^|\n)\s*ASR\s*:?\s*(.+)$", uq, flags=re.I | re.S)
         asr_text = (m.group(1).strip() if m else "")
 
-    # 2) Deducimos el atributo de calidad
-    qa = state.get("quality_attribute") or _guess_quality_attribute(asr_text)
-    # Estilo (si lo trae el flujo de ESTILOS)
+    qa = resolve_qa_for_tactics(state, asr_text=asr_text, qa_override=qa_override)
     style_text = state.get("style") or state.get("selected_style") or state.get("last_style") or ""
 
-    # 3) Contexto para grounding: DOC-ONLY → sin RAG; otro caso → RAG indexado
     docs_list = []
     if doc_only and ctx_doc:
         book_snippets = f"[DOC] {ctx_doc[:2000]}"
@@ -67,11 +94,10 @@ def tactics_node(state: GraphState) -> GraphState:
                 f"{qa} architectural tactics",
                 f"{qa} tactics performance scalability latency availability security modifiability",
                 "Bass Clements Kazman performance and scalability tactics",
-                "quality attribute tactics list"
+                "quality attribute tactics list",
             ]
-            # Usar retriever indexado por atributo de calidad y tipo de contenido "tacticas"
             _retriever = get_indexed_retriever(
-                quality_attribute=state.get("resolved_index") or qa,
+                quality_attribute=normalize_qa(state.get("resolved_index") or qa),
                 content_type="tacticas",
                 k=6,
             )
@@ -93,8 +119,7 @@ def tactics_node(state: GraphState) -> GraphState:
         except Exception:
             docs_list = []
         book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
-    JSON_EXAMPLE = TACTICS_JSON_EXAMPLE
-    # 4) Prompt: pedimos Markdown + JSON
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
@@ -122,17 +147,11 @@ You MUST output THREE sections, in EXACT order:
 
 (0) Which is the ASR and it´s style (if any):
 - 3–5 concise lines.
-- Explicitly link back to the ASR's Source, Stimulus, Artifact, Environment and Response Measure. Also its architectonic style. Example: "The external clients and bots, when a 10x traffic burst during product drop, (checkout API) in a normal operation and one region, the system must keep throughput and protect downstreams with a response measure of p95 < 200ms and error rate < 0.5% using microservices with API gateway and Redis cache."
+- Explicitly link back to the ASR's Source, Stimulus, Artifact, Environment and Response Measure. Also its architectonic style.
 
 (1) TACTICS (TOP-3 with highest success probability):
 Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.
-For EACH tactic include:
-- Name — canonical tactic name (e.g., "Elastic Horizontal Scaling", "Cache-Aside + TTL", "Circuit Breaker").
-- Rationale — why THIS tactic directly satisfies THIS ASR's Response & Response Measure in THIS style.
-- Consequences / Trade-offs — realistic costs/risks (cost, complexity, ops burden, coupling, failure modes).
-- When to use — explicit runtime trigger/guard (e.g., "if p95 > 200ms during 10x burst for 1 minute, trigger X").
-- Why it ranks in TOP-3 — short argument grounded on ASR + style fit.
-- Sucess probability — numeric estimate [0,1] of success in production.
+For EACH tactic include: Name, Rationale, Consequences / Trade-offs, When to use, Why it ranks in TOP-3, Sucess probability.
 
 (2) JSON:
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
@@ -141,97 +160,55 @@ Return ONE code fence starting with ```json and ending with ``` that contains ON
 - Do not add any prose or markdown outside the JSON fence.
 
 Example shape (values are illustrative — adjust to your tactics):
-{JSON_EXAMPLE}
-
-
-STRICT RULES:
-- You MUST behave like ADD 3.0: tactics are chosen BECAUSE OF the ASR's Response and Response Measure, not randomly.
-- Every tactic MUST explicitly tie back to the ASR driver.
-- DO NOT invent product names or vendor SKUs. Stay pattern-level.
-- Keep output concise, production-realistic, and auditable.
-- Output EXACTLY 3 tactics — do not list more than 3.
-- Provide a numeric "success_probability" in [0,1] and a unique "rank" (1..3) consistent with the markdown ranking.
+{TACTICS_JSON_EXAMPLE}
 """
     resp = llm.invoke(prompt)
     raw = getattr(resp, "content", str(resp)).strip()
 
-    # LOG opcional (útil para depurar)
-    log.debug("tactics raw (first 400): %s", raw[:400].replace("\n"," "))
+    log.debug("tactics raw (first 400): %s", raw[:400].replace("\n", " "))
     log.debug("has ```json fence? %s", bool(re.search(r"```json", raw, re.I)))
 
-    # 5) Parseo + reparación en cascada (solo helpers existentes)
     struct = extract_json_array(raw) or []
-
     if not (isinstance(struct, list) and struct):
-        struct = _json_only_repair_pass(
-            llm, asr_text=asr_text, qa=qa, style_text=style_text, md_preview=raw
-        ) or []
-
+        struct = _json_only_repair_pass(llm, asr_text=asr_text, qa=qa, style_text=style_text, md_preview=raw) or []
     if not (isinstance(struct, list) and struct):
         struct = build_json_from_markdown(raw, top_n=3)
-
-    # Normaliza a TOP-3 + shape final
     struct = normalize_tactics_json(struct, top_n=3)
-    log.info(
-        "tactics_struct.len=%s names=%s",
-        len(struct) if isinstance(struct, list) else 0,
-        [it.get("name") for it in (struct or []) if isinstance(it, dict)]
-    )
 
-        
-    # Markdown a mostrar (remueve el primer bloque ```json del modelo si vino)
     md_only = strip_first_json_fence(raw)
-
-    show_json = os.getenv("SHOW_TACTICS_JSON", "0") == "1"
-    if show_json:
+    if os.getenv("SHOW_TACTICS_JSON", "0") == "1":
         md_only = f"{md_only}\n\n```json\n{json.dumps(struct, ensure_ascii=False, indent=2)}\n```"
     else:
-        # si ocultas el JSON, borra el encabezado "(2) JSON:" que queda colgando
-        md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I|re.M).rstrip()
-
-    # Fallback visual si por alguna razón no hay markdown
+        md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
     if (not md_only) and isinstance(struct, list) and struct:
-        md_only = "\n".join(
-            f"- {it.get('name','')}: {it.get('rationale','')}"
-            for it in struct if isinstance(it, dict)
-        )
+        md_only = "\n".join(f"- {it.get('name','')}: {it.get('rationale','')}" for it in struct if isinstance(it, dict))
 
-    # 6) Fuentes
     src_lines = []
     for d in (docs_list or []):
         md = d.metadata or {}
         title = md.get("source_title") or md.get("title") or "doc"
-        page  = md.get("page_label") or md.get("page")
-        path  = md.get("source_path") or md.get("source") or ""
+        page = md.get("page_label") or md.get("page")
+        path = md.get("source_path") or md.get("source") or ""
         page_str = f" (p.{page})" if page is not None else ""
         src_lines.append(f"- {title}{page_str} — {path}")
     if src_lines:
         src_lines = list(dict.fromkeys([_clip_text(s, 60) for s in src_lines]))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
 
-    # 7) Traza y memoria
     _push_turn(state, role="system", name="tactics_system", content=prompt)
     _push_turn(state, role="assistant", name="tactics_advisor", content=md_only)
     _push_turn(state, role="assistant", name="tactics_sources", content=src_block)
 
-    msgs = [
-        AIMessage(content=md_only, name="tactics_advisor"),
-        AIMessage(content=src_block, name="tactics_sources")
-    ]
+    msgs = [AIMessage(content=md_only, name="tactics_advisor"), AIMessage(content=src_block, name="tactics_sources")]
 
-    # 8) Persistimos en el estado
     state["tactics_md"] = md_only
     state["tactics_struct"] = struct if isinstance(struct, list) else []
-    state["tactics_list"] = [ (it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name") ]
-
-
-    #Marca etapa ADD 3.0
-    state["arch_stage"] = "TACTICS"        # ahora estamos en la fase de selección de tácticas ADD 3.0
-    state["quality_attribute"] = qa        # refuerza cuál atributo estamos atacando
+    state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
+    state["arch_stage"] = "TACTICS"
+    state["quality_attribute"] = qa
     if asr_text:
-        state["current_asr"] = asr_text    # guarda el ASR que estas tacticas satisfacen
+        state["current_asr"] = asr_text
 
-    # Señales para cortar en unifier
     state["endMessage"] = md_only
     state["intent"] = "tactics"
     state["nextNode"] = "unifier"

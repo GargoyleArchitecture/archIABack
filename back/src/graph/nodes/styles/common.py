@@ -4,30 +4,53 @@ import json
 
 from src.graph.resources import llm
 from src.graph.state import GraphState
+from src.graph.qa_registry import normalize_qa
 
 
-def style_node(state: GraphState) -> GraphState:
+def resolve_qa_for_style(state: GraphState, qa_override: str | None = None) -> str:
+    """Resuelve el QA objetivo para el nodo de estilos.
+
+    Prioridad:
+    1) override explícito del wrapper,
+    2) quality_attribute del estado,
+    3) resolved_index del classifier,
+    4) fallback general.
     """
-    Architecture style node (ADD 3.0):
+    if qa_override:
+        qa = normalize_qa(qa_override)
+        if qa != "general":
+            return qa
 
-    - Proposes 1-3 candidate styles.
-    - Evaluates the impact of each one on the ASR.
-    - Recommends one of them.
-    - Stores only the recommended style as the active style in the pipeline.
+    qa_state = normalize_qa(state.get("quality_attribute", ""))
+    if qa_state != "general":
+        return qa_state
+
+    qa_resolved = normalize_qa(state.get("resolved_index", ""))
+    if qa_resolved != "general":
+        return qa_resolved
+
+    return "general"
+
+
+def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphState:
+    """Implementación común del nodo de estilos (ADD 3.0).
+
+    Mantiene el contrato histórico del nodo:
+    - genera candidatos + recomendación,
+    - escribe style/selected_style/last_style,
+    - publica turn_message con name='style_recommender'.
     """
     lang = state.get("language", "es")
     directive = "Answer in English." if lang == "en" else "Responde en español."
 
-    # 1) Recover ASR, quality attribute, and business context
     asr_text = (
         state.get("current_asr")
         or state.get("last_asr")
         or (state.get("userQuestion") or "")
     )
-    qa = state.get("quality_attribute", "")
+    qa = resolve_qa_for_style(state, qa_override=qa_override)
     ctx = (state.get("add_context") or "").strip()
 
-    # 2) Prompt: ask for JSON with 2 styles + recommendation (PROMPT 100% IN ENGLISH)
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
 
@@ -66,16 +89,15 @@ Do NOT add comments or any text outside of this JSON object.
     result = llm.invoke(prompt)
     raw = getattr(result, "content", str(result))
 
-    # 3) Parse JSON (fallback if it fails)
     try:
         data = json.loads(raw)
     except Exception:
-        # If no valid JSON: at least store one line as style
-        fallback_style = raw.splitlines()[0].strip()
+        fallback_style = raw.splitlines()[0].strip() if raw.splitlines() else raw.strip()
         state["style"] = fallback_style
         state["selected_style"] = fallback_style
         state["last_style"] = fallback_style
         state["arch_stage"] = "STYLE"
+        state["quality_attribute"] = qa
         state["endMessage"] = raw
         state["nextNode"] = "unifier"
         return state
@@ -89,20 +111,14 @@ Do NOT add comments or any text outside of this JSON object.
     best_key = (data.get("best_style") or "").strip()
     rationale = data.get("rationale", "").strip()
 
-    if best_key == "style_2":
-        chosen_name = style2_name
-    else:
-        # Default to style_1 if not clear
-        best_key = "style_1"
-        chosen_name = style1_name
+    chosen_name = style2_name if best_key == "style_2" else style1_name
 
-    # 4) Store ONLY the recommended style in the ADD 3.0 state
     state["style"] = chosen_name
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
     state["arch_stage"] = "STYLE"
+    state["quality_attribute"] = qa
 
-    # Update rich memory (long-term text)
     prev_mem = state.get("memory_text", "") or ""
     state["memory_text"] = (
         prev_mem
@@ -110,7 +126,6 @@ Do NOT add comments or any text outside of this JSON object.
         + f"[STYLE_CHOSEN]\n{chosen_name}\n"
     ).strip()
 
-    # 5) Build user-facing message (in ES or EN)
     if lang == "es":
         header = "He identificado dos estilos arquitectónicos candidatos para tu ASR:"
         rec_label = "Recomendación"

@@ -2,7 +2,7 @@
 import re
 
 from langchain_core.messages import AIMessage
-from src.graph.resources import llm, rag_trace_record, retriever
+from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.utils import (
     _clip_text,
@@ -11,9 +11,11 @@ from src.graph.utils import (
     _strip_tactics_sections,
 )
 from src.rag_agent import get_indexed_retriever
+from src.graph.qa_registry import normalize_qa, qa_to_focus_label
 
 
 def asr_node(state: GraphState) -> GraphState:
+    """Genera ASR y deja QA coherente para nodos siguientes (style/tactics)."""
     lang = state.get("language", "es")
     uq = state.get("userQuestion", "") or ""
     doc_only = bool(state.get("doc_only"))
@@ -27,6 +29,12 @@ def asr_node(state: GraphState) -> GraphState:
         if re.search(r"latenc", uq, re.I)
         else "performance"
     )
+
+    # QA operativo para el pipeline: prioriza classifier (resolved_index) cuando exista.
+    qa_from_classifier = normalize_qa(state.get("resolved_index", ""))
+    qa_from_text = normalize_qa(concern)
+    qa_pipeline = qa_from_classifier if qa_from_classifier != "general" else qa_from_text
+    qa_focus = qa_to_focus_label(qa_pipeline, default=concern)
 
     # Dominio típico si el usuario no lo da
     low = uq.lower()
@@ -43,9 +51,9 @@ def asr_node(state: GraphState) -> GraphState:
     docs_list = []
     if state.get("force_rag", False) and not doc_only:
         try:
-            query = f"{concern} quality attribute scenario latency measure stimulus environment artifact response response measure"
+            query = f"{qa_focus} quality attribute scenario latency measure stimulus environment artifact response response measure"
             _retriever = get_indexed_retriever(
-                quality_attribute=state.get("resolved_index"),
+                quality_attribute=(state.get("resolved_index") or qa_pipeline),
                 content_type="asr",
                 k=6,
             )
@@ -78,7 +86,7 @@ Relevant domain or workload (you must stay coherent with this):
 {domain}
 
 Quality attribute focus inferred from the user message:
-{concern}
+{qa_focus}
 
 User input to ground this ASR:
 {uq}
@@ -157,7 +165,7 @@ Rules:
     state["memory_text"] = (prev_mem + f"\n\n[LAST_ASR]\n{content}\n").strip()
 
     # Metadatos
-    state["quality_attribute"] = concern
+    state["quality_attribute"] = qa_pipeline
     state["arch_stage"] = "ASR"
     state["current_asr"] = content
 
