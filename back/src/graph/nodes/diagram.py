@@ -4,9 +4,23 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.graph.consts import DOT_SYSTEM
+from src.graph.consts import DOT_SYSTEM, DOT_SYSTEM_OVERVIEW
 from src.graph.resources import llm, log
 from src.graph.state import GraphState
+from src.services.diagram_ir import (
+    DetailLevel,
+    DiagramModel,
+    build_overview,
+    build_expanded_view,
+    parse_dot_to_model,
+)
+from src.services.diagram_render import (
+    render_dot,
+    render_dot_drawio,
+    render_drawio,
+    render_svg,
+    render_svg_b64,
+)
 
 try:
     from graphviz import Source
@@ -42,25 +56,48 @@ def _sanitize_dot(raw: str) -> str:
     return txt.encode("ascii", errors="ignore").decode("ascii").strip()
 
 
-def _llm_nl_to_dot(natural_prompt: str) -> str:
-    msgs = [SystemMessage(content=DOT_SYSTEM), HumanMessage(content=natural_prompt)]
+def _llm_nl_to_dot(natural_prompt: str, *, detail_level: str = "detailed") -> str:
+    """Generate DOT code via LLM. Uses overview or detailed system prompt."""
+    system_prompt = DOT_SYSTEM_OVERVIEW if detail_level == "overview" else DOT_SYSTEM
+    msgs = [SystemMessage(content=system_prompt), HumanMessage(content=natural_prompt)]
     resp = llm.invoke(msgs)
     raw = getattr(resp, "content", str(resp)) or ""
     return _sanitize_dot(raw)
 
 
 def _render_dot_svg_b64(dot_code: str) -> str:
-    if Source is None:
-        raise RuntimeError("python-graphviz is not installed")
-
+    """Render DOT to base64 SVG. Tries new renderer, falls back to legacy."""
     engine = os.getenv("GRAPHVIZ_ENGINE", "dot").strip() or "dot"
-    src = Source(dot_code, format="svg", engine=engine)
-    svg_bytes = src.pipe(format="svg")
-    return base64.b64encode(svg_bytes).decode("ascii")
+    try:
+        return render_svg_b64(dot_code, engine=engine)
+    except Exception:
+        # Fallback to legacy path
+        if Source is None:
+            raise RuntimeError("python-graphviz is not installed")
+        src = Source(dot_code, format="svg", engine=engine)
+        svg_bytes = src.pipe(format="svg")
+        return base64.b64encode(svg_bytes).decode("ascii")
 
 
 def diagram_orchestrator_node(state: GraphState) -> GraphState:
     user_q = (state.get("localQuestion") or state.get("userQuestion") or "").strip()
+
+    # --- Determine detail level ---
+    # Check if the user request hints at a detail level
+    detail_level = "overview"  # default
+    low_q = user_q.lower()
+    detail_keywords = [
+        "detailed", "detallado", "full", "completo", "complete",
+        "all components", "todos los componentes",
+        "more detail", "más detalle", "mas detalle",
+        "expand", "expandir", "ampliar",
+    ]
+    if any(kw in low_q for kw in detail_keywords):
+        detail_level = "detailed"
+
+    # Also check explicit state override
+    if state.get("diagram_detail_level"):
+        detail_level = state["diagram_detail_level"]
 
     asr_text = (state.get("current_asr") or state.get("last_asr") or "").strip()
 
@@ -121,21 +158,49 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
 
     dot_code = ""
     try:
-        dot_code = _llm_nl_to_dot(full_prompt)
+        dot_code = _llm_nl_to_dot(full_prompt, detail_level=detail_level)
     except Exception as e:
         log.warning("diagram_orchestrator_node: DOT generation failed: %s", e)
 
     diagram_obj = {}
     if dot_code:
         try:
-            svg_b64 = _render_dot_svg_b64(dot_code)
+            # Parse DOT into IR
+            ir_model = parse_dot_to_model(dot_code)
+            ir_model.detail_level = DetailLevel(detail_level)
+
+            # If overview was requested AND the LLM produced too many nodes,
+            # collapse programmatically
+            overview_mapping = None
+            if detail_level == "overview" and len(ir_model.nodes) > 20:
+                ir_model, overview_mapping = build_overview(ir_model, max_nodes=15)
+
+            # Re-render DOT from IR for consistency
+            final_dot = render_dot(ir_model)
+
+            # Render SVG
+            svg_b64 = _render_dot_svg_b64(final_dot)
+
+            # Prepare export variants
+            dot_drawio_code = render_dot_drawio(ir_model)
+
             diagram_obj = {
                 "ok": True,
                 "format": "svg",
                 "engine": os.getenv("GRAPHVIZ_ENGINE", "dot"),
                 "svg_b64": svg_b64,
-                "dot": dot_code,
+                "dot": final_dot,
+                "dot_raw": dot_code,        # original LLM output DOT
+                "dot_drawio": dot_drawio_code,
+                "detail_level": detail_level,
+                "node_count": len(ir_model.nodes),
+                "edge_count": len(ir_model.edges),
             }
+
+            # Store overview mapping for potential expansion requests
+            if overview_mapping:
+                diagram_obj["overview_mapping"] = overview_mapping
+
         except Exception as e:
             log.warning("diagram_orchestrator_node: Graphviz render failed: %s", e)
             diagram_obj = {
@@ -143,6 +208,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
                 "format": "svg",
                 "engine": os.getenv("GRAPHVIZ_ENGINE", "dot"),
                 "dot": dot_code,
+                "detail_level": detail_level,
                 "error": str(e),
             }
 

@@ -1,10 +1,13 @@
 ﻿# -*- coding: utf-8 -*-
 # src/main.py
 
+import logging
 from typing import Optional
 from pathlib import Path
 
 import os, re, sqlite3, base64
+
+log = logging.getLogger("main")
 
 from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
@@ -245,6 +248,148 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+# ===================== /diagrams (workflow export) ==============
+from fastapi import Query, Response
+
+@app.get("/diagrams")
+def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
+    """Export the LangGraph workflow graph for documentation / draw.io import.
+
+    Query params:
+        format: ``dot`` (default) or ``svg``
+
+    This endpoint is SEPARATE from the diagram_agent node, which generates
+    architecture diagrams *for the user* via LLM + Graphviz.
+    """
+    from src.services.diagram_export import export_workflow
+
+    try:
+        result = export_workflow(fmt=format)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if format == "svg":
+        return Response(
+            content=result,
+            media_type="image/svg+xml",
+            headers={"Content-Disposition": 'attachment; filename="workflow.svg"'},
+        )
+    # DOT
+    return Response(
+        content=result,
+        media_type="text/vnd.graphviz",
+        headers={"Content-Disposition": 'attachment; filename="workflow.dot"'},
+    )
+
+
+# ===================== /diagram/export (user architecture diagrams) ==============
+@app.get("/diagram/export")
+def diagram_export(
+    session_id: str = Query(..., description="Session that produced the diagram"),
+    format: str = Query("svg", regex="^(svg|dot|dot_drawio|drawio)$"),
+    detail_level: str = Query("overview", regex="^(overview|detailed)$"),
+    focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
+):
+    """Export the last generated architecture diagram in the requested format.
+
+    Query params:
+        session_id   : Session that produced the diagram (required).
+        format       : ``svg`` | ``dot`` | ``dot_drawio`` | ``drawio`` (default: svg).
+        detail_level : ``overview`` | ``detailed`` (default: overview).
+        focus        : An overview node ID to expand (optional; requires detail_level=detailed).
+
+    The ``dot_drawio`` format produces a flattened DOT file safe for draw.io import
+    (no clusters, no compound edges, no ports, no HTML labels).
+
+    The ``drawio`` format produces a native .drawio (mxGraph XML) file.
+    """
+    from src.services.diagram_ir import (
+        DetailLevel,
+        build_expanded_view,
+        build_overview,
+        parse_dot_to_model,
+    )
+    from src.services.diagram_render import (
+        render_dot as render_dot_from_ir,
+        render_dot_drawio,
+        render_drawio,
+        render_svg as render_svg_from_dot,
+        render_svg_b64,
+    )
+
+    # Retrieve the last diagram for this session from memory
+    user_id = session_id
+    arch_flow = load_arch_flow(user_id)
+    last_diagram = arch_flow.get("last_diagram") or {}
+
+    dot_code = last_diagram.get("dot") or last_diagram.get("dot_raw") or ""
+    if not dot_code:
+        raise HTTPException(
+            status_code=404,
+            detail="No diagram found for this session. Generate one first via POST /message.",
+        )
+
+    try:
+        # Parse DOT into IR
+        ir_model = parse_dot_to_model(dot_code)
+
+        # Apply detail level
+        overview_mapping = None
+        if detail_level == "overview":
+            ir_model, overview_mapping = build_overview(ir_model, max_nodes=15)
+        elif focus and last_diagram.get("overview_mapping"):
+            ir_model = build_expanded_view(
+                ir_model,
+                last_diagram["overview_mapping"],
+                focus,
+            )
+
+        engine = os.getenv("GRAPHVIZ_ENGINE", "dot").strip() or "dot"
+
+        if format == "svg":
+            dot_str = render_dot_from_ir(ir_model)
+            svg_bytes = render_svg_from_dot(dot_str, engine=engine)
+            return Response(
+                content=svg_bytes,
+                media_type="image/svg+xml",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.svg"'},
+            )
+
+        elif format == "dot":
+            dot_str = render_dot_from_ir(ir_model)
+            return Response(
+                content=dot_str,
+                media_type="text/vnd.graphviz",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.dot"'},
+            )
+
+        elif format == "dot_drawio":
+            flat_dot = render_dot_drawio(ir_model)
+            return Response(
+                content=flat_dot,
+                media_type="text/vnd.graphviz",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}_drawio.dot"'},
+            )
+
+        elif format == "drawio":
+            drawio_bytes = render_drawio(ir_model, engine=engine)
+            return Response(
+                content=drawio_bytes,
+                media_type="application/xml",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.drawio"'},
+            )
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        log.exception("diagram_export: unexpected error")
+        raise HTTPException(status_code=500, detail=f"Export failed: {exc}")
 
 # ===================== /message =========================
 @app.post("/message")
@@ -493,6 +638,16 @@ async def message(
     # ===================== DIAGRAMA =====================
     # The orchestrator now generates DOT and renders SVG with Graphviz.
     diagram_obj = result.get("diagram") or {}
+
+    # Persist diagram data in arch_flow for later export via /diagram/export
+    if diagram_obj.get("ok") and diagram_obj.get("dot"):
+        arch_flow["last_diagram"] = {
+            "dot": diagram_obj.get("dot", ""),
+            "dot_raw": diagram_obj.get("dot_raw", ""),
+            "dot_drawio": diagram_obj.get("dot_drawio", ""),
+            "detail_level": diagram_obj.get("detail_level", "overview"),
+            "overview_mapping": diagram_obj.get("overview_mapping"),
+        }
 
     # If user explicitly asked for a deployment diagram, mark the stage.
     if _wants_deployment(message):
