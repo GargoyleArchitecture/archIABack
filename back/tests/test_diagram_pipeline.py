@@ -504,7 +504,9 @@ class TestDrawioExport:
         # Count vertex cells (exclude the two default parent cells)
         cells = root.findall(".//{http://www.w3.org/1999/xhtml}mxCell") or root.findall(".//mxCell")
         vertex_cells = [c for c in cells if c.get("vertex") == "1"]
-        assert len(vertex_cells) == len(model.nodes)
+        # vertex_cells = regular nodes + container cells for groups
+        assert len(vertex_cells) >= len(model.nodes)
+        assert len(vertex_cells) <= len(model.nodes) + len(model.groups)
 
     def test_preserves_edge_count(self):
         model = _make_sample_model()
@@ -519,7 +521,7 @@ class TestDrawioExport:
         xml_bytes = render_drawio(model)
         root = ET.fromstring(xml_bytes)
         geometries = root.findall(".//{http://www.w3.org/1999/xhtml}mxGeometry") or root.findall(".//mxGeometry")
-        # Every cell (node + edge) should have geometry
+        # Every cell (node + edge + containers) should have geometry
         assert len(geometries) >= len(model.nodes)
 
     def test_edge_sources_and_targets(self):
@@ -533,6 +535,58 @@ class TestDrawioExport:
         for ec in edge_cells:
             assert ec.get("source") in all_ids, f"Edge source {ec.get('source')} not found"
             assert ec.get("target") in all_ids, f"Edge target {ec.get('target')} not found"
+
+    def test_has_container_cells(self):
+        """Groups should produce container cells with container=1 style."""
+        model = _make_sample_model()
+        xml_bytes = render_drawio(model)
+        root = ET.fromstring(xml_bytes)
+        cells = root.findall(".//{http://www.w3.org/1999/xhtml}mxCell") or root.findall(".//mxCell")
+        vertex_cells = [c for c in cells if c.get("vertex") == "1"]
+        container_cells = [
+            c for c in vertex_cells
+            if "container=1" in (c.get("style") or "")
+        ]
+        # The sample model has 3 groups; all should have containers
+        # (both with Graphviz and with grid fallback)
+        assert len(container_cells) == len(model.groups)
+
+    def test_nodes_in_containers_have_parent(self):
+        """Nodes belonging to groups should have parent set to container cell."""
+        model = _make_sample_model()
+        xml_bytes = render_drawio(model)
+        root = ET.fromstring(xml_bytes)
+        cells = root.findall(".//{http://www.w3.org/1999/xhtml}mxCell") or root.findall(".//mxCell")
+        vertex_cells = [c for c in cells if c.get("vertex") == "1"]
+        container_ids = {
+            c.get("id") for c in vertex_cells
+            if "container=1" in (c.get("style") or "")
+        }
+        non_container_vertices = [
+            c for c in vertex_cells
+            if "container=1" not in (c.get("style") or "")
+        ]
+        # Nodes that belong to groups should have a container parent
+        grouped_count = sum(1 for n in model.nodes if n.group_id)
+        in_container = [c for c in non_container_vertices if c.get("parent") in container_ids]
+        assert len(in_container) == grouped_count
+
+    def test_simple_model_no_containers(self):
+        """A model with no groups should have zero container cells."""
+        model = DiagramModel(
+            nodes=[
+                DiagramNode(id="a", label="A"),
+                DiagramNode(id="b", label="B"),
+            ],
+            edges=[DiagramEdge(source_id="a", target_id="b")],
+        )
+        xml_bytes = render_drawio(model)
+        root = ET.fromstring(xml_bytes)
+        cells = root.findall(".//{http://www.w3.org/1999/xhtml}mxCell") or root.findall(".//mxCell")
+        vertex_cells = [c for c in cells if c.get("vertex") == "1"]
+        container_cells = [c for c in vertex_cells if "container=1" in (c.get("style") or "")]
+        assert len(container_cells) == 0
+        assert len(vertex_cells) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -293,13 +293,57 @@ def render_dot_drawio(model: DiagramModel) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Native draw.io / mxGraph XML export
+# Native draw.io / mxGraph XML export  –  HIGH FIDELITY
+# ---------------------------------------------------------------------------
+
+_DPI = 72.0           # Graphviz: 72 points per inch
+_GV_PAD = 8.0         # small padding around the canvas
+
+# Node styles keyed by NodeKind
+_DRAWIO_NODE_STYLES: Dict[NodeKind, str] = {
+    NodeKind.SERVICE:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#2D3748;fontColor=#FFFFFF;strokeColor=#4A5568;",
+    NodeKind.DATABASE:     "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#2B6CB0;fontColor=#FFFFFF;strokeColor=#4A5568;",
+    NodeKind.QUEUE:        "rounded=1;whiteSpace=wrap;html=1;fillColor=#D69E2E;fontColor=#FFFFFF;strokeColor=#B7791F;",
+    NodeKind.CACHE:        "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#E53E3E;fontColor=#FFFFFF;strokeColor=#C53030;",
+    NodeKind.GATEWAY:      "shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#38A169;fontColor=#FFFFFF;strokeColor=#276749;",
+    NodeKind.LOADBALANCER: "rounded=1;whiteSpace=wrap;html=1;fillColor=#319795;fontColor=#FFFFFF;strokeColor=#285E61;",
+    NodeKind.CDN:          "rounded=1;whiteSpace=wrap;html=1;fillColor=#805AD5;fontColor=#FFFFFF;strokeColor=#6B46C1;",
+    NodeKind.CLIENT:       "rounded=1;whiteSpace=wrap;html=1;fillColor=#4A5568;fontColor=#FFFFFF;strokeColor=#2D3748;",
+    NodeKind.EXTERNAL:     "rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#718096;fontColor=#FFFFFF;strokeColor=#4A5568;",
+    NodeKind.CLUSTER:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#4A5568;fontColor=#FFFFFF;strokeColor=#2D3748;shadow=1;",
+    NodeKind.GENERIC:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#2D3748;fontColor=#FFFFFF;strokeColor=#4A5568;",
+}
+
+# Container (cluster) style
+_DRAWIO_CONTAINER_STYLE = (
+    "rounded=1;whiteSpace=wrap;html=1;container=1;collapsible=0;"
+    "fillColor=#1A202C;fontColor=#CBD5E0;strokeColor=#718096;"
+    "verticalAlign=top;fontStyle=1;fontSize=12;spacingTop=5;"
+)
+
+# Edge base + per-kind modifiers
+_DRAWIO_EDGE_BASE = (
+    "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;"
+    "jettySize=auto;html=1;strokeColor=#A0AEC0;fontColor=#FFFFFF;"
+)
+
+_DRAWIO_EDGE_MODS: Dict[EdgeKind, str] = {
+    EdgeKind.ASYNC:   "dashed=1;",
+    EdgeKind.DATA:    "strokeColor=#63B3ED;strokeWidth=2;",
+    EdgeKind.DEPENDS: "dashed=1;strokeColor=#FC8181;",
+    EdgeKind.SYNC:    "",
+    EdgeKind.GENERIC: "",
+}
+
+
+# ---------------------------------------------------------------------------
+#  Graphviz JSON helpers
 # ---------------------------------------------------------------------------
 
 def _graphviz_json_layout(dot_string: str, engine: str = "dot") -> Optional[Dict[str, Any]]:
-    """Run Graphviz with -Tjson to get node positions and edge routes.
+    """Run Graphviz with ``-Tjson`` to obtain computed positions.
 
-    Returns the parsed JSON dict, or None if Graphviz is unavailable.
+    Returns the parsed JSON dict, or ``None`` if Graphviz is unavailable.
     """
     try:
         result = subprocess.run(
@@ -319,138 +363,271 @@ def _graphviz_json_layout(dot_string: str, engine: str = "dot") -> Optional[Dict
 
 
 def _gv_point(pt_str: str) -> Tuple[float, float]:
-    """Parse a Graphviz point string "x,y" into (x, y) floats."""
+    """Parse a Graphviz point string ``"x,y"`` into ``(x, y)`` floats."""
     parts = pt_str.replace(",", " ").split()
     return float(parts[0]), float(parts[1])
 
 
+def _parse_gv_bb(bb_str: str) -> Tuple[float, float, float, float]:
+    """Parse a Graphviz bounding-box ``"llx,lly,urx,ury"``."""
+    parts = bb_str.replace(",", " ").split()
+    return float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3])
+
+
+# ---------------------------------------------------------------------------
+#  Position-extraction back-ends
+# ---------------------------------------------------------------------------
+
+def _extract_gv_positions(
+    layout: Dict[str, Any],
+) -> Tuple[
+    Dict[str, Tuple[float, float, float, float]],      # node_id → (x, y, w, h)
+    Dict[str, Tuple[float, float, float, float]],      # cluster_id → (x, y, w, h)
+    float,                                               # canvas_width
+    float,                                               # canvas_height
+]:
+    """Convert Graphviz JSON positions to draw.io coordinates.
+
+    * Flips Y-axis  (Graphviz bottom-up → draw.io top-down).
+    * Converts node centre + inches → top-left + pixels.
+    * Extracts cluster bounding boxes.
+    """
+    bb_str = layout.get("bb", "0,0,800,600")
+    gx1, gy1, gx2, gy2 = _parse_gv_bb(bb_str)
+    max_y = gy2
+    canvas_w = gx2 - gx1 + 2 * _GV_PAD
+    canvas_h = gy2 - gy1 + 2 * _GV_PAD
+
+    node_geom: Dict[str, Tuple[float, float, float, float]] = {}
+    cluster_geom: Dict[str, Tuple[float, float, float, float]] = {}
+
+    for obj in layout.get("objects", []):
+        name = obj.get("name", "")
+
+        if "pos" in obj:
+            # ---- regular node ----
+            cx, cy = _gv_point(obj["pos"])
+            w = float(obj.get("width", "1.5")) * _DPI
+            h = float(obj.get("height", "0.5")) * _DPI
+            x = cx - w / 2 + _GV_PAD - gx1
+            y = (max_y - cy) - h / 2 + _GV_PAD
+            node_geom[name] = (x, y, w, h)
+
+        elif "bb" in obj and name.startswith("cluster"):
+            # ---- cluster / subgraph ----
+            bx1, by1, bx2, by2 = _parse_gv_bb(obj["bb"])
+            x = bx1 - gx1 + _GV_PAD
+            y = (max_y - by2) + _GV_PAD       # flip
+            w = bx2 - bx1
+            h = by2 - by1
+            cluster_geom[name] = (x, y, w, h)
+
+    return node_geom, cluster_geom, canvas_w, canvas_h
+
+
+def _grid_positions(
+    model: DiagramModel,
+) -> Tuple[
+    Dict[str, Tuple[float, float, float, float]],
+    Dict[str, Tuple[float, float, float, float]],
+    float,
+    float,
+]:
+    """Fallback grid layout when Graphviz JSON is unavailable.
+
+    Creates containers for groups and places nodes inside them.
+    All coordinates are *absolute* draw.io pixels.
+    """
+    NODE_W, NODE_H = 140.0, 50.0
+    COL_STEP, ROW_STEP = 180.0, 80.0
+    PAD = 20.0
+    LABEL_H = 30.0   # vertical space for cluster label
+
+    node_geom: Dict[str, Tuple[float, float, float, float]] = {}
+    cluster_geom: Dict[str, Tuple[float, float, float, float]] = {}
+
+    x_offset = PAD
+
+    # --- grouped nodes (inside cluster containers) ---
+    for group in model.groups:
+        members = model.nodes_in_group(group.id)
+        if not members:
+            continue
+        members_sorted = sorted(members, key=lambda n: n.id)
+        cols = max(1, min(len(members_sorted), 3))
+        rows = (len(members_sorted) + cols - 1) // cols
+        cluster_w = PAD * 2 + cols * COL_STEP
+        cluster_h = PAD + LABEL_H + rows * ROW_STEP + PAD
+        cluster_x = x_offset
+        cluster_y = PAD
+        cluster_geom[group.id] = (cluster_x, cluster_y, cluster_w, cluster_h)
+
+        for i, node in enumerate(members_sorted):
+            r, c = divmod(i, cols)
+            nx = cluster_x + PAD + c * COL_STEP + (COL_STEP - NODE_W) / 2
+            ny = cluster_y + PAD + LABEL_H + r * ROW_STEP + (ROW_STEP - NODE_H) / 2
+            node_geom[node.id] = (nx, ny, NODE_W, NODE_H)
+
+        x_offset += cluster_w + PAD
+
+    # --- ungrouped nodes ---
+    ungrouped = sorted(
+        [n for n in model.nodes if not n.group_id],
+        key=lambda n: n.id,
+    )
+    for i, node in enumerate(ungrouped):
+        nx = x_offset + (COL_STEP - NODE_W) / 2
+        ny = PAD + i * ROW_STEP + (ROW_STEP - NODE_H) / 2
+        node_geom[node.id] = (nx, ny, NODE_W, NODE_H)
+
+    # canvas dimensions
+    heights: List[float] = []
+    for gid in cluster_geom:
+        _, cy, _, ch = cluster_geom[gid]
+        heights.append(cy + ch)
+    if ungrouped:
+        heights.append(PAD + len(ungrouped) * ROW_STEP)
+    canvas_w = max(800.0, x_offset + (COL_STEP + PAD if ungrouped else 0))
+    canvas_h = max(600.0, (max(heights) if heights else PAD) + PAD)
+
+    return node_geom, cluster_geom, canvas_w, canvas_h
+
+
+# ---------------------------------------------------------------------------
+#  Main draw.io renderer
+# ---------------------------------------------------------------------------
+
 def render_drawio(model: DiagramModel, engine: str = "dot") -> bytes:
     """Render a ``DiagramModel`` as a native draw.io / mxGraph XML file.
 
-    Strategy:
-    1. Render the IR to DOT via ``render_dot()``.
-    2. Use Graphviz ``-Tjson`` to get computed positions.
-    3. Build mxGraph XML with those positions so the result looks similar
-       to the SVG output.
-    4. If Graphviz JSON is unavailable, fall back to a simple grid layout.
+    Strategy
+    --------
+    1. Render the IR to full-fidelity DOT (with clusters).
+    2. Run ``dot -Tjson`` to extract Graphviz-computed layout.
+    3. Build mxGraph XML with:
+       - **Container cells** for clusters (from Graphviz bounding-boxes).
+       - **Node cells** at Graphviz-computed positions **inside** their
+         parent containers (coordinates are relative to container).
+       - **Edge cells** with orthogonal auto-routing between the
+         correctly-positioned nodes.
+    4. Y-axis is flipped (Graphviz bottom-up → draw.io top-down).
+    5. Falls back to a grid layout if Graphviz is unavailable.
 
-    All nodes and all edges are preserved.
+    The resulting ``.drawio`` file preserves the same visual structure
+    as the SVG so architects can open and edit it immediately.
     """
-    # Step 1: Get DOT
+    # Step 1 — DOT
     dot_string = render_dot(model)
 
-    # Step 2: Try to get layout from Graphviz
+    # Step 2 — Graphviz JSON layout (or fallback)
     layout = _graphviz_json_layout(dot_string, engine=engine)
+    if layout:
+        node_geom, cluster_geom, canvas_w, canvas_h = _extract_gv_positions(layout)
+    else:
+        node_geom, cluster_geom, canvas_w, canvas_h = _grid_positions(model)
 
-    # Build position maps
-    node_positions: Dict[str, Tuple[float, float, float, float]] = {}  # id -> (x, y, w, h)
-    if layout and "objects" in layout:
-        for obj in layout["objects"]:
-            name = obj.get("name", "")
-            bb = obj.get("bb", "")
-            pos = obj.get("pos", "")
-            width = float(obj.get("width", 1.5)) * 72   # inches -> points
-            height = float(obj.get("height", 0.75)) * 72
-            if pos:
-                x, y = _gv_point(pos)
-                node_positions[name] = (x - width / 2, y - height / 2, width, height)
-
-    # Fallback: grid layout
-    if not node_positions:
-        col_width = 200
-        row_height = 80
-        cols = max(1, int(len(model.nodes) ** 0.5) + 1)
-        for i, node in enumerate(model.nodes):
-            row = i // cols
-            col = i % cols
-            node_positions[node.id] = (
-                40 + col * col_width,
-                40 + row * row_height,
-                140,
-                50,
-            )
-
-    # Step 3: Build mxGraph XML
+    # Step 3 — Build mxGraph XML
     mxfile = ET.Element("mxfile", host="app.diagrams.net", type="device")
     diagram_el = ET.SubElement(mxfile, "diagram", name="Architecture", id="arch_1")
-    mx_model = ET.SubElement(diagram_el, "mxGraphModel",
-                             dx="0", dy="0", grid="1", gridSize="10",
-                             guides="1", tooltips="1", connect="1",
-                             arrows="1", fold="1", page="1",
-                             pageScale="1", pageWidth="1169", pageHeight="827")
+    mx_model = ET.SubElement(
+        diagram_el, "mxGraphModel",
+        dx="0", dy="0", grid="1", gridSize="10",
+        guides="1", tooltips="1", connect="1",
+        arrows="1", fold="1", page="1",
+        pageScale="1",
+        pageWidth=str(max(1169, int(canvas_w) + 100)),
+        pageHeight=str(max(827, int(canvas_h) + 100)),
+    )
     root = ET.SubElement(mx_model, "root")
 
-    # Default parent cells required by mxGraph
+    # Default parent cells (required by mxGraph)
     ET.SubElement(root, "mxCell", id="0")
     ET.SubElement(root, "mxCell", id="1", parent="0")
 
-    # Cell ID allocator
-    cell_id_counter = 2
+    cell_counter = 2
     node_cell_ids: Dict[str, str] = {}
+    cluster_cell_ids: Dict[str, str] = {}
 
-    # Style mapping
-    _DRAWIO_STYLES: Dict[NodeKind, str] = {
-        NodeKind.SERVICE:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#2D3748;fontColor=#FFFFFF;strokeColor=#4A5568;",
-        NodeKind.DATABASE:     "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#2B6CB0;fontColor=#FFFFFF;strokeColor=#4A5568;",
-        NodeKind.QUEUE:        "rounded=1;whiteSpace=wrap;html=1;fillColor=#D69E2E;fontColor=#FFFFFF;strokeColor=#B7791F;",
-        NodeKind.CACHE:        "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#E53E3E;fontColor=#FFFFFF;strokeColor=#C53030;",
-        NodeKind.GATEWAY:      "shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#38A169;fontColor=#FFFFFF;strokeColor=#276749;",
-        NodeKind.LOADBALANCER: "rounded=1;whiteSpace=wrap;html=1;fillColor=#319795;fontColor=#FFFFFF;strokeColor=#285E61;",
-        NodeKind.CDN:          "rounded=1;whiteSpace=wrap;html=1;fillColor=#805AD5;fontColor=#FFFFFF;strokeColor=#6B46C1;",
-        NodeKind.CLIENT:       "rounded=1;whiteSpace=wrap;html=1;fillColor=#4A5568;fontColor=#FFFFFF;strokeColor=#2D3748;",
-        NodeKind.EXTERNAL:     "rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#718096;fontColor=#FFFFFF;strokeColor=#4A5568;",
-        NodeKind.CLUSTER:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#4A5568;fontColor=#FFFFFF;strokeColor=#2D3748;shadow=1;",
-        NodeKind.GENERIC:      "rounded=1;whiteSpace=wrap;html=1;fillColor=#2D3748;fontColor=#FFFFFF;strokeColor=#4A5568;",
-    }
+    # ---- cluster container cells ----
+    for group in model.groups:
+        if group.id not in cluster_geom:
+            continue
+        cell_id = str(cell_counter)
+        cell_counter += 1
+        cluster_cell_ids[group.id] = cell_id
 
-    # --- Nodes ---
+        gx, gy, gw, gh = cluster_geom[group.id]
+
+        cell = ET.SubElement(
+            root, "mxCell",
+            id=cell_id,
+            value=_escape_xml(group.label),
+            style=_DRAWIO_CONTAINER_STYLE,
+            vertex="1",
+            parent="1",
+        )
+        ET.SubElement(
+            cell, "mxGeometry",
+            x=str(round(gx)), y=str(round(gy)),
+            width=str(round(gw)), height=str(round(gh)),
+            **{"as": "geometry"},
+        )
+
+    # ---- node cells ----
     for node in model.nodes:
-        cell_id = str(cell_id_counter)
-        cell_id_counter += 1
+        cell_id = str(cell_counter)
+        cell_counter += 1
         node_cell_ids[node.id] = cell_id
 
-        x, y, w, h = node_positions.get(node.id, (40, 40, 140, 50))
-        style = _DRAWIO_STYLES.get(node.kind, _DRAWIO_STYLES[NodeKind.GENERIC])
+        abs_x, abs_y, w, h = node_geom.get(node.id, (40.0, 40.0, 140.0, 50.0))
 
-        cell = ET.SubElement(root, "mxCell",
-                             id=cell_id,
-                             value=_escape_xml(node.label),
-                             style=style,
-                             vertex="1",
-                             parent="1")
-        ET.SubElement(cell, "mxGeometry",
-                      x=str(round(x)),
-                      y=str(round(y)),
-                      width=str(round(w)),
-                      height=str(round(h)),
-                      **{"as": "geometry"})
+        # Determine parent: container or root layer
+        parent_id = "1"
+        if node.group_id and node.group_id in cluster_cell_ids:
+            parent_id = cluster_cell_ids[node.group_id]
+            # Convert absolute → relative to container top-left
+            cx, cy, _, _ = cluster_geom[node.group_id]
+            abs_x -= cx
+            abs_y -= cy
 
-    # --- Edges ---
+        style = _DRAWIO_NODE_STYLES.get(node.kind, _DRAWIO_NODE_STYLES[NodeKind.GENERIC])
+
+        cell = ET.SubElement(
+            root, "mxCell",
+            id=cell_id,
+            value=_escape_xml(node.label),
+            style=style,
+            vertex="1",
+            parent=parent_id,
+        )
+        ET.SubElement(
+            cell, "mxGeometry",
+            x=str(round(abs_x)), y=str(round(abs_y)),
+            width=str(round(w)), height=str(round(h)),
+            **{"as": "geometry"},
+        )
+
+    # ---- edge cells ----
     for edge in model.edges:
-        cell_id = str(cell_id_counter)
-        cell_id_counter += 1
+        cell_id = str(cell_counter)
+        cell_counter += 1
 
         src_cell = node_cell_ids.get(edge.source_id, "1")
         tgt_cell = node_cell_ids.get(edge.target_id, "1")
 
-        edge_style = "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;"
-        if edge.kind == EdgeKind.ASYNC:
-            edge_style += "dashed=1;"
-        elif edge.kind == EdgeKind.DATA:
-            edge_style += "strokeColor=#63B3ED;strokeWidth=2;"
-        elif edge.kind == EdgeKind.DEPENDS:
-            edge_style += "dashed=1;strokeColor=#FC8181;"
-
+        edge_style = _DRAWIO_EDGE_BASE + _DRAWIO_EDGE_MODS.get(edge.kind, "")
         value = _escape_xml(edge.label) if edge.label else ""
 
-        cell = ET.SubElement(root, "mxCell",
-                             id=cell_id,
-                             value=value,
-                             style=edge_style,
-                             edge="1",
-                             source=src_cell,
-                             target=tgt_cell,
-                             parent="1")
+        cell = ET.SubElement(
+            root, "mxCell",
+            id=cell_id,
+            value=value,
+            style=edge_style,
+            edge="1",
+            source=src_cell,
+            target=tgt_cell,
+            parent="1",
+        )
         ET.SubElement(cell, "mxGeometry", relative="1", **{"as": "geometry"})
 
     # Serialize
