@@ -1,10 +1,7 @@
-
-from typing import Literal
-from langchain_core.messages import SystemMessage
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
 from src.graph.index_resolver import resolve_quality_attribute
-import os
+from src.graph.qa_registry import normalize_qa, supported_qas
 
 llm = get_chat_model(temperature=0.0)
 
@@ -19,13 +16,24 @@ FOLLOWUP_PATTERNS = [
 ]
 
 def classifier_node(state: GraphState) -> GraphState:
+    """Clasifica intención/idioma y fija QA operativo para el turno.
+
+    Además de "resolved_index" (para RAG), este nodo propaga
+    "quality_attribute" para que supervisor/router puedan decidir nodos
+    específicos por QA (p. ej. style_latency vs style_scalability).
+    """
     msg = state.get("userQuestion", "") or ""
+    qa_ids = supported_qas()
+    qa_opts = qa_ids + ["general"]
+    qa_opts_str = ", ".join(f'"{q}"' for q in qa_opts)
     prompt = f"""
 Classify the user's last message. Return JSON with:
 - language: "en" or "es"
 - intent: one of ["greeting","smalltalk","architecture","diagram","asr","tactics","style","other"]
 - use_rag: true if this is a software-architecture question (ADD, tactics, latency, scalability,
   quality attributes, views, styles, diagrams, ASR), else false.
+- quality_attribute: one of [{qa_opts_str}].
+  Use "general" only if no clear quality attribute is requested.
 
 User message:
 {msg}
@@ -66,10 +74,33 @@ User message:
     # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
     lang = state.get("language") or out["language"]
 
-    # Resolución del índice QA: sólo si la pregunta es de arquitectura (use_rag)
+    # QA primario clasificado junto al intent (misma invocación del classifier).
+    qa_from_classifier = normalize_qa(out.get("quality_attribute", "general"))
+
+    # Resolución del índice QA para RAG.
+    # Regla: usar QA del classifier primero; si no, resolver por fallback.
     resolved_index = "general"
     if out["use_rag"]:
-        resolved_index = resolve_quality_attribute(msg, llm)
+        if qa_from_classifier != "general":
+            resolved_index = qa_from_classifier
+        else:
+            resolved_index = resolve_quality_attribute(msg, llm)
+
+    # QA operativo del turno (prioridad):
+    # 1) QA clasificado junto al intent,
+    # 2) índice resuelto para RAG,
+    # 3) valor previo del estado (continuidad).
+    resolved_qa = normalize_qa(resolved_index)
+    prev_qa = normalize_qa(state.get("quality_attribute", ""))
+
+    if qa_from_classifier != "general":
+        quality_attribute = qa_from_classifier
+    elif resolved_qa != "general":
+        quality_attribute = resolved_qa
+    elif prev_qa != "general":
+        quality_attribute = prev_qa
+    else:
+        quality_attribute = "general"
 
     return {
         **state,
@@ -86,4 +117,5 @@ User message:
 
         "force_rag": bool(out["use_rag"]),
         "resolved_index": resolved_index,
+        "quality_attribute": quality_attribute,
     }

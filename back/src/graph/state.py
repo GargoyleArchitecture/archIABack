@@ -82,6 +82,7 @@ class ClassifyOut(TypedDict):
     language: Literal["en","es"]
     intent: Literal["greeting","smalltalk","architecture","diagram","asr","tactics","style","other"]
     use_rag: bool
+    quality_attribute: str
 
 # ========== Tactics Schemas
 

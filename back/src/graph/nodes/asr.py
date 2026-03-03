@@ -1,27 +1,40 @@
-
 # -*- coding: utf-8 -*-
 import re
-from langchain_core.messages import AIMessage
 
+from langchain_core.messages import AIMessage
+from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
-from src.graph.resources import llm, retriever, rag_trace_record
-from src.rag_agent import get_indexed_retriever
 from src.graph.utils import (
-    _clip_text, 
-    _dedupe_snippets, 
-    _sanitize_plain_text, 
-    _strip_tactics_sections
+    _clip_text,
+    _dedupe_snippets,
+    _sanitize_plain_text,
+    _strip_tactics_sections,
 )
+from src.rag_agent import get_indexed_retriever
+from src.graph.qa_registry import normalize_qa, qa_to_focus_label
+
 
 def asr_node(state: GraphState) -> GraphState:
+    """Genera ASR y deja QA coherente para nodos siguientes (style/tactics)."""
     lang = state.get("language", "es")
     uq = state.get("userQuestion", "") or ""
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
 
     # Heurística del atributo
-    concern = "scalability" if re.search(r"scalab", uq, re.I) else \
-              "latency"     if re.search(r"latenc", uq, re.I) else "performance"
+    concern = (
+        "scalability"
+        if re.search(r"scalab", uq, re.I)
+        else "latency"
+        if re.search(r"latenc", uq, re.I)
+        else "performance"
+    )
+
+    # QA operativo para el pipeline: prioriza classifier (resolved_index) cuando exista.
+    qa_from_classifier = normalize_qa(state.get("resolved_index", ""))
+    qa_from_text = normalize_qa(concern)
+    qa_pipeline = qa_from_classifier if qa_from_classifier != "general" else qa_from_text
+    qa_focus = qa_to_focus_label(qa_pipeline, default=concern)
 
     # Dominio típico si el usuario no lo da
     low = uq.lower()
@@ -38,9 +51,9 @@ def asr_node(state: GraphState) -> GraphState:
     docs_list = []
     if state.get("force_rag", False) and not doc_only:
         try:
-            query = f"{concern} quality attribute scenario latency measure stimulus environment artifact response response measure"
+            query = f"{qa_focus} quality attribute scenario latency measure stimulus environment artifact response response measure"
             _retriever = get_indexed_retriever(
-                quality_attribute=state.get("resolved_index"),
+                quality_attribute=(state.get("resolved_index") or qa_pipeline),
                 content_type="asr",
                 k=6,
             )
@@ -53,24 +66,27 @@ def asr_node(state: GraphState) -> GraphState:
     book_snippets = _dedupe_snippets(docs_list, max_items=6, max_chars=800)
 
     directive = "Answer in English." if lang == "en" else "Responde en español."
-    ctx = (ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")).strip()[:2000]
+    ctx = (
+        ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")
+    ).strip()[:2000]
 
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
-Your job is to create ONE concrete Quality Attribute Scenario (Architecture Significant Requirement, ASR)
+Your job is to create 1-5 concrete Architecture Significant Requirement(s) (ASR)
 that will be used as an architectural driver.
 
-The scenario MUST:
+Each ASR MUST:
 - Follow the classic QAS structure: Source, Stimulus, Environment, Artifact, Response, Response Measure.
-- Be measurable, with a clear Response Measure (SLO/SLA, e.g. p95 < X ms under Y load, error rate, availability, etc.).
+- Be measurable, with a clear SINGLE Response Measure (SLO/SLA, e.g. p95 < X ms under Y load, error rate, availability, etc.).
 - Be realistic for production systems in the given domain.
+- Follow a single quality attribute focus (e.g. latency, scalability, availability) inferred from the user question.
 
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 
 Quality attribute focus inferred from the user message:
-{concern}
+{qa_focus}
 
 User input to ground this ASR:
 {uq}
@@ -100,7 +116,7 @@ Rules:
   on its own line exactly as shown above.
 - Do NOT add any other sections (no 'Architectural Driver Summary', no 'Summary', no 'Context' headings).
 - Do NOT talk about tactics, styles or next steps here.
-- Keep the numbers realistic and monitorable (p95 / p99, RPS, error rate, availability, etc.).
+- Keep the numbers realistic and measurable (p95 / p99, RPS, error rate, availability, etc.).
 - Answer entirely in the requested language.
 """
 
@@ -111,18 +127,20 @@ Rules:
 
     # === Fuentes (si hubo RAG) ===
     src_lines = []
-    for d in (docs_list or []):
+    for d in docs_list or []:
         md = d.metadata or {}
         title = md.get("source_title") or md.get("title") or "doc"
-        page  = md.get("page_label") or md.get("page")
-        path  = md.get("source_path") or md.get("source") or ""
+        page = md.get("page_label") or md.get("page")
+        path = md.get("source_path") or md.get("source") or ""
         page_str = f" (p.{page})" if page is not None else ""
         src_lines.append(f"- {title}{page_str} — {path}")
     if src_lines:
         src_lines = [_clip_text(s, 60) for s in src_lines]
         src_lines = list(dict.fromkeys(src_lines))[:4]
 
-    src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
+    src_block = "SOURCES:\n" + (
+        "\n".join(src_lines) if src_lines else "- (no local sources)"
+    )
 
     # Traza + memoria de turno
     state["turn_messages"] = state.get("turn_messages", []) + [
@@ -137,14 +155,17 @@ Rules:
 
     # Memoria viva del chat
     state["last_asr"] = content
-    refs_list = [ln.lstrip("- ").strip() for ln in src_block.splitlines()
-                 if ln.strip() and not ln.lower().startswith("sources")]
+    refs_list = [
+        ln.lstrip("- ").strip()
+        for ln in src_block.splitlines()
+        if ln.strip() and not ln.lower().startswith("sources")
+    ]
     state["asr_sources_list"] = refs_list
     prev_mem = state.get("memory_text", "") or ""
     state["memory_text"] = (prev_mem + f"\n\n[LAST_ASR]\n{content}\n").strip()
 
     # Metadatos
-    state["quality_attribute"] = concern
+    state["quality_attribute"] = qa_pipeline
     state["arch_stage"] = "ASR"
     state["current_asr"] = content
 
