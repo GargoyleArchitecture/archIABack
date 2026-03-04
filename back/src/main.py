@@ -272,13 +272,13 @@ def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
     if format == "svg":
         return Response(
             content=result,
-            media_type="image/svg+xml",
+            media_type="image/svg+xml; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="workflow.svg"'},
         )
     # DOT
     return Response(
         content=result,
-        media_type="text/vnd.graphviz",
+        media_type="text/vnd.graphviz; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="workflow.dot"'},
     )
 
@@ -289,6 +289,7 @@ def diagram_export(
     session_id: str = Query(..., description="Session that produced the diagram"),
     format: str = Query("svg", regex="^(svg|dot|dot_drawio|drawio)$"),
     detail_level: str = Query("overview", regex="^(overview|detailed)$"),
+    level: Optional[str] = Query(None, description="Diagram level: 1=overview, 2=medium, 3=detailed"),
     focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
 ):
     """Export the last generated architecture diagram in the requested format.
@@ -296,7 +297,8 @@ def diagram_export(
     Query params:
         session_id   : Session that produced the diagram (required).
         format       : ``svg`` | ``dot`` | ``dot_drawio`` | ``drawio`` (default: svg).
-        detail_level : ``overview`` | ``detailed`` (default: overview).
+        detail_level : ``overview`` | ``detailed`` (legacy; default: overview).
+        level        : ``1`` | ``2`` | ``3`` (optional, preferred).
         focus        : An overview node ID to expand (optional; requires detail_level=detailed).
 
     The ``dot_drawio`` format produces a flattened DOT file safe for draw.io import
@@ -305,17 +307,18 @@ def diagram_export(
     The ``drawio`` format produces a native .drawio (mxGraph XML) file.
     """
     from src.services.diagram_ir import (
-        DetailLevel,
+        DiagramLevel,
+        build_diagram_model,
         build_expanded_view,
-        build_overview,
+        parse_diagram_level,
         parse_dot_to_model,
+        to_detail_level,
     )
     from src.services.diagram_render import (
         render_dot as render_dot_from_ir,
         render_dot_drawio,
         render_drawio,
         render_svg as render_svg_from_dot,
-        render_svg_b64,
     )
 
     # Retrieve the last diagram for this session from memory
@@ -331,19 +334,30 @@ def diagram_export(
         )
 
     try:
-        # Parse DOT into IR
-        ir_model = parse_dot_to_model(dot_code)
+        requested_level = parse_diagram_level(level if level is not None else detail_level)
+        if focus and requested_level != DiagramLevel.DETAILED:
+            raise HTTPException(
+                status_code=400,
+                detail="Parameter 'focus' requires level=3 (or detail_level=detailed).",
+            )
 
-        # Apply detail level
-        overview_mapping = None
-        if detail_level == "overview":
-            ir_model, overview_mapping = build_overview(ir_model, max_nodes=15)
-        elif focus and last_diagram.get("overview_mapping"):
+        detailed_model = parse_dot_to_model(dot_code)
+        ir_model, level_mapping = build_diagram_model(
+            detailed_model,
+            requested_level,
+            overview_max_nodes=15,
+            medium_max_nodes=30,
+        )
+        detail_level_name = to_detail_level(requested_level).value
+
+        if focus:
+            mapping_for_focus = last_diagram.get("overview_mapping") or level_mapping
             ir_model = build_expanded_view(
-                ir_model,
-                last_diagram["overview_mapping"],
+                detailed_model,
+                mapping_for_focus,
                 focus,
             )
+            detail_level_name = "detailed"
 
         engine = os.getenv("GRAPHVIZ_ENGINE", "dot").strip() or "dot"
 
@@ -352,32 +366,32 @@ def diagram_export(
             svg_bytes = render_svg_from_dot(dot_str, engine=engine)
             return Response(
                 content=svg_bytes,
-                media_type="image/svg+xml",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.svg"'},
+                media_type="image/svg+xml; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.svg"'},
             )
 
         elif format == "dot":
             dot_str = render_dot_from_ir(ir_model)
             return Response(
                 content=dot_str,
-                media_type="text/vnd.graphviz",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.dot"'},
+                media_type="text/vnd.graphviz; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.dot"'},
             )
 
         elif format == "dot_drawio":
             flat_dot = render_dot_drawio(ir_model)
             return Response(
                 content=flat_dot,
-                media_type="text/vnd.graphviz",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}_drawio.dot"'},
+                media_type="text/vnd.graphviz; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}_drawio.dot"'},
             )
 
         elif format == "drawio":
             drawio_bytes = render_drawio(ir_model, engine=engine)
             return Response(
                 content=drawio_bytes,
-                media_type="application/xml",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.drawio"'},
+                media_type="application/xml; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.drawio"'},
             )
 
         else:
@@ -646,6 +660,7 @@ async def message(
             "dot_raw": diagram_obj.get("dot_raw", ""),
             "dot_drawio": diagram_obj.get("dot_drawio", ""),
             "detail_level": diagram_obj.get("detail_level", "overview"),
+            "level": diagram_obj.get("level", 1),
             "overview_mapping": diagram_obj.get("overview_mapping"),
         }
 

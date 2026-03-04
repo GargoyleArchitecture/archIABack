@@ -21,6 +21,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from src.services.diagram_ir import (
+    DiagramLevel,
     DetailLevel,
     DiagramEdge,
     DiagramGroup,
@@ -28,14 +29,18 @@ from src.services.diagram_ir import (
     DiagramNode,
     EdgeKind,
     NodeKind,
+    build_diagram_model,
     build_expanded_view,
     build_overview,
+    normalize_text,
+    parse_diagram_level,
     parse_dot_to_model,
 )
 from src.services.diagram_render import (
     render_dot,
     render_dot_drawio,
     render_drawio,
+    render_svg,
 )
 
 
@@ -104,6 +109,18 @@ digraph G {
     database [label="Database"];
     client -> server [label="HTTP"];
     server -> database [label="SQL"];
+}
+"""
+
+SAMPLE_DOT_UTF8 = """\
+digraph G {
+    bogota [label="Bogotá"];
+    nino [label="niño"];
+    decision [label="arquitectura—decisión"];
+    vocales [label="áéíóú"];
+    asia [label="服务"];
+    bogota -> nino [label="tráfico ñ"];
+    nino -> asia [label="ruta ✅"];
 }
 """
 
@@ -281,6 +298,53 @@ class TestParseDot:
 
 
 # ---------------------------------------------------------------------------
+# Tests – UTF-8 normalization and rendering safety
+# ---------------------------------------------------------------------------
+
+class TestUtf8:
+    def test_normalize_text_bytes_and_unicode(self):
+        assert normalize_text("nin\u0303o") == "niño"
+        assert normalize_text(b"Bogot\xc3\xa1") == "Bogotá"
+        assert "�" not in normalize_text(b"Bogot\xc3\xa1")
+
+    def test_parse_utf8_labels_preserved(self):
+        model = parse_dot_to_model(SAMPLE_DOT_UTF8)
+        labels = {n.label for n in model.nodes}
+        assert "Bogotá" in labels
+        assert "niño" in labels
+        assert "arquitectura—decisión" in labels
+        assert "áéíóú" in labels
+        assert "服务" in labels
+
+    def test_render_dot_keeps_utf8(self):
+        model = parse_dot_to_model(SAMPLE_DOT_UTF8)
+        dot = render_dot(model)
+        assert "Bogotá" in dot
+        assert "niño" in dot
+        assert "arquitectura—decisión" in dot
+        assert "服务" in dot
+        assert "�" not in dot
+
+    def test_render_svg_decodes_as_utf8(self, monkeypatch):
+        class _Result:
+            returncode = 0
+            stdout = "<svg><text>Bogotá niño 服务</text></svg>"
+            stderr = ""
+
+        def _fake_run(*_args, **kwargs):
+            assert kwargs.get("text") is True
+            assert kwargs.get("encoding") == "utf-8"
+            return _Result()
+
+        monkeypatch.setattr("src.services.diagram_render.subprocess.run", _fake_run)
+        svg_bytes = render_svg('digraph G { a [label="Bogotá"]; }')
+        svg = svg_bytes.decode("utf-8")
+        assert "Bogotá" in svg
+        assert "服务" in svg
+        assert "�" not in svg
+
+
+# ---------------------------------------------------------------------------
 # Tests – Overview generation
 # ---------------------------------------------------------------------------
 
@@ -333,6 +397,48 @@ class TestOverview:
         overview, mapping = build_overview(detailed, max_nodes=10)
         assert len(overview.nodes) < len(detailed.nodes)
         assert len(overview.nodes) <= 10
+
+
+# ---------------------------------------------------------------------------
+# Tests – Multi-level progressive disclosure
+# ---------------------------------------------------------------------------
+
+class TestDiagramLevels:
+    def test_default_level_is_overview(self):
+        detailed = _make_sample_model()
+        default_model, _ = build_diagram_model(detailed)
+        assert default_model.detail_level == DetailLevel.OVERVIEW
+
+    def test_level_parser_accepts_legacy_and_numeric(self):
+        assert parse_diagram_level(None) == DiagramLevel.OVERVIEW
+        assert parse_diagram_level("overview") == DiagramLevel.OVERVIEW
+        assert parse_diagram_level("2") == DiagramLevel.MEDIUM
+        assert parse_diagram_level("detailed") == DiagramLevel.DETAILED
+        with pytest.raises(ValueError, match="Supported levels: 1"):
+            parse_diagram_level("99")
+
+    def test_level_progressive_node_counts(self):
+        detailed = _make_sample_model()
+        level1, _ = build_diagram_model(detailed, 1)
+        level2, _ = build_diagram_model(detailed, 2)
+        level3, _ = build_diagram_model(detailed, 3)
+        assert len(level1.nodes) <= len(level2.nodes) <= len(level3.nodes)
+        assert level1.detail_level == DetailLevel.OVERVIEW
+        assert level2.detail_level == DetailLevel.MEDIUM
+        assert level3.detail_level == DetailLevel.DETAILED
+
+    def test_level3_preserves_detailed_render(self):
+        detailed = parse_dot_to_model(SAMPLE_DOT_DETAILED)
+        legacy_dot = render_dot(detailed)
+        level3, _ = build_diagram_model(detailed, 3)
+        assert render_dot(level3) == legacy_dot
+
+    def test_level2_requires_explicit_request(self):
+        detailed = _make_sample_model()
+        default_model, _ = build_diagram_model(detailed)
+        explicit_medium, _ = build_diagram_model(detailed, 2)
+        assert default_model.detail_level == DetailLevel.OVERVIEW
+        assert explicit_medium.detail_level == DetailLevel.MEDIUM
 
 
 # ---------------------------------------------------------------------------
