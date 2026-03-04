@@ -9,6 +9,38 @@ import os, re, sqlite3, base64
 
 log = logging.getLogger("main")
 
+# ===================== UTF-8 Encoding Fix =======================
+def fix_utf8_encoding(text: str) -> str:
+    """
+    Fix double-encoded UTF-8 text.
+    When UTF-8 bytes are misinterpreted as Latin-1 and re-encoded,
+    characters like "ó" become "Ã³" and "á" become "Ã¡".
+    This function detects and reverses that corruption.
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+    
+    try:
+        # Check if text has the pattern of double-encoded UTF-8
+        if re.search(r'[\u00C0-\u00DF][\u0080-\u00BF]', text):
+            # Convert to bytes as if it were Latin-1, then decode as UTF-8
+            fixed = text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
+            return fixed if fixed else text
+    except Exception:
+        pass
+    
+    return text
+
+def fix_utf8_recursive(obj):
+    """Recursively fix UTF-8 encoding in all strings within an object."""
+    if isinstance(obj, str):
+        return fix_utf8_encoding(obj)
+    elif isinstance(obj, list):
+        return [fix_utf8_recursive(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: fix_utf8_recursive(v) for k, v in obj.items()}
+    return obj
+
 from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
@@ -419,7 +451,7 @@ async def message(
     if not session_id:
         raise HTTPException(status_code=400, detail="No session ID provided")
 
-    # Identidad simple por sesiÃ³n
+    # Identidad simple por sesión
     user_id = request.headers.get("X-User-Id") or session_id
     arch_flow = load_arch_flow(user_id)
 
@@ -527,10 +559,10 @@ async def message(
 
     user_intent = "general"
     if not arch_flow.get("current_asr"):
-        # Si aÃºn no hay ASR, cualquier cosa va a ASR primero
+        # Si aún no hay ASR, cualquier cosa va a ASR primero
         user_intent = "asr"
     elif _wants_style(message):
-        # Ya hay ASR y el usuario estÃ¡ pidiendo estilos
+        # Ya hay ASR y el usuario está pidiendo estilos
         user_intent = "style"
     elif _wants_tactics(message):
         user_intent = "tactics"
@@ -543,7 +575,7 @@ async def message(
         graph.update_state(config, {"values": {
             "endMessage": "",
 
-            "diagram": {},  # FIX: dict vacÃ­o, no None
+            "diagram": {},  # FIX: dict vacío, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
             "requested_nodes": [],
@@ -554,7 +586,7 @@ async def message(
     except Exception:
         pass
 
-    # --- InvocaciÃ³n del grafo ---
+    # --- Invocación del grafo ---
     try:
         rag_trace_set_session(session_id)
         rag_trace_reset(session_id)
@@ -611,7 +643,7 @@ async def message(
     if "asr" in low:
         memory_set(user_id, "asr_notes", message)
 
-    # --- Captura ASR desde la respuesta del grafo (si redactÃ³ uno) ---
+    # --- Captura ASR desde la respuesta del grafo (si redactó uno) ---
     end_msg = result.get("endMessage", "") or ""
     asr_from_result = _extract_asr_from_result_text(end_msg)
     if asr_from_result:
@@ -643,7 +675,7 @@ async def message(
         arch_flow["stage"] = "STYLE"
 
 
-    # --- Persistir tÃ¡cticas si este turno fue de tÃ¡cticas ---
+    # --- Persistir tácticas si este turno fue de tácticas ---
     tactics_json = result.get("tactics_struct") or None
     tactics_md   = result.get("tactics_md") or ""
     if user_intent == "tactics" and (tactics_json or tactics_md):
@@ -673,7 +705,6 @@ async def message(
 
     # Ensure end message is defined.
     end_msg = end_msg.strip()
-
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
         "endMessage": end_msg,
@@ -685,6 +716,9 @@ async def message(
         "suggestions": result.get("suggestions", []),
         "rag_trace": rag_trace_get(session_id),
     }
+
+    # Fix any double-encoded UTF-8 in the response
+    clean_payload = fix_utf8_recursive(clean_payload)
 
     return JSONResponse(content=clean_payload, media_type="application/json; charset=utf-8")
 
@@ -715,6 +749,7 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
             {"name": "researcher", "text": "Mensaje del investigador"},
         ],
     }
+    test_response = fix_utf8_recursive(test_response)
     return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
 
 

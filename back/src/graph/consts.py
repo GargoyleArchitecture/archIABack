@@ -6,9 +6,9 @@ Constants and static prompts for the graph module.
 # ========== Tactics helpers
 TACTICS_HEADINGS = [
     r"design tactics(?: to consider)?",
-    r"tÃ¡cticas(?: de diseÃ±o)?",
+    r"tácticas(?: de diseño)?",
     r"arquitectural tactics",
-    r"decisiones (?:arquitectÃ³nicas|de diseÃ±o)",
+    r"decisiones (?:arquitectónicas|de diseño)",
 ]
 
 # --- Safe JSON example for tactics (avoid braces in f-strings) ---
