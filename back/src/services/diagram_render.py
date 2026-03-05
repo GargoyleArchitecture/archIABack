@@ -14,24 +14,20 @@ Supported formats:
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
-import os
 import re
 import subprocess
-import uuid
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.services.diagram_ir import (
-    DetailLevel,
     DiagramEdge,
-    DiagramGroup,
     DiagramModel,
     DiagramNode,
     EdgeKind,
     NodeKind,
+    normalize_text,
 )
 
 log = logging.getLogger("diagram_render")
@@ -84,19 +80,28 @@ _EDGE_STYLES: Dict[EdgeKind, Dict[str, str]] = {
 
 def _escape_dot_id(raw: str) -> str:
     """Escape for use as a DOT identifier."""
-    if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', raw):
-        return raw
-    return '"' + raw.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    text = normalize_text(raw).strip().replace("\n", "_").replace("\t", "_")
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", text):
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _escape_dot_label(raw: str) -> str:
     """Escape for use inside a DOT label= attribute."""
-    return raw.replace('\\', '\\\\').replace('"', '\\"').replace('<', '\\<').replace('>', '\\>')
+    text = normalize_text(raw)
+    return (
+        text
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("<", "\\<")
+        .replace(">", "\\>")
+    )
 
 
 def _escape_xml(text: str) -> str:
     """Minimal XML escaping for attribute values."""
-    return (text
+    return (normalize_text(text)
             .replace('&', '&amp;')
             .replace('<', '&lt;')
             .replace('>', '&gt;')
@@ -194,13 +199,16 @@ def render_svg(dot_string: str, engine: str = "dot") -> bytes:
     try:
         result = subprocess.run(
             [engine, "-Tsvg"],
-            input=dot_string.encode("utf-8"),
+            input=normalize_text(dot_string),
             capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         if result.returncode == 0:
-            return result.stdout
-        stderr = result.stderr.decode("utf-8", errors="replace")
+            return normalize_text(result.stdout).encode("utf-8")
+        stderr = normalize_text(result.stderr)
         log.warning("Graphviz render failed (exit %d): %s", result.returncode, stderr)
     except FileNotFoundError:
         log.info("System %s binary not found, trying python-graphviz", engine)
@@ -210,8 +218,8 @@ def render_svg(dot_string: str, engine: str = "dot") -> bytes:
     # Fallback: python-graphviz
     try:
         from graphviz import Source
-        src = Source(dot_string, format="svg", engine=engine)
-        return src.pipe(format="svg")
+        src = Source(normalize_text(dot_string), format="svg", engine=engine)
+        return normalize_text(src.pipe(format="svg")).encode("utf-8")
     except ImportError:
         raise RuntimeError(
             f"Neither system '{engine}' binary nor python-graphviz is available. "
@@ -348,15 +356,17 @@ def _graphviz_json_layout(dot_string: str, engine: str = "dot") -> Optional[Dict
     try:
         result = subprocess.run(
             [engine, "-Tjson"],
-            input=dot_string.encode("utf-8"),
+            input=normalize_text(dot_string),
             capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         if result.returncode != 0:
-            log.warning("Graphviz JSON layout failed: %s",
-                        result.stderr.decode("utf-8", errors="replace"))
+            log.warning("Graphviz JSON layout failed: %s", normalize_text(result.stderr))
             return None
-        return json.loads(result.stdout)
+        return json.loads(normalize_text(result.stdout))
     except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
         log.info("Graphviz JSON layout unavailable: %s", exc)
         return None

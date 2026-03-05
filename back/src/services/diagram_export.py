@@ -25,6 +25,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
+from src.services.diagram_ir import normalize_text
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -230,14 +232,15 @@ _DOT_STYLES: dict[NodeType, dict[str, str]] = {
 
 def _escape_dot_id(raw: str) -> str:
     """Escape a string for use as a DOT identifier."""
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", raw):
-        return raw
-    return '"' + raw.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    text = normalize_text(raw).strip().replace("\n", "_").replace("\t", "_")
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", text):
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _escape_dot_label(raw: str) -> str:
     """Escape a string for use inside a DOT label attribute."""
-    return raw.replace("\\", "\\\\").replace('"', '\\"')
+    return normalize_text(raw).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def render_dot(graph: GraphModel) -> str:
@@ -288,8 +291,11 @@ def render_svg(dot_string: str) -> bytes:
     try:
         result = subprocess.run(
             ["dot", "-Tsvg"],
-            input=dot_string.encode("utf-8"),
+            input=normalize_text(dot_string),
             capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except FileNotFoundError:
@@ -301,10 +307,10 @@ def render_svg(dot_string: str) -> bytes:
         raise RuntimeError("Graphviz rendering timed out (>30s).")
 
     if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="replace")
+        stderr = normalize_text(result.stderr)
         raise RuntimeError(f"Graphviz render failed (exit {result.returncode}): {stderr}")
 
-    return result.stdout
+    return normalize_text(result.stdout).encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +367,8 @@ def _cli_main(argv: Sequence[str] | None = None) -> None:
 
     if args.output:
         mode = "wb" if isinstance(result, bytes) else "w"
-        with open(args.output, mode) as fh:
+        open_kwargs = {"encoding": "utf-8"} if mode == "w" else {}
+        with open(args.output, mode, **open_kwargs) as fh:
             fh.write(result)
         print(f"Wrote {args.output}", file=sys.stderr)
     else:

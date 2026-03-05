@@ -9,6 +9,38 @@ import os, re, sqlite3, base64
 
 log = logging.getLogger("main")
 
+# ===================== UTF-8 Encoding Fix =======================
+def fix_utf8_encoding(text: str) -> str:
+    """
+    Fix double-encoded UTF-8 text.
+    When UTF-8 bytes are misinterpreted as Latin-1 and re-encoded,
+    characters like "ó" become "Ã³" and "á" become "Ã¡".
+    This function detects and reverses that corruption.
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+    
+    try:
+        # Check if text has the pattern of double-encoded UTF-8
+        if re.search(r'[\u00C0-\u00DF][\u0080-\u00BF]', text):
+            # Convert to bytes as if it were Latin-1, then decode as UTF-8
+            fixed = text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
+            return fixed if fixed else text
+    except Exception:
+        pass
+    
+    return text
+
+def fix_utf8_recursive(obj):
+    """Recursively fix UTF-8 encoding in all strings within an object."""
+    if isinstance(obj, str):
+        return fix_utf8_encoding(obj)
+    elif isinstance(obj, list):
+        return [fix_utf8_recursive(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: fix_utf8_recursive(v) for k, v in obj.items()}
+    return obj
+
 from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
@@ -272,13 +304,13 @@ def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
     if format == "svg":
         return Response(
             content=result,
-            media_type="image/svg+xml",
+            media_type="image/svg+xml; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="workflow.svg"'},
         )
     # DOT
     return Response(
         content=result,
-        media_type="text/vnd.graphviz",
+        media_type="text/vnd.graphviz; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="workflow.dot"'},
     )
 
@@ -289,6 +321,7 @@ def diagram_export(
     session_id: str = Query(..., description="Session that produced the diagram"),
     format: str = Query("svg", regex="^(svg|dot|dot_drawio|drawio)$"),
     detail_level: str = Query("overview", regex="^(overview|detailed)$"),
+    level: Optional[str] = Query(None, description="Diagram level: 1=overview, 2=medium, 3=detailed"),
     focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
 ):
     """Export the last generated architecture diagram in the requested format.
@@ -296,7 +329,8 @@ def diagram_export(
     Query params:
         session_id   : Session that produced the diagram (required).
         format       : ``svg`` | ``dot`` | ``dot_drawio`` | ``drawio`` (default: svg).
-        detail_level : ``overview`` | ``detailed`` (default: overview).
+        detail_level : ``overview`` | ``detailed`` (legacy; default: overview).
+        level        : ``1`` | ``2`` | ``3`` (optional, preferred).
         focus        : An overview node ID to expand (optional; requires detail_level=detailed).
 
     The ``dot_drawio`` format produces a flattened DOT file safe for draw.io import
@@ -305,17 +339,18 @@ def diagram_export(
     The ``drawio`` format produces a native .drawio (mxGraph XML) file.
     """
     from src.services.diagram_ir import (
-        DetailLevel,
+        DiagramLevel,
+        build_diagram_model,
         build_expanded_view,
-        build_overview,
+        parse_diagram_level,
         parse_dot_to_model,
+        to_detail_level,
     )
     from src.services.diagram_render import (
         render_dot as render_dot_from_ir,
         render_dot_drawio,
         render_drawio,
         render_svg as render_svg_from_dot,
-        render_svg_b64,
     )
 
     # Retrieve the last diagram for this session from memory
@@ -331,19 +366,30 @@ def diagram_export(
         )
 
     try:
-        # Parse DOT into IR
-        ir_model = parse_dot_to_model(dot_code)
+        requested_level = parse_diagram_level(level if level is not None else detail_level)
+        if focus and requested_level != DiagramLevel.DETAILED:
+            raise HTTPException(
+                status_code=400,
+                detail="Parameter 'focus' requires level=3 (or detail_level=detailed).",
+            )
 
-        # Apply detail level
-        overview_mapping = None
-        if detail_level == "overview":
-            ir_model, overview_mapping = build_overview(ir_model, max_nodes=15)
-        elif focus and last_diagram.get("overview_mapping"):
+        detailed_model = parse_dot_to_model(dot_code)
+        ir_model, level_mapping = build_diagram_model(
+            detailed_model,
+            requested_level,
+            overview_max_nodes=15,
+            medium_max_nodes=30,
+        )
+        detail_level_name = to_detail_level(requested_level).value
+
+        if focus:
+            mapping_for_focus = last_diagram.get("overview_mapping") or level_mapping
             ir_model = build_expanded_view(
-                ir_model,
-                last_diagram["overview_mapping"],
+                detailed_model,
+                mapping_for_focus,
                 focus,
             )
+            detail_level_name = "detailed"
 
         engine = os.getenv("GRAPHVIZ_ENGINE", "dot").strip() or "dot"
 
@@ -352,32 +398,32 @@ def diagram_export(
             svg_bytes = render_svg_from_dot(dot_str, engine=engine)
             return Response(
                 content=svg_bytes,
-                media_type="image/svg+xml",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.svg"'},
+                media_type="image/svg+xml; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.svg"'},
             )
 
         elif format == "dot":
             dot_str = render_dot_from_ir(ir_model)
             return Response(
                 content=dot_str,
-                media_type="text/vnd.graphviz",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.dot"'},
+                media_type="text/vnd.graphviz; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.dot"'},
             )
 
         elif format == "dot_drawio":
             flat_dot = render_dot_drawio(ir_model)
             return Response(
                 content=flat_dot,
-                media_type="text/vnd.graphviz",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}_drawio.dot"'},
+                media_type="text/vnd.graphviz; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}_drawio.dot"'},
             )
 
         elif format == "drawio":
             drawio_bytes = render_drawio(ir_model, engine=engine)
             return Response(
                 content=drawio_bytes,
-                media_type="application/xml",
-                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level}.drawio"'},
+                media_type="application/xml; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="architecture_{detail_level_name}.drawio"'},
             )
 
         else:
@@ -405,7 +451,7 @@ async def message(
     if not session_id:
         raise HTTPException(status_code=400, detail="No session ID provided")
 
-    # Identidad simple por sesiÃ³n
+    # Identidad simple por sesión
     user_id = request.headers.get("X-User-Id") or session_id
     arch_flow = load_arch_flow(user_id)
 
@@ -513,10 +559,10 @@ async def message(
 
     user_intent = "general"
     if not arch_flow.get("current_asr"):
-        # Si aÃºn no hay ASR, cualquier cosa va a ASR primero
+        # Si aún no hay ASR, cualquier cosa va a ASR primero
         user_intent = "asr"
     elif _wants_style(message):
-        # Ya hay ASR y el usuario estÃ¡ pidiendo estilos
+        # Ya hay ASR y el usuario está pidiendo estilos
         user_intent = "style"
     elif _wants_tactics(message):
         user_intent = "tactics"
@@ -529,7 +575,7 @@ async def message(
         graph.update_state(config, {"values": {
             "endMessage": "",
 
-            "diagram": {},  # FIX: dict vacÃ­o, no None
+            "diagram": {},  # FIX: dict vacío, no None
             "hasVisitedDiagram": False,
             "turn_messages": [],
             "requested_nodes": [],
@@ -540,7 +586,7 @@ async def message(
     except Exception:
         pass
 
-    # --- InvocaciÃ³n del grafo ---
+    # --- Invocación del grafo ---
     try:
         rag_trace_set_session(session_id)
         rag_trace_reset(session_id)
@@ -597,7 +643,7 @@ async def message(
     if "asr" in low:
         memory_set(user_id, "asr_notes", message)
 
-    # --- Captura ASR desde la respuesta del grafo (si redactÃ³ uno) ---
+    # --- Captura ASR desde la respuesta del grafo (si redactó uno) ---
     end_msg = result.get("endMessage", "") or ""
     asr_from_result = _extract_asr_from_result_text(end_msg)
     if asr_from_result:
@@ -629,7 +675,7 @@ async def message(
         arch_flow["stage"] = "STYLE"
 
 
-    # --- Persistir tÃ¡cticas si este turno fue de tÃ¡cticas ---
+    # --- Persistir tácticas si este turno fue de tácticas ---
     tactics_json = result.get("tactics_struct") or None
     tactics_md   = result.get("tactics_md") or ""
     if user_intent == "tactics" and (tactics_json or tactics_md):
@@ -646,6 +692,7 @@ async def message(
             "dot_raw": diagram_obj.get("dot_raw", ""),
             "dot_drawio": diagram_obj.get("dot_drawio", ""),
             "detail_level": diagram_obj.get("detail_level", "overview"),
+            "level": diagram_obj.get("level", 1),
             "overview_mapping": diagram_obj.get("overview_mapping"),
         }
 
@@ -658,7 +705,6 @@ async def message(
 
     # Ensure end message is defined.
     end_msg = end_msg.strip()
-
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
         "endMessage": end_msg,
@@ -670,6 +716,9 @@ async def message(
         "suggestions": result.get("suggestions", []),
         "rag_trace": rag_trace_get(session_id),
     }
+
+    # Fix any double-encoded UTF-8 in the response
+    clean_payload = fix_utf8_recursive(clean_payload)
 
     return JSONResponse(content=clean_payload, media_type="application/json; charset=utf-8")
 
@@ -700,6 +749,7 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
             {"name": "researcher", "text": "Mensaje del investigador"},
         ],
     }
+    test_response = fix_utf8_recursive(test_response)
     return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
 
 

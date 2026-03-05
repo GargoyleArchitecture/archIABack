@@ -67,7 +67,7 @@ def unifier_node(state: GraphState) -> GraphState:
     requested_nodes = list(state.get("requested_nodes", []) or [])
     requested_set = set(requested_nodes)
 
-    # Caso compuesto: si el usuario pidiÃ³ varias salidas explÃ­citas, consolidarlas juntas.
+    # Caso compuesto: si el usuario pidió varias salidas explícitas, consolidarlas juntas.
     if len(requested_set) >= 2:
         asr_txt = (
             _last_ai_by(state, "asr_recommender")
@@ -97,14 +97,14 @@ def unifier_node(state: GraphState) -> GraphState:
             if asr_txt and "asr" in requested_set:
                 blocks.append(f"ASR:\n{asr_txt}")
             if style_txt and "style" in requested_set:
-                blocks.append(f"Estilos arquitectÃ³nicos:\n{style_txt}")
+                blocks.append(f"Estilos arquitectónicos:\n{style_txt}")
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"TÃ¡cticas:\n{tactics_txt}")
+                blocks.append(f"Tácticas:\n{tactics_txt}")
             if has_diagram and "diagram_agent" in requested_set:
                 blocks.append("Diagrama: renderizado listo en esta misma respuesta.")
             followups = [
-                "Refinar el ASR con mÃ©tricas mÃ¡s estrictas.",
-                "Aterrizar estas tÃ¡cticas en un plan de implementaciÃ³n por fases.",
+                "Refinar el ASR con métricas más estrictas.",
+                "Aterrizar estas tácticas en un plan de implementación por fases.",
             ]
         else:
             if asr_txt and "asr" in requested_set:
@@ -129,13 +129,13 @@ def unifier_node(state: GraphState) -> GraphState:
             return {**state, "endMessage": end_text, "intent": ("diagram" if "diagram_agent" in requested_set else intent)}
 
     # 0) Show rendered diagram if available
-    # 0) Mostrar el diagrama si existe (intenciÃ³n "diagram") - LÃ“GICA ANTIGUA, LA MANTENEMOS
+    # 0) Mostrar el diagrama si existe (intención "diagram") - LÓGICA ANTIGUA, LA MANTENEMOS
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
         data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
         if lang == "es":
-            head = "AquÃ­ tienes el diagrama solicitado:"
-            footer = "Â¿QuÃ© te gustarÃ­a hacer ahora con este diagrama?"
+            head = "Aquí tienes el diagrama solicitado:"
+            footer = "¿Qué te gustaría hacer ahora con este diagrama?"
             tips = [
                 "Generar un diagrama de componentes a partir de este sistema.",
                 "Generar un diagrama de despliegue para este mismo sistema.",
@@ -168,8 +168,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = state.get("suggestions") or [
-                "DiseÃ±a tÃ¡cticas concretas para este ASR usando el estilo recomendado.",
-                "CompÃ¡rame mÃ¡s a fondo estos dos estilos para este ASR.",
+                "Diseña tácticas concretas para este ASR usando el estilo recomendado.",
+                "Compárame más a fondo estos dos estilos para este ASR.",
             ]
         else:
             followups = state.get("suggestions") or [
@@ -183,7 +183,7 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": style_txt}
 
-    # ðŸ”´ Caso especial para TÃCTICAS
+    # ðŸ"´ Caso especial para TÁCTICAS
     if intent == "tactics":
         tactics_md = (
             state.get("tactics_md")
@@ -195,8 +195,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = [
-                "Genera un diagrama de componentes aplicando estas tÃ¡cticas.",
-                "Genera un diagrama de despliegue alineado con estas tÃ¡cticas.",
+                "Genera un diagrama de componentes aplicando estas tácticas.",
+                "Genera un diagrama de despliegue alineado con estas tácticas.",
             ]
             refs_label = "Referencias"
         else:
@@ -221,7 +221,7 @@ def unifier_node(state: GraphState) -> GraphState:
             or state.get("endMessage")
             or "No ASR content found for this turn."
         )
-        # si el LLM colÃ³ tÃ¡cticas, las quitamos del ASR
+        # si el LLM coló tácticas, las quitamos del ASR
         last_asr = _strip_tactics_sections(raw_asr)
 
         asr_src_txt = _last_ai_by(state, "asr_sources")
@@ -229,8 +229,8 @@ def unifier_node(state: GraphState) -> GraphState:
 
         if lang == "es":
             followups = [
-                "PropÃ³n estilos arquitectÃ³nicos para este ASR.",
-                "Refina este ASR con mÃ©tricas y escenarios mÃ¡s especÃ­ficos.",
+                "Propón estilos arquitectónicos para este ASR.",
+                "Refina este ASR con métricas y escenarios más específicos.",
             ]
             refs_label = "Referencias"
         else:
@@ -251,7 +251,7 @@ def unifier_node(state: GraphState) -> GraphState:
     # ðŸ”´ Caso especial: saludo / smalltalk
     if intent in ("greeting", "smalltalk"):
         if lang == "es":
-            hello = "Â¡Hola! Â¿Sobre quÃ© tema de arquitectura quieres profundizar?"
+            hello = "¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"
             nexts = [
                 "Formular un ASR (requerimiento de calidad) para mi sistema.",
                 "Revisar un ASR que ya tengo.",
@@ -275,7 +275,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = nexts
         return {**state, "endMessage": end_text}
 
-    # ðŸ”µ Caso por defecto: sÃ­ntesis de investigador / evaluador / etc.
+    # ðŸ"µ Caso por defecto: síntesis de investigador / evaluador / etc.
     researcher_txt = _last_ai_by(state, "researcher")
     evaluator_txt = _last_ai_by(state, "evaluator")
     asr_src_txt = _last_ai_by(state, "asr_sources")
@@ -301,13 +301,13 @@ def unifier_node(state: GraphState) -> GraphState:
         + "\n\n".join(buckets)
     )
 
-    directive = "Responde en espaÃ±ol." if lang == "es" else "Answer in English."
+    directive = "Responde en español." if lang == "es" else "Answer in English."
     prompt = f"""{directive}
 You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
-- Use 6â€"12 concise lines (bullets or short sentences). No code fences, no diagrams.
-- If useful, at the end include a short 'References:' block listing 3â€“6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
+- Use 6–12 concise lines (bullets or short sentences). No code fences, no diagrams.
+- If useful, at the end include a short 'References:' block listing 3–6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:
 - Use the user's language.
@@ -331,7 +331,7 @@ SOURCE:
     chips = []
     if secs.get("Next"):
         for ln in secs["Next"].splitlines():
-            ln = ln.strip(" -â€¢\t")
+            ln = ln.strip(" -•\t")
             if ln:
                 chips.append(ln)
     state["suggestions"] = chips[:6] if chips else []

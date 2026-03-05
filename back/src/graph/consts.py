@@ -6,9 +6,9 @@ Constants and static prompts for the graph module.
 # ========== Tactics helpers
 TACTICS_HEADINGS = [
     r"design tactics(?: to consider)?",
-    r"tÃ¡cticas(?: de diseÃ±o)?",
+    r"tácticas(?: de diseño)?",
     r"arquitectural tactics",
-    r"decisiones (?:arquitectÃ³nicas|de diseÃ±o)",
+    r"decisiones (?:arquitectónicas|de diseño)",
 ]
 
 # --- Safe JSON example for tactics (avoid braces in f-strings) ---
@@ -39,7 +39,7 @@ HARD OUTPUT RULES
 - Start with: digraph G {
 - End with: }
 - Never use markdown fences or extra prose.
-- Use only ASCII characters.
+- Use UTF-8 text; preserve accents and non-latin characters when relevant.
 
 GRAPH QUALITY RULES
 - Include a clear entrypoint and downstream internal services.
@@ -88,7 +88,7 @@ HARD OUTPUT RULES
 - Start with: digraph G {
 - End with: }
 - Never use markdown fences or extra prose.
-- Use only ASCII characters.
+- Use UTF-8 text; preserve accents and non-latin characters when relevant.
 
 OVERVIEW QUALITY RULES
 - Keep it to 5-15 nodes. Never exceed 20.
