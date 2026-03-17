@@ -59,7 +59,6 @@ def asr_node(state: GraphState) -> GraphState:
             )
             docs_raw = list(_retriever.invoke(query))
             docs_list = docs_raw[:6]
-            rag_trace_record(query=query, docs=docs_list)
         except Exception:
             docs_list = []
 

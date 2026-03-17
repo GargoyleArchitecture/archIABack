@@ -37,13 +37,16 @@ log = logging.getLogger("graph")
 
 llm = get_chat_model(temperature=0.0)
 
-# ===== RAG trace (per-request via session id) =====
+# ========== RAG Trace ==========
+
 _rag_trace_store: dict[str, dict] = {}
 _rag_trace_session: str | None = None
+
 
 def rag_trace_set_session(session_id: str | None) -> None:
     global _rag_trace_session
     _rag_trace_session = session_id
+
 
 def rag_trace_reset(session_id: str | None) -> None:
     if session_id:
@@ -53,6 +56,7 @@ def rag_trace_reset(session_id: str | None) -> None:
             "queries": [],
             "sources": [],
         }
+
 
 def rag_trace_get(session_id: str | None) -> dict:
     if not session_id:
@@ -64,6 +68,7 @@ def rag_trace_get(session_id: str | None) -> dict:
         "queries": list(t.get("queries") or []),
         "sources": list(t.get("sources") or []),
     }
+
 
 def rag_trace_record(*, query: str | None = None, docs: list | None = None, session_id: str | None = None) -> None:
     sid = session_id or _rag_trace_session
@@ -84,6 +89,7 @@ def rag_trace_record(*, query: str | None = None, docs: list | None = None, sess
             t["sources"].append(f"{title}{page_str} — {path}")
     _rag_trace_store[sid] = t
 
+
 # Lazy retriever: initialized on first access to avoid import-time OpenAI errors
 _retriever = None
 
@@ -99,14 +105,7 @@ class _LazyRetriever:
     def __getattr__(self, name):
         return getattr(_get_retriever(), name)
     def invoke(self, *a, **kw):
-        # Always trace any retriever invocation (global RAG signal).
-        query = a[0] if a else kw.get("query")
-        docs = _get_retriever().invoke(*a, **kw)
-        try:
-            rag_trace_record(query=query if isinstance(query, str) else None, docs=list(docs or []))
-        except Exception:
-            pass
-        return docs
+        return _get_retriever().invoke(*a, **kw)
 
 retriever = _LazyRetriever()
 
