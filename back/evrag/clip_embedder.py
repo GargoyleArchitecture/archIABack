@@ -45,27 +45,29 @@ class CLIPEmbedder:
             return
         
         try:
+            import clip
             import torch
             from PIL import Image
-            from transformers import CLIPProcessor, CLIPModel
             
             model_name = self.config["clip_model"]
             print(f"Loading CLIP model: {model_name}")
             
-            self.model = CLIPModel.from_pretrained(model_name)
-            self.processor = CLIPProcessor.from_pretrained(model_name)
+            # Load CLIP model (OpenAI version)
+            self.model, self.preprocess = clip.load(model_name, device="cpu")
+            self.model.eval()
             
             self._model_loaded = True
+            print("  CLIP loaded successfully!")
             
         except ImportError as e:
-            print(f"Warning: CLIP dependencies not installed ({e}).")
+            print(f"Warning: CLIP not installed ({e}).")
             print("EVRAG will work in text-only mode.")
             self._model_loaded = True
-            raise RuntimeError("CLIP not available. Install torch and transformers for CLIP support.")
+            raise RuntimeError("CLIP not available. Install openai-clip for CLIP support.")
     
     def embed_images(self, image_paths: list[Path | str]) -> np.ndarray:
         """
-        Generate embeddings for images.
+        Generate embeddings for images using CLIP.
         
         Args:
             image_paths: List of paths to image files
@@ -73,36 +75,31 @@ class CLIPEmbedder:
         Returns:
             Numpy array of embeddings (n_images x embedding_dim)
         """
-        from PIL import Image
         import torch
+        from PIL import Image
         
         self._load_model()
         
-        # Load images
-        images = []
+        embeddings = []
+        
         for path in image_paths:
-            img = Image.open(path).convert("RGB")
-            images.append(img)
-        
-        # Process batch
-        inputs = self.processor(
-            images=images,
-            return_tensors="pt",
-            padding=True,
-        )
-        
-        # Generate embeddings
-        with torch.no_grad():
-            image_features = self.model.get_image_features(**inputs)
+            # Load and preprocess image
+            image = Image.open(path).convert("RGB")
+            image_input = self.preprocess(image).unsqueeze(0)
             
-            # Normalize
-            image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
+            # Generate embedding
+            with torch.no_grad():
+                image_features = self.model.encode_image(image_input)
+                # Normalize
+                image_features = image_features / image_features.norm(p=2, dim=-1)
+            
+            embeddings.append(image_features.numpy())
         
-        return image_features.numpy()
+        return np.vstack(embeddings)
     
     def embed_texts(self, texts: list[str]) -> np.ndarray:
         """
-        Generate embeddings for texts.
+        Generate embeddings for texts using CLIP.
         
         Args:
             texts: List of text strings
@@ -111,24 +108,18 @@ class CLIPEmbedder:
             Numpy array of embeddings (n_texts x embedding_dim)
         """
         import torch
+        import clip
         
         self._load_model()
         
-        # Process texts
-        inputs = self.processor(
-            text=texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=77,  # CLIP max context
-        )
+        # Tokenize texts
+        text_tokens = clip.tokenize(texts, truncate=True)
         
         # Generate embeddings
         with torch.no_grad():
-            text_features = self.model.get_text_features(**inputs)
-            
+            text_features = self.model.encode_text(text_tokens)
             # Normalize
-            text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(p=2, dim=-1)
         
         return text_features.numpy()
     

@@ -31,7 +31,8 @@ EVRAG_CONFIG = {
     # CLIP Embeddings
     # -------------------------------------------------------------------------
     "clip_model": "ViT-B/32",  # ViT-B/32, ViT-B/16, ViT-L/14
-    "embed_batch_size": 32,  # Batch size para embeddings
+    "clip_enabled": True,  # Now available with openai-clip
+    "embed_batch_size": 32,  # Batch size for embeddings
     
     # -------------------------------------------------------------------------
     # QA Generation (MiRAGE-style)
