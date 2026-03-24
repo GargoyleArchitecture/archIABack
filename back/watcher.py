@@ -1,36 +1,31 @@
 """
 File Watcher for ArchIA
 
-Monitor de archivos que detecta cambios en:
-- back/docs/ (nuevos PDFs)
-- back/videos/raw/ (nuevos videos)
-
-Y dispara automáticamente:
-- Indexación en RAG (PDFs)
-- Procesamiento EVRAG (videos)
+Detecta cambios en back/docs/ y back/videos/raw/
+para procesamiento automático.
 """
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
+from watchdog.events import FileSystemEventHandler
 
 
 @dataclass
 class WatcherStats:
-    """Statistics for file watcher."""
+    """Watcher statistics."""
     files_processed: int = 0
     pdfs_indexed: int = 0
     videos_processed: int = 0
     errors: int = 0
     last_activity: str = ""
-    
+
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
         return {
             "files_processed": self.files_processed,
             "pdfs_indexed": self.pdfs_indexed,
@@ -42,16 +37,9 @@ class WatcherStats:
 
 class ArchIAFileHandler(FileSystemEventHandler):
     """
-    Handler for file system events in ArchIA directories.
+    Handler para eventos de archivos.
     
-    Detects:
-    - New PDF files in docs/
-    - New video files in videos/raw/
-    
-    And triggers appropriate processing.
-    
-    IMPORTANT: Only processes files that haven't been processed before.
-    Uses a processed_files.json manifest to track what's been done.
+    Solo procesa archivos nuevos (usa manifiesto para evitar reprocesar).
     """
     
     def __init__(
