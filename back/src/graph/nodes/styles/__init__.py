@@ -10,10 +10,12 @@ from src.graph.nodes.styles.style import (
 )
 from src.graph.nodes.styles.latency_style import style_latency_node
 from src.graph.nodes.styles.scalability_style import style_scalability_node
+from src.graph.nodes.styles.availability_style import style_availability_node
 
 __all__ = [
     "style_node",
     "make_style_qa_node",
     "style_latency_node",
     "style_scalability_node",
+    "style_availability_node",
 ]
