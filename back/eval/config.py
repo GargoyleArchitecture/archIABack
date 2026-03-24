@@ -14,8 +14,7 @@ from typing import Literal
 
 EVAL_CONFIG = {
     # -------------------------------------------------------------------------
-    # LLM Provider: Ollama (local, gratis)
-    # Para OpenAI: cambiar a "openai" y poner API key en .env
+    # LLM Provider: Ollama (local, gratis) o OpenAI
     # -------------------------------------------------------------------------
     "llm_provider": "ollama",      # "ollama" o "openai"
     "llm_model": "llama3.1",       # Modelos: "llama3.1", "mistral", "gemma2"
@@ -25,9 +24,36 @@ EVAL_CONFIG = {
     # "evaluation_model": "gpt-4o",
     
     # -------------------------------------------------------------------------
-    # Dataset Generation (MiRAGE-style)
+    # Evaluation Mode: "standard" (10 QA) o "comprehensive" (30 QA)
     # -------------------------------------------------------------------------
-    "qa_pairs_per_doc": 10,  # QA pairs por documento
+    "eval_mode": "standard",  # "standard" o "comprehensive"
+    
+    # Standard: 10 QA pairs/doc (balanceado costo/calidad)
+    "standard": {
+        "qa_pairs_per_doc": 10,
+        "question_types": {
+            "factual": 4,       # 40%
+            "multi_hop": 4,     # 40%
+            "synthesis": 2,     # 20%
+        },
+    },
+    
+    # Comprehensive: 30 QA pairs/doc (MiRAGE-style, máxima calidad)
+    "comprehensive": {
+        "qa_pairs_per_doc": 30,
+        "question_types": {
+            "factual": 12,      # 40%
+            "multi_hop": 12,    # 40%
+            "synthesis": 6,     # 20%
+        },
+    },
+    
+    # Agentes para generación (2 = Generator + Verifier)
+    "num_agents": 2,
+    
+    # Temperaturas para generación
+    "generation_temperature": 0.7,
+    "evaluation_temperature": 0.0,  # Determinístico para evaluación
     
     # -------------------------------------------------------------------------
     # Adversarial Verification
@@ -95,6 +121,12 @@ ReportFormat = Literal["json", "markdown", "html"]
 # HELPER FUNCTIONS
 # =============================================================================
 
+def _get_active_mode_config() -> dict:
+    """Get configuration for active evaluation mode."""
+    mode = EVAL_CONFIG.get("eval_mode", "standard")
+    return EVAL_CONFIG.get(mode, EVAL_CONFIG["standard"])
+
+
 def get_question_type_distribution() -> dict[QuestionType, int]:
     """
     Returns the configured distribution of question types.
@@ -102,7 +134,8 @@ def get_question_type_distribution() -> dict[QuestionType, int]:
     Returns:
         Dictionary mapping question type to count.
     """
-    return EVAL_CONFIG["question_types"].copy()
+    mode_config = _get_active_mode_config()
+    return mode_config.get("question_types", EVAL_CONFIG["standard"]["question_types"]).copy()
 
 
 def get_total_qa_pairs() -> int:
@@ -112,7 +145,30 @@ def get_total_qa_pairs() -> int:
     Returns:
         Total number of QA pairs to generate per document.
     """
-    return sum(EVAL_CONFIG["question_types"].values())
+    mode_config = _get_active_mode_config()
+    return mode_config.get("qa_pairs_per_doc", 10)
+
+
+def get_eval_mode() -> str:
+    """
+    Returns current evaluation mode.
+    
+    Returns:
+        "standard" or "comprehensive"
+    """
+    return EVAL_CONFIG.get("eval_mode", "standard")
+
+
+def set_eval_mode(mode: str) -> None:
+    """
+    Set evaluation mode.
+    
+    Args:
+        mode: "standard" or "comprehensive"
+    """
+    if mode not in ["standard", "comprehensive"]:
+        raise ValueError(f"Invalid mode: {mode}. Use 'standard' or 'comprehensive'")
+    EVAL_CONFIG["eval_mode"] = mode
 
 
 def is_metric_enabled(metric_name: str) -> bool:

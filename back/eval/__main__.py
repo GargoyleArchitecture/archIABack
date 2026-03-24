@@ -27,10 +27,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --layer layer1_books
-  %(prog)s --layer layer1_books --mock --accuracy 0.75
-  %(prog)s --layer layer1_books --regenerate
-  %(prog)s --stats
+  %(prog)s --layer layer1_books --mode standard   # 10 QA/doc (rápido)
+  %(prog)s --layer layer1_books --mode comprehensive  # 30 QA/doc (completo)
+  %(prog)s --layer layer1_books --mock            # Con mock (testing)
+  %(prog)s --layer layer1_books --regenerate      # Forzar regeneración
+  %(prog)s --stats                                # Ver estadísticas
         """,
     )
     
@@ -39,6 +40,14 @@ Examples:
         type=str,
         choices=["layer1_books", "layer2_new_docs"],
         help="Evaluation layer to run",
+    )
+    
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["standard", "comprehensive"],
+        default="standard",
+        help="Evaluation mode: standard (10 QA/doc) or comprehensive (30 QA/doc). Default: standard",
     )
     
     parser.add_argument(
@@ -75,6 +84,10 @@ Examples:
     )
     
     args = parser.parse_args()
+    
+    # Set evaluation mode
+    from back.eval.config import set_eval_mode
+    set_eval_mode(args.mode)
     
     # Show stats only
     if args.stats:
