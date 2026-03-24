@@ -49,6 +49,9 @@ class ArchIAFileHandler(FileSystemEventHandler):
     - New video files in videos/raw/
     
     And triggers appropriate processing.
+    
+    IMPORTANT: Only processes files that haven't been processed before.
+    Uses a processed_files.json manifest to track what's been done.
     """
     
     def __init__(
@@ -78,6 +81,47 @@ class ArchIAFileHandler(FileSystemEventHandler):
         
         # Video extensions to watch for
         self.video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv'}
+        
+        # Track processed files to avoid reprocessing
+        self.processed_files: set[str] = set()
+        self.manifest_path = Path("back/.processed_files.json")
+        self._load_manifest()
+    
+    def _load_manifest(self):
+        """Load manifest of already processed files."""
+        if self.manifest_path.exists():
+            import json
+            try:
+                data = json.loads(self.manifest_path.read_text())
+                self.processed_files = set(data.get("processed_files", []))
+                print(f"📋 Loaded manifest: {len(self.processed_files)} files already processed")
+            except Exception as e:
+                print(f"Warning: Could not load manifest: {e}")
+                self.processed_files = set()
+        else:
+            print("📋 No manifest found - will process new files only")
+    
+    def _save_manifest(self):
+        """Save manifest of processed files."""
+        import json
+        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "processed_files": list(self.processed_files),
+            "last_updated": datetime.now().isoformat(),
+        }
+        self.manifest_path.write_text(json.dumps(data, indent=2))
+    
+    def _is_already_processed(self, file_path: Path) -> bool:
+        """Check if file was already processed."""
+        # Use absolute path + modification time as key
+        file_key = f"{file_path.absolute()}"
+        return file_key in self.processed_files
+    
+    def _mark_as_processed(self, file_path: Path):
+        """Mark file as processed and save manifest."""
+        file_key = f"{file_path.absolute()}"
+        self.processed_files.add(file_key)
+        self._save_manifest()
     
     def on_created(self, event):
         """Handle file creation events."""
@@ -111,6 +155,11 @@ class ArchIAFileHandler(FileSystemEventHandler):
     
     def _handle_new_pdf(self, pdf_path: Path):
         """Handle new PDF file."""
+        # Check if already processed
+        if self._is_already_processed(pdf_path):
+            print(f"\n⏭️  PDF already processed: {pdf_path.name}")
+            return
+        
         print(f"\n📄 New PDF detected: {pdf_path.name}")
         
         self.stats.files_processed += 1
@@ -121,6 +170,10 @@ class ArchIAFileHandler(FileSystemEventHandler):
                 self.on_pdf_detected(pdf_path)
                 self.stats.pdfs_indexed += 1
                 print(f"   ✅ PDF indexed successfully")
+                
+                # Mark as processed
+                self._mark_as_processed(pdf_path)
+                
             except Exception as e:
                 print(f"   ❌ Error indexing PDF: {e}")
                 self.stats.errors += 1
@@ -129,6 +182,11 @@ class ArchIAFileHandler(FileSystemEventHandler):
     
     def _handle_new_video(self, video_path: Path):
         """Handle new video file."""
+        # Check if already processed
+        if self._is_already_processed(video_path):
+            print(f"\n⏭️  Video already processed: {video_path.name}")
+            return
+        
         print(f"\n🎬 New video detected: {video_path.name}")
         
         self.stats.files_processed += 1
@@ -139,6 +197,10 @@ class ArchIAFileHandler(FileSystemEventHandler):
                 self.on_video_detected(video_path)
                 self.stats.videos_processed += 1
                 print(f"   ✅ Video processed successfully")
+                
+                # Mark as processed
+                self._mark_as_processed(video_path)
+                
             except Exception as e:
                 print(f"   ❌ Error processing video: {e}")
                 self.stats.errors += 1
