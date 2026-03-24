@@ -24,7 +24,13 @@ Command Line:
     poetry run python -m eval --layer layer1_books
 """
 
-from .config import EVAL_CONFIG
+from .config import (
+    EVAL_CONFIG,
+    get_eval_mode,
+    get_total_qa_pairs,
+    set_eval_mode,
+    get_enabled_metrics,
+)
 from .pipeline import (
     RAGEvaluationPipeline,
     EvaluationReport,
@@ -39,18 +45,22 @@ __version__ = "1.0.0"
 __all__ = [
     # Config
     "EVAL_CONFIG",
-
+    "get_eval_mode",
+    "get_total_qa_pairs",
+    "set_eval_mode",
+    "get_enabled_metrics",
+    
     # Pipeline
     "RAGEvaluationPipeline",
     "EvaluationReport",
     "evaluate_layer_1_books",
     "evaluate_layer_2_new_docs",
-
+    
     # Generators
     "DatasetGenerator",
     "DocumentDataset",
     "QAPair",
-
+    
     # Metrics
     "HybridEvaluator",
     "DocumentEvaluationResult",
