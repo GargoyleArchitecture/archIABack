@@ -20,6 +20,7 @@ from .video_processor import VideoProcessor
 from .transcriber import AudioTranscriber
 from .clip_embedder import CLIPEmbedder
 from .indexer import EVRAGIndexer
+from .privacy import TextAnonymizer, FaceBlurrer, SecureStorage
 
 
 @dataclass
@@ -75,14 +76,28 @@ class EVRAGPipeline:
         results = pipeline.query("What does the video say about latency?")
     """
     
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        enable_anonymization: bool = True,
+        enable_face_blur: bool = True,
+        secure_delete_originals: bool = True,
+    ):
         """
         Initialize EVRAG pipeline.
         
         Args:
             config: Configuration dictionary (default: EVRAG_CONFIG)
+            enable_anonymization: Whether to anonymize transcripts
+            enable_face_blur: Whether to blur faces in frames
+            secure_delete_originals: Whether to securely delete original videos after processing
         """
         self.config = config or EVRAG_CONFIG
+        
+        # Privacy settings
+        self.enable_anonymization = enable_anonymization
+        self.enable_face_blur = enable_face_blur
+        self.secure_delete_originals = secure_delete_originals
         
         # Initialize components
         self.video_processor = VideoProcessor(config=self.config)
@@ -99,10 +114,17 @@ class EVRAGPipeline:
         
         self.indexer = EVRAGIndexer(config=self.config, clip_enabled=self.clip_available)
         
+        # Privacy modules
+        self.text_anonymizer = TextAnonymizer() if enable_anonymization else None
+        self.face_blurrer = FaceBlurrer() if enable_face_blur else None
+        self.secure_storage = SecureStorage(self.config["videos_dir"])
+        
         self.stats = {
             "videos_processed": 0,
             "total_frames_extracted": 0,
             "total_transcript_chars": 0,
+            "faces_blurred": 0,
+            "entities_anonymized": 0,
         }
     
     def process_video(
@@ -160,6 +182,14 @@ class EVRAGPipeline:
             use_cache=not force_reprocess,
         )
         
+        # Step 2b: Anonymize transcript
+        if self.enable_anonymization and self.text_anonymizer:
+            print("  Anonymizing transcript...")
+            anon_result = self.text_anonymizer.anonymize(transcription.text)
+            transcription.text = anon_result.anonymized_text
+            self.stats["entities_anonymized"] += len(anon_result.entities_removed)
+            print(f"    Entities removed: {len(anon_result.entities_removed)}")
+        
         # Step 3: Generate CLIP embeddings for frames (if available)
         frame_embeddings = None
         if self.clip_available:
@@ -167,6 +197,14 @@ class EVRAGPipeline:
             frame_embeddings = self.clip_embedder.embed_images(frames)
         else:
             print("\nStep 3: Skipping CLIP embeddings (not available)")
+        
+        # Step 3b: Blur faces in frames
+        if self.enable_face_blur and self.face_blurrer:
+            print("\nStep 3b: Blurring faces in frames...")
+            blur_results = self.face_blurrer.blur_frames_batch(frames)
+            total_faces = sum(faces for _, faces in blur_results)
+            self.stats["faces_blurred"] += total_faces
+            print(f"    Faces blurred: {total_faces}")
         
         # Step 4: Index in ChromaDB
         print("\nStep 4: Indexing in ChromaDB...")
@@ -199,6 +237,12 @@ class EVRAGPipeline:
         self.stats["videos_processed"] += 1
         self.stats["total_frames_extracted"] += len(frames)
         self.stats["total_transcript_chars"] += len(transcription.text)
+        
+        # Step 5: Secure delete original video (if enabled)
+        if self.secure_delete_originals:
+            print("\nStep 5: Securely deleting original video...")
+            self.secure_storage.secure_delete_video(video_path)
+            self.secure_storage.log_access("system", "processed_and_deleted", str(video_path))
         
         print(f"\n{'='*60}")
         print(f"EVRAG Processing Complete!")
