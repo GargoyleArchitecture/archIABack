@@ -1,15 +1,13 @@
 """
 ArchIA Unified Processor
 
-Script unificado para procesamiento automático de:
-- PDFs en back/docs/ (RAG indexing)
-- Videos en back/videos/raw/ (EVRAG processing)
+Procesamiento automático de PDFs (RAG) y videos (EVRAG).
 
 Uso:
-    poetry run python -m back.processor --watch      # Modo watcher (continuo)
-    poetry run python -m back.processor --scan       # Escanear existentes
-    poetry run python -m back.processor --pdf file.pdf  # Procesar PDF específico
-    poetry run python -m back.processor --video file.mp4 # Procesar video específico
+    poetry run python -m back.processor --watch
+    poetry run python -m back.processor --scan
+    poetry run python -m back.processor --pdf file.pdf
+    poetry run python -m back.processor --video file.mp4
 """
 
 import argparse
@@ -17,86 +15,63 @@ import sys
 from pathlib import Path
 
 
-def process_pdf(pdf_path: Path):
-    """Process a single PDF file (add to RAG index)."""
+def process_pdf(pdf_path: Path) -> bool:
     print(f"\n📄 Processing PDF: {pdf_path.name}")
-    
     try:
         from back.rag_agent import create_or_load_vectorstore
-        
-        # Rebuild vectorstore with new PDF
+
         print("   Adding to RAG index...")
-        vectorstore = create_or_load_vectorstore()
-        
-        print(f"   ✅ PDF indexed successfully")
+        create_or_load_vectorstore()
+        print("   ✅ PDF indexed")
         return True
-        
     except Exception as e:
         print(f"   ❌ Error: {e}")
         return False
 
 
-def process_video(video_path: Path):
-    """Process a single video file (EVRAG pipeline)."""
+def process_video(video_path: Path) -> bool:
     print(f"\n🎬 Processing video: {video_path.name}")
-    
     try:
         from back.evrag import EVRAGPipeline
-        
+
         pipeline = EVRAGPipeline(
             enable_anonymization=True,
             enable_face_blur=True,
             secure_delete_originals=True,
         )
-        
+
         result = pipeline.process_video(video_path)
-        
-        print(f"   ✅ Video processed: {result.frames_extracted} frames, {result.transcript_length} chars")
+        print(f"   ✅ Video processed: {result.frames_extracted} frames")
         return True
-        
     except Exception as e:
         print(f"   ❌ Error: {e}")
         return False
 
 
 def run_watcher():
-    """Run file watcher for automatic processing."""
     from back.watcher import create_watcher_with_handlers
-    
+
     print("\n🔍 Starting ArchIA Unified Watcher...")
     print("   Monitoring:")
-    print("   - back/docs/ for new PDFs")
-    print("   - back/videos/raw/ for new videos")
+    print("   - back/docs/ (PDFs)")
+    print("   - back/videos/raw/ (videos)")
     print("\n   Press Ctrl+C to stop\n")
-    
-    # Create watcher with handlers
+
     watcher = create_watcher_with_handlers(
         rag_index_func=process_pdf,
         evrag_process_func=process_video,
     )
-    
-    # Scan existing files first
+
     print("📊 Scanning existing files...")
-    existing = watcher.scan_existing_files()
-    
-    # Start watching
+    watcher.scan_existing_files()
     watcher.run_forever()
 
 
 def scan_existing():
-    """Scan and report existing files."""
     from back.watcher import ArchIAWatcher
-    
+
     watcher = ArchIAWatcher()
-    existing = watcher.scan_existing_files()
-    
-    print("\n📁 Existing PDFs:")
-    for pdf in existing["pdfs"]:
-        print(f"   - {Path(pdf).name}")
-    
-    print("\n🎬 Existing Videos:")
-    for video in existing["videos"]:
-        print(f"   - {Path(video).name}")
+    watcher.scan_existing_files()
 
 
 def main():
