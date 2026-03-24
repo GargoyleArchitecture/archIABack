@@ -14,27 +14,20 @@ from typing import Literal
 
 EVAL_CONFIG = {
     # -------------------------------------------------------------------------
-    # Dataset Generation (MiRAGE-style balanceado)
+    # LLM Provider: Ollama (local, gratis)
+    # Para OpenAI: cambiar a "openai" y poner API key en .env
     # -------------------------------------------------------------------------
-    "qa_pairs_per_doc": 10,  # Número de QA pairs por documento
+    "llm_provider": "ollama",      # "ollama" o "openai"
+    "llm_model": "llama3.1",       # Modelos: "llama3.1", "mistral", "gemma2"
     
-    # Distribución de tipos de preguntas
-    "question_types": {
-        "factual": 4,       # 40% - Verifica retrieval básico
-        "multi_hop": 4,     # 40% - Verifica razonamiento multi-hop
-        "synthesis": 2,     # 20% - Verifica comprensión global
-    },
+    # OpenAI (solo si usas provider="openai")
+    # "generation_model": "gpt-4o-mini",
+    # "evaluation_model": "gpt-4o",
     
-    # Agentes para generación (2 = Generator + Verifier)
-    "num_agents": 2,
-    
-    # Modelos LLM
-    "generation_model": "gpt-4o-mini",  # Barato para generar QA
-    "evaluation_model": "gpt-4o",       # Calidad para evaluar
-    
-    # Temperaturas para generación
-    "generation_temperature": 0.7,
-    "evaluation_temperature": 0.0,  # Determinístico para evaluación
+    # -------------------------------------------------------------------------
+    # Dataset Generation (MiRAGE-style)
+    # -------------------------------------------------------------------------
+    "qa_pairs_per_doc": 10,  # QA pairs por documento
     
     # -------------------------------------------------------------------------
     # Adversarial Verification

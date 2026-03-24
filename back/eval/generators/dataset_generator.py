@@ -255,27 +255,33 @@ class DatasetGenerator:
     ):
         """
         Initialize the Dataset Generator.
-        
+
         Args:
             generation_model: Model name for generation (default: from config)
             verification_model: Model name for verification (default: from config)
             config: Configuration dictionary (default: EVAL_CONFIG)
         """
+        from back.services.llm_factory import get_llm
+        
         self.config = config or EVAL_CONFIG
-        self.generation_model_name = generation_model or self.config["generation_model"]
-        self.verification_model_name = verification_model or self.config["evaluation_model"]
+        
+        # Usar Ollama (local) o OpenAI según config
+        provider = self.config.get("llm_provider", "ollama")
+        model = self.config.get("llm_model", "llama3.1")
         
         # Initialize LLMs
-        self.generator_llm = ChatOpenAI(
-            model=self.generation_model_name,
-            temperature=self.config["generation_temperature"],
+        self.generator_llm = get_llm(
+            provider=provider,
+            model=model,
+            temperature=self.config.get("generation_temperature", 0.7),
         )
-        
-        self.verifier_llm = ChatOpenAI(
-            model=self.verification_model_name,
-            temperature=self.config["evaluation_temperature"],
+
+        self.verifier_llm = get_llm(
+            provider=provider,
+            model=model,
+            temperature=self.config.get("evaluation_temperature", 0.0),
         )
-        
+
         # Statistics
         self.stats = {
             "documents_processed": 0,
