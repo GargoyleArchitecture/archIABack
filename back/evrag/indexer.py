@@ -97,10 +97,10 @@ class EVRAGIndexer:
         
         print(f"Initializing ChromaDB at {persist_dir}")
         
-        self.chroma_client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory=str(persist_dir),
-        ))
+        # New ChromaDB API (no chroma_db_impl parameter)
+        self.chroma_client = chromadb.PersistentClient(
+            path=str(persist_dir),
+        )
         
         # Get or create collections
         collection_name = self.config["chroma_collection_name"]
