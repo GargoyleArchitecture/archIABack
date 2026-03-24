@@ -19,21 +19,21 @@ EVRAG_CONFIG = {
     "scene_detection_threshold": 30,  # Umbral para detectar cambio de escena (0-100)
     "min_scene_length_sec": 2,  # Longitud mínima de escena en segundos
     "max_frames_per_video": 200,  # Máximo frames a extraer
-    
+
     # -------------------------------------------------------------------------
     # Audio Transcription
     # -------------------------------------------------------------------------
     "transcriber": "whisper_local",  # whisper_local, whisper_api
     "whisper_model": "base",  # tiny, base, small, medium, large
     "language": "es",  # Idioma del audio (es, en)
-    
+
     # -------------------------------------------------------------------------
     # CLIP Embeddings
     # -------------------------------------------------------------------------
     "clip_model": "ViT-B/32",  # ViT-B/32, ViT-B/16, ViT-L/14
     "clip_enabled": True,  # Now available with openai-clip
     "embed_batch_size": 32,  # Batch size for embeddings
-    
+
     # -------------------------------------------------------------------------
     # QA Generation (MiRAGE-style)
     # -------------------------------------------------------------------------
@@ -43,17 +43,17 @@ EVRAG_CONFIG = {
         "multi_hop": 10,     # 40% - Requiere unir audio + visual
         "synthesis": 5,      # 20% - Comprensión global
     },
-    
+
     # Modelos LLM
     "generation_model": "gpt-4o-mini",  # Generar QA (barato)
     "evaluation_model": "gpt-4o",       # Evaluar (calidad)
-    
+
     # -------------------------------------------------------------------------
     # ChromaDB Storage
     # -------------------------------------------------------------------------
     "chroma_collection_name": "evrag_videos",
     "persist_directory": "back/videos/chroma_db",
-    
+
     # -------------------------------------------------------------------------
     # File Paths
     # -------------------------------------------------------------------------
@@ -86,7 +86,5 @@ def get_total_qa_pairs() -> int:
 def is_multimodal_evaluation() -> bool:
     """
     Returns True if EVRAG should evaluate both text and visual content.
-    
-    For your thesis (unificación de atributos), this should be True.
     """
     return True

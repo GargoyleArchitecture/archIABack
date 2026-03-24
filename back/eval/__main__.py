@@ -116,7 +116,7 @@ Examples:
         print(f"{'='*60}\n")
         
         report = evaluate_layer_1_books(
-            rag_invoke_func=None if args.mock else mock_rag_func,
+            rag_invoke_func=mock_rag_func if args.mock else None,
             force_regenerate=args.regenerate,
         )
         
@@ -126,7 +126,7 @@ Examples:
         print(f"{'='*60}\n")
         
         report = evaluate_layer_2_new_docs(
-            rag_invoke_func=None if args.mock else mock_rag_func,
+            rag_invoke_func=mock_rag_func if args.mock else None,
             force_regenerate=args.regenerate,
         )
     

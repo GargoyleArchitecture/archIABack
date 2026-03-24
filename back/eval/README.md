@@ -106,15 +106,15 @@ EVAL_CONFIG = {
         "multi_hop": 4,     # 40% - Razonamiento multi-hop
         "synthesis": 2,     # 20% - Comprensión global
     },
-    
+
     # Modelos LLM
     "generation_model": "gpt-4o-mini",  # Generar QA (barato)
     "evaluation_model": "gpt-4o",       # Evaluar (calidad)
-    
+
     # Verificación
     "verifier_strictness": "high",
     "verification_attempts": 2,
-    
+
     # Métricas habilitadas
     "metrics": {
         # RAGAS
@@ -122,7 +122,7 @@ EVAL_CONFIG = {
         "answer_relevance": True,
         "context_precision": True,
         "context_recall": True,
-        
+
         # CCRS
         "contextual_coherence": True,
         "question_relevance": True,
@@ -130,7 +130,7 @@ EVAL_CONFIG = {
         "answer_correctness": True,
         "information_recall": True,
     },
-    
+
     # Cache
     "cache_enabled": True,
     "cache_ttl_days": 30,
@@ -143,22 +143,22 @@ EVAL_CONFIG = {
 
 ### Métricas RAGAS
 
-| Métrica | Descripción | Rango |
-|---------|-------------|-------|
-| **Faithfulness** | ¿La respuesta se infiere solo del contexto recuperado? | 0-1 |
-| **Answer Relevance** | ¿La respuesta es relevante a la pregunta? | 0-1 |
-| **Context Precision** | ¿El contexto recuperado es preciso? | 0-1 |
-| **Context Recall** | ¿Se recuperó todo el contexto necesario? | 0-1 |
+| Métrica               | Descripción                                            | Rango |
+| --------------------- | ------------------------------------------------------ | ----- |
+| **Faithfulness**      | ¿La respuesta se infiere solo del contexto recuperado? | 0-1   |
+| **Answer Relevance**  | ¿La respuesta es relevante a la pregunta?              | 0-1   |
+| **Context Precision** | ¿El contexto recuperado es preciso?                    | 0-1   |
+| **Context Recall**    | ¿Se recuperó todo el contexto necesario?               | 0-1   |
 
 ### Métricas CCRS
 
-| Métrica | Descripción | Rango |
-|---------|-------------|-------|
-| **Contextual Coherence** | ¿La respuesta tiene flujo lógico? | 0-1 |
-| **Question Relevance** | ¿La pregunta es relevante al dominio? | 0-1 |
-| **Information Density** | ¿La respuesta es concisa sin filler? | 0-1 |
-| **Answer Correctness** | ¿La respuesta es factualmente correcta? | 0-1 |
-| **Information Recall** | ¿Cuánta información del ground truth se recuerda? | 0-1 |
+| Métrica                  | Descripción                                       | Rango |
+| ------------------------ | ------------------------------------------------- | ----- |
+| **Contextual Coherence** | ¿La respuesta tiene flujo lógico?                 | 0-1   |
+| **Question Relevance**   | ¿La pregunta es relevante al dominio?             | 0-1   |
+| **Information Density**  | ¿La respuesta es concisa sin filler?              | 0-1   |
+| **Answer Correctness**   | ¿La respuesta es factualmente correcta?           | 0-1   |
+| **Information Recall**   | ¿Cuánta información del ground truth se recuerda? | 0-1   |
 
 ---
 
@@ -183,7 +183,6 @@ EVAL_CONFIG = {
 
 ### Markdown Report
 
-```markdown
 # RAG Evaluation Report
 
 **Report ID:** layer1_books_20260322_143022
@@ -192,11 +191,11 @@ EVAL_CONFIG = {
 
 ## Aggregate Metrics
 
-| Metric | Score |
-|--------|-------|
-| faithfulness | 0.8523 |
+| Metric           | Score  |
+| ---------------- | ------ |
+| faithfulness     | 0.8523 |
 | answer_relevance | 0.9012 |
-| overall | 0.8734 |
+| overall          | 0.8734 |
 
 ## Per-Document Results
 
@@ -204,53 +203,46 @@ EVAL_CONFIG = {
 
 - **QA Pairs:** 10
 - **Overall Score:** 0.8821
-...
-```
+  ...
 
 ---
 
 ## Flujo de Evaluación
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PIPELINE DE EVALUACIÓN                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. DETECCIÓN DE DOCUMENTOS                                     │
-│     └─→ Escanear back/docs/*.pdf                                │
-│                                                                  │
-│  2. GENERACIÓN DE DATASETS (si no existen en caché)             │
-│     ├─→ Extractor de texto (PyMuPDF)                            │
-│     ├─→ Generator Agent (10 QA pairs/doc)                       │
-│     └─→ Verifier Agent (validación adversarial)                 │
-│                                                                  │
-│  3. EJECUCIÓN DEL RAG                                           │
-│     ├─→ Para cada QA pair: invocar RAG                          │
-│     └─→ Capturar retrieved_context + generated_answer           │
-│                                                                  │
-│  4. CÁLCULO DE MÉTRICAS                                         │
-│     ├─→ RAGAS: 4 métricas                                       │
-│     ├─→ CCRS: 5 métricas                                        │
-│     └─→ Overall score (promedio)                                │
-│                                                                  │
-│  5. GENERACIÓN DE REPORTES                                      │
-│     ├─→ JSON (back/eval/reports/)                               │
-│     └─→ Markdown (back/eval/reports/)                           │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+# PIPELINE DE EVALUACIÓN
+
+1. **DETECCIÓN DE DOCUMENTOS**
+   - Escanear `back/docs/*.pdf`
+
+2. **GENERACIÓN DE DATASETS** _(si no existen en caché)_
+   - **Extractor de texto:** PyMuPDF
+   - **Generator Agent:** 10 QA pairs por documento
+   - **Verifier Agent:** Validación adversarial
+
+3. **EJECUCIÓN DEL RAG**
+   - Invocar RAG para cada par de preguntas y respuestas (QA)
+   - Capturar `retrieved_context` + `generated_answer`
+
+4. **CÁLCULO DE MÉTRICAS**
+   - **RAGAS:** 4 métricas
+   - **CCRS:** 5 métricas
+   - **Overall score:** Promedio final
+
+5. **GENERACIÓN DE REPORTES**
+   - **JSON:** `back/eval/reports/`
+   - **Markdown:** `back/eval/reports/`
 
 ---
 
 ## Costos Estimados
 
-| Concepto | Costo (GPT-4o + GPT-4o-mini) |
-|----------|------------------------------|
-| **Generación dataset (6 docs × 10 QA)** | ~$3.00 (una vez) |
-| **Evaluación completa** | ~$1.50 |
-| **Total inicial** | **~$4.50** |
-| **Por doc nuevo** | ~$0.50 |
-| **Re-evaluación mensual** | ~$1.50 |
+| Concepto                                | Costo (GPT-4o + GPT-4o-mini) |
+| --------------------------------------- | ---------------------------- |
+| **Generación dataset (6 docs × 10 QA)** | ~$3.00 (una vez)             |
+| **Evaluación completa**                 | ~$1.50                       |
+| **Total inicial**                       | **~$4.50**                   |
+| **Por doc nuevo**                       | ~$0.50                       |
+| **Re-evaluación mensual**               | ~$1.50                       |
 
 ---
 
@@ -271,16 +263,17 @@ poetry run pytest back/tests/test_eval_framework.py --cov=back/eval
 El sistema está diseñado para evaluar en 3 capas:
 
 ### Capa 1: Libros Actuales
+
 - PDFs en `back/docs/`
 - Ya implementada y funcional
 
 ### Capa 2: Nuevos Documentos
-- PDFs en `back/docs_new/` (por crear)
+
 - Misma lógica que Capa 1
 
 ### Capa 3: Videos (EVRAG)
+
 - Videos en `back/videos/raw/`
-- Por implementar en Fase 2
 
 ---
 
@@ -310,6 +303,7 @@ poetry run pytest back/tests/test_eval_framework.py -v
 ### Error: "OPENAI_API_KEY not found"
 
 Asegúrate de tener `.env` en `back/src/` con:
+
 ```
 OPENAI_API_KEY=sk-...
 ```
@@ -317,6 +311,7 @@ OPENAI_API_KEY=sk-...
 ### Error: "No PDF files found"
 
 Verifica que hay PDFs en `back/docs/`:
+
 ```bash
 ls back/docs/*.pdf
 ```
@@ -324,6 +319,7 @@ ls back/docs/*.pdf
 ### Error: "RAG invoke function not configured"
 
 Debes proporcionar una función `rag_invoke_func` al pipeline:
+
 ```python
 def mi_rag_func(question, session_id):
     # Tu lógica aquí
@@ -331,21 +327,3 @@ def mi_rag_func(question, session_id):
 
 pipeline = RAGEvaluationPipeline(rag_invoke_func=mi_rag_func)
 ```
-
----
-
-## Próximos Pasos (Fase 2)
-
-1. **Watcher automático** para detectar nuevos documentos
-2. **EVRAG** para evaluación de videos
-3. **Reportes comparativos** temporales
-4. **Dashboard** web para visualización
-
----
-
-## Referencias
-
-- **RAGAS Paper**: https://arxiv.org/abs/2309.15217
-- **CCRS Paper**: arXiv:2506.20128
-- **MiRAGE Paper**: arXiv:2601.15487
-- **EVRAG Paper**: back/tesis_papers/EVRAG_*.pdf
