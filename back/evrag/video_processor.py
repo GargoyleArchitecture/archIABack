@@ -105,69 +105,79 @@ class VideoProcessor:
         """
         Detect scene changes in video using OpenCV.
         
-        Uses HSV color space differences between consecutive frames.
-        A scene cut is detected when the average pixel change exceeds threshold.
-        
-        Args:
-            video_path: Path to video file
-            
-        Returns:
-            List of detected Scene objects
+        Optimizado para videos largos: muestrea 1 frame cada N frames.
         """
         import cv2
-        
+        from tqdm import tqdm
+
         video_path = Path(video_path)
         self.video_path = video_path
-        
+
         cap = cv2.VideoCapture(str(video_path))
-        
+
         # Get video properties
         self.fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.video_duration_sec = self.total_frames / self.fps
-        
+
         print(f"Video: {video_path.name}")
         print(f"  Duration: {self.video_duration_sec:.1f}s ({self.video_duration_sec/60:.1f} min)")
         print(f"  FPS: {self.fps}")
         print(f"  Total frames: {self.total_frames}")
+
+        # OPTIMIZACIÓN: Para videos largos, muestrear frames
+        # Para video de 70 min (104k frames), procesar 1 cada 10 frames = ~10k frames
+        sample_rate = max(1, self.total_frames // 10000)  # Máximo 10k frames a procesar
         
+        print(f"  Sample rate: 1 every {sample_rate} frames (optimization for long videos)")
+
         # Scene detection parameters
         threshold = self.config["scene_detection_threshold"] / 100.0
         min_scene_frames = int(self.config["min_scene_length_sec"] * self.fps)
-        
+
         scenes: list[Scene] = []
         current_scene_start = 0
         prev_frame = None
-        
+
         frame_idx = 0
+        processed = 0
         
+        # Progress bar
+        pbar = tqdm(total=self.total_frames, desc="Detecting scenes", unit="frames")
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            
-            # Convert to HSV for better color difference detection
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            
-            if prev_frame is not None:
-                # Calculate frame difference
-                diff = cv2.absdiff(prev_frame, hsv)
-                diff_mean = np.mean(diff) / 255.0  # Normalize to 0-1
-                
-                # Detect scene change
-                if diff_mean > threshold and (frame_idx - current_scene_start) >= min_scene_frames:
-                    # End current scene, start new one
-                    scenes.append(Scene(
-                        start_frame=current_scene_start,
-                        end_frame=frame_idx - 1,
-                        start_time_sec=current_scene_start / self.fps,
-                        end_time_sec=(frame_idx - 1) / self.fps,
-                    ))
-                    current_scene_start = frame_idx
-            
-            prev_frame = hsv
+
+            # Only process every Nth frame for long videos
+            if frame_idx % sample_rate == 0:
+                # Convert to HSV
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+                if prev_frame is not None:
+                    # Calculate frame difference
+                    diff = cv2.absdiff(prev_frame, hsv)
+                    diff_mean = np.mean(diff) / 255.0
+
+                    # Detect scene change
+                    if diff_mean > threshold and (frame_idx - current_scene_start) >= min_scene_frames:
+                        scenes.append(Scene(
+                            start_frame=current_scene_start,
+                            end_frame=frame_idx - 1,
+                            start_time_sec=current_scene_start / self.fps,
+                            end_time_sec=(frame_idx - 1) / self.fps,
+                        ))
+                        current_scene_start = frame_idx
+
+                prev_frame = hsv
+                processed += 1
+
+            pbar.update(1)
             frame_idx += 1
-        
+
+        pbar.close()
+
         # Don't forget the last scene
         scenes.append(Scene(
             start_frame=current_scene_start,
@@ -175,7 +185,7 @@ class VideoProcessor:
             start_time_sec=current_scene_start / self.fps,
             end_time_sec=(frame_idx - 1) / self.fps,
         ))
-        
+
         cap.release()
         
         self.scenes = scenes
