@@ -8,6 +8,6 @@ def style_availability_node(state: GraphState) -> GraphState:
     """Nodo de estilos especializado para QA de disponibilidad (availability).
     
     Propone estilos arquitectónicos que maximicen la disponibilidad del sistema,
-    considerando redundancia, recuperación de fallos, y tácticas de resilencia.
+    considerando redundancia, recuperación de fallos, y tácticas de resiliencia.
     """
     return style_node_impl(state, qa_override="disponibilidad")
