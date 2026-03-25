@@ -6,7 +6,7 @@ from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.qa_registry import normalize_qa
 from src.rag_agent import get_indexed_retriever
-from src.graph.utils import _dedupe_snippets, _clip_text
+from src.graph.utils import _dedupe_snippets
 
 
 def resolve_qa_for_style(state: GraphState, qa_override: str | None = None) -> str:
