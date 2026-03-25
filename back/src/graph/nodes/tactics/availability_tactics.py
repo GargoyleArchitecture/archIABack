@@ -1,23 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from src.graph.state import GraphState
-from src.graph.nodes.tactics.common import tactics_node_impl
-
-
-##def tactics_availability_node(state: GraphState) -> GraphState:
-##    """Nodo de tácticas especializado para QA de disponibilidad (availability).
-##    
-##    Propone tácticas de diseño concretas para mejorar disponibilidad:
-##    - Detección de fallos (heartbeat, ping, exception handling)
-##    - Recuperación de fallos (retry, failover, replicación)
-##    - Prevención de fallos (redundancia, graceful degradation)
-##    """
-##    return tactics_node_impl(state, qa_override="disponibilidad")
-
-
 """Tácticas de disponibilidad con foco en detección de fallos (vía `tactics_node_impl`)."""
-
-
 from src.graph.state import GraphState
 from src.graph.nodes.tactics.common import tactics_node_impl
 
