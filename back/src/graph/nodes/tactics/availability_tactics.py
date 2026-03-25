@@ -24,7 +24,7 @@ def _fault_detection_lines_for_prompt() -> list[str]:
 def tactics_availability_node(state: GraphState) -> GraphState:
     return tactics_node_impl(
         state,
-        qa_override="availability",
+        qa_override="disponibilidad",
         preferred_tactics=_fault_detection_lines_for_prompt(),
         preferred_group_label="Fault detection (disponibilidad)",
         restrict_to_preferred_tactics=True,
