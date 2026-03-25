@@ -112,6 +112,66 @@ TRACEABILITY
 - Even in overview form, the diagram should visibly align with the ASR and tactics.
 - Mention key mechanisms in edge labels or node labels where they clarify the architecture.
 """
+DOT_SYSTEM_EXPAND = """
+You are an expert software architect and Graphviz DOT author.
+
+You are EXPANDING an existing architecture diagram to show MORE DETAIL.
+The HUMAN message contains the previous diagram (DOT code) and the architecture context.
+
+CRITICAL EXPANSION RULES
+- You MUST preserve ALL components from the previous diagram.
+- Every node from the previous diagram must appear in your output — either kept as-is
+  or decomposed into finer-grained sub-nodes inside a subgraph cluster.
+- ADD internal sub-components for the nodes that were previously shown as high-level blocks.
+- ADD new edges showing internal data flows and interactions that were previously hidden.
+- Preserve the overall topology and flow direction.
+- Example: if the previous diagram had "Backend Services", expand it into order_service,
+  user_service, payment_service, etc., grouped inside a "Backend Services" cluster.
+- Example: if the previous diagram had "Database", show the specific databases (PostgreSQL,
+  Redis, etc.) and their connections.
+
+{target_description}
+
+HARD OUTPUT RULES
+- Output ONLY valid DOT code for a directed graph.
+- Start with: digraph G {{
+- End with: }}
+- Never use markdown fences or extra prose.
+- Use UTF-8 text; preserve accents and non-latin characters when relevant.
+
+DOT SAFETY RULES
+- Set readability defaults:
+  graph [rankdir=LR, splines=ortho, nodesep=0.5, ranksep=0.8, fontsize=12, labelloc=t, bgcolor="transparent"]
+  node [shape=box, style="rounded,filled", fillcolor="#2D3748", color="#4A5568", fontname="Helvetica", fontsize=10, fontcolor="#FFFFFF"]
+  edge [color="#A0AEC0", arrowsize=0.7, penwidth=1.1, fontcolor="#FFFFFF"]
+- Node IDs must be simple identifiers (letters, numbers, underscore).
+- Keep labels short and specific.
+- Use subgraph clusters for boundaries when relevant.
+- Ensure every edge references declared node IDs.
+- Do not emit HTML-like labels.
+
+TRACEABILITY
+- The expanded diagram must still visibly support the ASR response measure.
+- Tactics should appear as concrete mechanisms (cache, autoscaling, circuit breaker,
+  queue, replica, CDN, fallback, etc.) where applicable.
+"""
+
+EXPAND_TARGET_MEDIUM = (
+    "TARGET: MEDIUM detail (15-30 nodes).\n"
+    "- Expand each high-level node from the overview into 2-4 sub-components.\n"
+    "- Show individual services, databases, and their direct connections.\n"
+    "- Group related services with subgraph clusters where logical.\n"
+    "- Do NOT show low-level details like sidecars, health-check endpoints, or replicas."
+)
+
+EXPAND_TARGET_DETAILED = (
+    "TARGET: FULL detail (no node limit).\n"
+    "- Expand every component into its full implementation.\n"
+    "- Show caches, queues, load balancers, replicas, sidecars, monitoring, etc.\n"
+    "- Use subgraph clusters for deployment boundaries (regions, zones, VPCs).\n"
+    "- Include all relevant infrastructure and operational components."
+)
+
 prompt_researcher = (
     "You are an expert in software architecture (ADD, quality attributes, tactics, views). "
     "When the question is architectural, you MUST call the tool `local_RAG` first, then optionally complement with LLM/LLMWithImages. "

@@ -620,6 +620,7 @@ async def message(
                 "quality_attribute": arch_flow.get("quality_attribute", ""),
                 "add_context": arch_flow.get("add_context", ""),
                 "tactics_list": arch_flow.get("tactics", []),
+                "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
             },
             config,
         )
@@ -692,6 +693,11 @@ async def message(
             "level": diagram_obj.get("level", 1),
             "overview_mapping": diagram_obj.get("overview_mapping"),
         }
+
+    # Persist diagram history per level for cross-level expansion
+    result_diagram_history = result.get("diagram_history") or {}
+    if result_diagram_history:
+        arch_flow["diagram_levels"] = {str(k): v for k, v in result_diagram_history.items()}
 
     # If user explicitly asked for a deployment diagram, mark the stage.
     if _wants_deployment(message):
