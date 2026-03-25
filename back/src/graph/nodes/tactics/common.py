@@ -227,7 +227,7 @@ For EACH tactic include: Name, Rationale, Consequences / Trade-offs, When to use
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
 - Use dot as decimal separator (e.g., 0.82), never commas.
 - Do not use percent signs, just 0..1 floats for success_probability.
-- Each JSON object's "name" MUST exactly match one allowed canonical tactic name from the ALLOWED/PRIORITY list above (when present).
+- If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
 - Do not add any prose or markdown outside the JSON fence.
 
 Example shape (values are illustrative — adjust to your tactics):
