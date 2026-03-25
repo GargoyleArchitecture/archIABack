@@ -28,6 +28,23 @@
         "respuesta rápida", "tiempo real", "rendimiento", "milisegundo"
       ],
       "description": "Tiempo entre una solicitud y su respuesta"
+    },
+    {
+      "id": "disponibilidad",
+      "display_name": "Disponibilidad",
+      "keywords_en": [
+        "availability", "uptime", "fault tolerance", "resilience", "recovery",
+        "MTBF", "MTTR", "SLA", "high availability", "HA", "redundancy",
+        "failover", "replication", "fault detection", "fault recovery", "circuit breaker",
+        "heartbeat", "operational", "accessible"
+      ],
+      "keywords_es": [
+        "disponibilidad", "disponible", "tiempo activo", "uptime", "redundancia",
+        "recuperación", "tolerancia a fallos", "resiliencia", "fallos",
+        "failover", "replicación", "detección de fallos", "circuito abierto",
+        "latido", "operativo", "accesible"
+      ],
+      "description": "Capacidad del sistema de estar operativo y accesible cuando se requiere"
     }
   ],
   "content_types": [
