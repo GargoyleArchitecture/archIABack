@@ -5,6 +5,7 @@ from langgraph.prebuilt import create_react_agent
 
 from src.graph.state import GraphState
 from src.graph.resources import llm, retriever, _HAS_VERTEX
+from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.utils import _push_turn
 from src.graph.nodes.supervisor import _looks_like_eval
 from src.graph.nodes.tools import theory_tool, viability_tool, needs_tool, analyze_tool
@@ -81,25 +82,26 @@ BOOK_SNIPPETS (ground your critique in these ideas; keep it short):
 ASR_TO_EVALUATE:
 {asr_text}
 
-Write a compact evaluation with EXACTLY these sections (plain text, no Markdown):
+Write the evaluation using Markdown with EXACTLY these sections:
 
-Verdict:
-  One line: Good / Weak / Invalid, with a short reason.
+## Verdict
+One line: **Good** / **Weak** / **Invalid**, with a short reason.
 
-Gaps:
-  3–6 bullets pointing missing or vague parts against the canonical QAS fields (Source, Stimulus, Environment, Artifact, Response, Response Measure).
+## Gaps
+3-6 bullets pointing missing or vague parts against the canonical QAS fields (`Source`, `Stimulus`, `Environment`, `Artifact`, `Response`, `Response Measure`).
 
-Quality:
-  3–5 bullets about measurability, precision of Response Measure (p95/p99, thresholds), clarity of stimulus, realism.
+## Quality
+3-5 bullets about measurability, precision of Response Measure (p95/p99, thresholds), clarity of stimulus, realism.
 
-Risks & Tactics:
-  3–5 bullets on plausible risks and which tactics mitigate them (use tactic names verbatim).
+## Risks & Tactics
+3-5 bullets on plausible risks and which tactics mitigate them (use tactic names verbatim in **bold**).
 
-Rewrite (improved ASR):
-  Provide a tightened ASR using the same QAS structure (Summary, Context, Scenario with the 6 fields, Response Measure). Keep it realistic and measurable.
+## Rewrite (improved ASR)
+Provide a tightened ASR using the same QAS structure (Summary, Context, Scenario with the 6 fields, Response Measure). Keep it realistic and measurable.
 
-References:
-  List 2–5 short items only if grounded by BOOK_SNIPPETS; otherwise write "None".
+## References
+List 2-5 short items only if grounded by BOOK_SNIPPETS; otherwise write "None".
+{MARKDOWN_FORMAT_DIRECTIVE}
 """
         eval_prompt = ("DOC-ONLY mode: ON. Reason exclusively from the PROJECT DOCUMENT.\n\n" + eval_prompt) if doc_only else eval_prompt
         result = llm.invoke(eval_prompt)

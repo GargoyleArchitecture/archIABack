@@ -170,16 +170,16 @@ Do NOT add comments or any text outside of this JSON object.
     ).strip()
 
     if lang == "es":
-        header = "He identificado dos estilos arquitectónicos candidatos para tu ASR:"
-        rec_label = "Recomendación"
+        header = "## Estilos Arquitectónicos Candidatos"
+        rec_label = "## Recomendación"
         because = "porque"
         followups = [
             f"Explícame tácticas concretas para el ASR usando el estilo recomendado ({chosen_name}).",
             "Compárame más a fondo estos dos estilos para este ASR.",
         ]
     else:
-        header = "I have identified two candidate architecture styles for your ASR:"
-        rec_label = "Recommendation"
+        header = "## Candidate Architecture Styles"
+        rec_label = "## Recommendation"
         because = "because"
         followups = [
             f"Explain concrete tactics for the ASR using the recommended style ({chosen_name}).",
@@ -188,11 +188,13 @@ Do NOT add comments or any text outside of this JSON object.
 
     content = (
         f"{header}\n\n"
-        f"1) {style1_name}\n"
-        f"   - Impact: {style1_impact}\n\n"
-        f"2) {style2_name}\n"
-        f"   - Impact: {style2_impact}\n\n"
-        f"{rec_label}: **{chosen_name}** {because}:\n"
+        f"### 1. {style1_name}\n\n"
+        f"- **Impact:** {style1_impact}\n\n"
+        f"### 2. {style2_name}\n\n"
+        f"- **Impact:** {style2_impact}\n\n"
+        f"---\n\n"
+        f"{rec_label}\n\n"
+        f"**{chosen_name}** {because}:\n\n"
         f"{rationale}\n"
     )
 
