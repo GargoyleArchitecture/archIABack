@@ -1,32 +1,84 @@
 # archIABack
 
-## Pasos para correr el back:
+## Requisitos previos
 
-**Se requiere tener python 3.11.x y pip instalados**
+- Python 3.11.x
+- pip
+- Graphviz (instalado a nivel de sistema)
 
-1. Instalar Poetry:
+---
 
-pip install Poetry
+## Configuración inicial (primera vez)
 
-2. Clonar el repositorio y abrir una terminal dentro del repo
+### 1. Instalar Python 3.11
 
-3. Instalar las dependecias:
-
-Poetry install
-
-4. Dentro del back, crear el archivo ".env" y colocar la API key:
-
-OPENAI_API_KEY="Tu API Key va aquí"
-
-5. Entrar a la carpeta back:
-
-cd back/
-
-6. Correr el programa:
+**Verificar versión de Python:**
 
 ```bash
-poetry run uvicorn src.main:app --port 8000
+python3.11 --version
 ```
+
+Si no está instalado (Fedora/RHEL):
+
+```bash
+sudo dnf install python3.11
+```
+
+**Instalar pip para Python 3.11:**
+
+```bash
+python3.11 -m ensurepip --upgrade
+```
+
+### 2. Instalar Graphviz
+
+```bash
+sudo dnf install graphviz
+```
+
+**Verificar versión de Graphviz:**
+
+```bash
+dot -V
+```
+
+### 3. Instalar Poetry
+
+```bash
+python3.11 -m pip install poetry
+```
+
+**Verificar versión de Poetry:**
+
+```bash
+python3.11 -m poetry --version
+```
+
+### 4. Instalar las dependencias del proyecto
+
+Desde la carpeta `back/`:
+
+```bash
+cd back
+python3.11 -m poetry env use python3.11
+python3.11 -m poetry install
+```
+
+### 5. Configurar el archivo `.env`
+
+Dentro de la carpeta `back/`, crear el archivo `.env` con  API Key:
+
+```
+OPENAI_API_KEY="Tu API Key va aquí"
+```
+
+### 6. Correr el servidor
+
+```bash
+python3.11 -m poetry run uvicorn src.main:app --port 8000
+```
+
+El servidor queda disponible en **http://localhost:8000**. La documentación interactiva de la API está en **http://localhost:8000/docs**.
 
 ---
 
@@ -38,29 +90,29 @@ El sistema integra un motor de Generación Aumentada por Recuperación (RAG) par
 
 Para inicializar o actualizar el almacén de datos vectoriales con nuevos documentos:
 
-1.  Ubicar los archivos PDF en el directorio `back/docs/`.
-2.  Ejecutar el proceso de indexación:
-    ```bash
-    cd back
-    poetry run python build_vectorstore.py
-    ```
+1. Ubicar los archivos PDF en el directorio `back/docs/`.
+2. Ejecutar el proceso de indexación:
+   ```bash
+   cd back
+   python3.11 -m poetry run python build_vectorstore.py
+   ```
 
 ### 2. Auditoría y Visualización (ChromaDB Explorer)
 
 Se proporciona una herramienta de exploración para validar la carga de datos y el comportamiento de la búsqueda semántica.
 
+**Linux/Mac:**
+
+1. Iniciar el servicio de exploración:
+   ```bash
+   cd back
+   python3.11 -m poetry run python chroma_web.py
+   ```
+2. Acceder a la consola web en: [**http://localhost:8001**](http://localhost:8001)
+
 **Windows:**
 
-- Ejecutar el script de acceso directo: [`back/start_chroma_web.bat`](file:///c:/Users/mgs05/Documents/GargoyleArchitecture/NewArchIA/archIABack/back/start_chroma_web.bat)
-
-**Otros sistemas operativos:**
-
-1.  Iniciar el servicio de exploración:
-    ```bash
-    cd back
-    poetry run python chroma_web.py
-    ```
-2.  Acceder a la consola web en: [**http://localhost:8001**](http://localhost:8001)
+- Ejecutar el script de acceso directo: `back/start_chroma_web.bat`
 
 ### Capacidades del Explorador
 
