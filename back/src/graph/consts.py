@@ -1,14 +1,29 @@
-﻿
+
 """
 Constants and static prompts for the graph module.
 """
 
+# ========== Markdown format directive (shared across all content-producing nodes) ==========
+
+MARKDOWN_FORMAT_DIRECTIVE = (
+    "\n\nOUTPUT FORMATTING (mandatory):\n"
+    "- Use standard Markdown (CommonMark / GFM).\n"
+    "- Use ## for main sections, ### for subsections, #### for details. Never use # (h1).\n"
+    "- **Bold** for key terms, patterns, concepts. *Italic* for first-mention technical terms.\n"
+    "- `inline code` for class names, functions, commands, file paths.\n"
+    "- Use - or 1. for lists. Short paragraphs (2-4 sentences max).\n"
+    "- Code blocks MUST specify language (```python, ```json, etc.). Never bare ```.\n"
+    "- Use GFM tables with | for comparisons or tabular data.\n"
+    "- Use > for important quotes or warnings.\n"
+    "- NO raw HTML tags. NO images. NO emojis as bullets.\n"
+)
+
 # ========== Tactics helpers
 TACTICS_HEADINGS = [
-    r"design tactics(?: to consider)?",
-    r"tácticas(?: de diseño)?",
-    r"arquitectural tactics",
-    r"decisiones (?:arquitectónicas|de diseño)",
+    r"(?:#{1,4}\s+)?design tactics(?: to consider)?",
+    r"(?:#{1,4}\s+)?tácticas(?: de diseño)?",
+    r"(?:#{1,4}\s+)?arquitectural tactics",
+    r"(?:#{1,4}\s+)?decisiones (?:arquitectónicas|de diseño)",
 ]
 
 # --- Safe JSON example for tactics (avoid braces in f-strings) ---

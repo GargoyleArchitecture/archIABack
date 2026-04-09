@@ -18,7 +18,7 @@ from src.graph.utils import (
     _push_turn,
     _json_only_repair_pass,
 )
-from src.graph.consts import TACTICS_JSON_EXAMPLE
+from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.qa_registry import normalize_qa
 
 
@@ -213,15 +213,16 @@ GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
 
 If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you “know” typical tactics. If the document does not support a tactic, state “not supported by the document”.
 {restriction_clause}
-You MUST output THREE sections, in EXACT order:
+You MUST output THREE sections, in EXACT order.
+Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.
+{MARKDOWN_FORMAT_DIRECTIVE}
 
-(0) Which is the ASR and it´s style (if any):
-- 3–5 concise lines.
-- Explicitly link back to the ASR's Source, Stimulus, Artifact, Environment and Response Measure. Also its architectonic style.
+## ASR & Style Context
+3-5 concise lines. Explicitly link back to the ASR's **Source**, **Stimulus**, **Artifact**, **Environment** and **Response Measure**. Also its architectonic style.
 
-(1) TACTICS (TOP-3 with highest success probability):
+## Tactics (TOP-3)
 Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.
-For EACH tactic include: Name, Rationale, Consequences / Trade-offs, When to use, Why it ranks in TOP-3, Sucess probability.
+For EACH tactic use a ### heading with the tactic name and include: **Rationale**, **Consequences / Trade-offs**, **When to use**, **Why it ranks in TOP-3**, **Success probability**.
 
 (2) JSON:
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
