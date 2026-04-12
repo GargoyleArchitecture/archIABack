@@ -170,6 +170,10 @@ class GraphState(TypedDict):
     selected_style: str
     last_style: str
 
+    # Diagram history for consistent cross-level expansion
+    # {1: "dot_level_1", 2: "dot_level_2", 3: "dot_level_3"}
+    diagram_history: dict
+
 class AgentState(TypedDict):
     messages: list
     userQuestion: str

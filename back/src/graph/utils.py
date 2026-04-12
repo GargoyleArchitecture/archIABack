@@ -132,12 +132,14 @@ def _strip_tactics_sections(md: str) -> str:
         text = re.sub(rf"(?is)\n+\s*{h}\s*:?.*$", "\n", text)
     return text.strip()
 
-def _sanitize_plain_text(txt: str) -> str:
-    txt = re.sub(r"```.*?```", "", txt, flags=re.S)
-    txt = txt.replace("**", "")
-    txt = re.sub(r"^\s*#\s*", "", txt, flags=re.M)
+def _sanitize_response(txt: str) -> str:
+    """Limpia artefactos del LLM preservando formato Markdown."""
     txt = re.sub(r"\n{3,}", "\n\n", txt)
     return txt.strip()
+
+
+# Backward-compat alias
+_sanitize_plain_text = _sanitize_response
 
 def _dedupe_snippets(docs_list, max_items=3, max_chars=400) -> str:
     """Toma documentos del retriever y arma texto sin duplicados/ruido."""

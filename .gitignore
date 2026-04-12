@@ -59,6 +59,7 @@ chroma_db/
 back/chroma_db/
 feedback_db/
 state_db/
+.processed_files.json
 
 # =========================
 # Docs (ignored by default)

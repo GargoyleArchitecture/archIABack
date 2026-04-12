@@ -4,10 +4,11 @@ import re
 from langchain_core.messages import AIMessage
 from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
+from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
-    _sanitize_plain_text,
+    _sanitize_response,
     _strip_tactics_sections,
 )
 from src.rag_agent import get_indexed_retriever
@@ -96,32 +97,36 @@ PROJECT CONTEXT (if any):
 OPTIONAL BOOK CONTEXT (only if not in DOC-ONLY mode):
 {book_snippets or "None"}
 
-OUTPUT FORMAT (MANDATORY – no bullets, no Markdown headings, no extra commentary):
+OUTPUT FORMAT (MANDATORY):
 
-ASR complete: <one single sentence that concisely states Source, Stimulus, Environment, Artifact, Response and Response Measure in natural language>
+Use this Markdown structure:
 
-Scenario:
-Source: <who initiates the stimulus>
-Stimulus: <what happens / event that triggers the behavior>
-Environment: <when / in which operating conditions this happens>
-Artifact: <what part of the system is stimulated>
-Response: <what the system must do>
-Response Measure: <how success is measured with clear numeric thresholds>
+## ASR
+
+**ASR complete:** <one single sentence that concisely states Source, Stimulus, Environment, Artifact, Response and Response Measure in natural language>
+
+### Scenario
+
+- **Source:** <who initiates the stimulus>
+- **Stimulus:** <what happens / event that triggers the behavior>
+- **Environment:** <when / in which operating conditions this happens>
+- **Artifact:** <what part of the system is stimulated>
+- **Response:** <what the system must do>
+- **Response Measure:** <how success is measured with clear numeric thresholds>
 
 Rules:
-- The line that starts with "ASR complete:" MUST be a single sentence.
-- Then a blank line.
-- Then the section "Scenario:" in its own line and each of the six fields (Source, Stimulus, Environment, Artifact, Response, Response Measure)
-  on its own line exactly as shown above.
+- The line that starts with "**ASR complete:**" MUST be a single sentence.
+- Then the section "### Scenario" with each of the six fields as bold-labeled list items.
 - Do NOT add any other sections (no 'Architectural Driver Summary', no 'Summary', no 'Context' headings).
 - Do NOT talk about tactics, styles or next steps here.
 - Keep the numbers realistic and measurable (p95 / p99, RPS, error rate, availability, etc.).
 - Answer entirely in the requested language.
+{MARKDOWN_FORMAT_DIRECTIVE}
 """
 
     result = llm.invoke(prompt)
     content_raw = getattr(result, "content", str(result))
-    content = _sanitize_plain_text(content_raw)
+    content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)
 
     # === Fuentes (si hubo RAG) ===

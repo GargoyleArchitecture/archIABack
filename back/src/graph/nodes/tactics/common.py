@@ -18,7 +18,7 @@ from src.graph.utils import (
     _push_turn,
     _json_only_repair_pass,
 )
-from src.graph.consts import TACTICS_JSON_EXAMPLE
+from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.qa_registry import normalize_qa
 
 
@@ -39,6 +39,38 @@ def guess_quality_attribute(text: str) -> str:
         return "reliability"
     return "performance"
 
+def _allowed_tactic_names_from_lines(lines: list[str]) -> list[str]:
+    """Extrae el nombre canónico de líneas tipo 'Nombre — descripción'."""
+    out: list[str] = []
+    for raw in lines or []:
+        line = (raw or "").strip()
+        if not line:
+            continue
+        if " — " in line:
+            out.append(line.split(" — ", 1)[0].strip())
+        elif " – " in line:
+            out.append(line.split(" – ", 1)[0].strip())
+        else:
+            out.append(line)
+    return out
+
+
+def _canonicalize_tactic_name(name: str, allowed: list[str]) -> str:
+    """Fuerza el nombre a uno del catálogo permitido (mejor esfuerzo)."""
+    n = (name or "").strip()
+    if not allowed:
+        return n
+    if not n:
+        return allowed[0]
+    nf = n.casefold()
+    for a in allowed:
+        if a.casefold() == nf:
+            return a
+    for a in allowed:
+        ac = a.casefold()
+        if ac in nf or nf in ac:
+            return a
+    return allowed[0]
 
 def resolve_qa_for_tactics(state: GraphState, asr_text: str, qa_override: str | None = None) -> str:
     """Resuelve QA final para tácticas con prioridad explícita."""
@@ -62,7 +94,13 @@ def resolve_qa_for_tactics(state: GraphState, asr_text: str, qa_override: str | 
     return guess_quality_attribute(asr_text)
 
 
-def tactics_node_impl(state: GraphState, qa_override: str | None = None) -> GraphState:
+def tactics_node_impl(
+    state: GraphState,
+    qa_override: str | None = None,
+    preferred_tactics: list[str] | None = None,
+    preferred_group_label: str | None = None,
+    restrict_to_preferred_tactics: bool = False,
+) -> GraphState:
     """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
     directive = "Answer in English." if lang == "en" else "Responde en español."
@@ -120,6 +158,37 @@ def tactics_node_impl(state: GraphState, qa_override: str | None = None) -> Grap
             docs_list = []
         book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
 
+    preferred_block = ""
+    allowed_names: list[str] = []
+    if preferred_tactics:
+        group_label = (preferred_group_label or "Preferred tactics").strip()
+        items = "\n".join(f"- {t}" for t in preferred_tactics if str(t).strip())
+        allowed_names = _allowed_tactic_names_from_lines(preferred_tactics)
+        if restrict_to_preferred_tactics and allowed_names:
+            allowed_csv = ", ".join(f'"{n}"' for n in allowed_names)
+            preferred_block = (
+                f"\n\nALLOWED TACTICS ONLY ({group_label}):\n"
+                f"{items}\n\n"
+                "HARD CONSTRAINTS:\n"
+                "- You MUST select EXACTLY THREE tactics for the TOP-3.\n"
+                "- EVERY tactic name in sections (1) and (2) MUST be one of the allowed canonical names "
+                f"listed above (before the em dash), exactly from this set: [{allowed_csv}].\n"
+                "- Do NOT introduce any other tactic names (no recovery/repair/redundancy tactics unless they appear in the allowed list).\n"
+                "- If documentation grounding conflicts, still obey the allowed list; you may note doc limitations in prose.\n"
+            )
+        else:
+            preferred_block = (
+                f"\n\nPRIORITY TACTIC GROUP ({group_label}):\n"
+                f"{items}\n"
+                "Prioritize these tactics in your TOP-3 when they fit the ASR and selected style."
+            )
+
+    restriction_clause = ""
+    if restrict_to_preferred_tactics and allowed_names:
+        restriction_clause = (
+            "\nFor section (1) and the JSON in section (2): tactic names MUST come ONLY from the ALLOWED TACTICS list above.\n"
+        )
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
@@ -136,27 +205,30 @@ Primary quality attribute (guessed):
 {qa}
 Selected architecture style (if any):
 {style_text or "(none)"}
+{preferred_block}
 
 
 GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
 {book_snippets or "(none)"}
 
 If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you “know” typical tactics. If the document does not support a tactic, state “not supported by the document”.
+{restriction_clause}
+You MUST output THREE sections, in EXACT order.
+Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.
+{MARKDOWN_FORMAT_DIRECTIVE}
 
-You MUST output THREE sections, in EXACT order:
+## ASR & Style Context
+3-5 concise lines. Explicitly link back to the ASR's **Source**, **Stimulus**, **Artifact**, **Environment** and **Response Measure**. Also its architectonic style.
 
-(0) Which is the ASR and it´s style (if any):
-- 3–5 concise lines.
-- Explicitly link back to the ASR's Source, Stimulus, Artifact, Environment and Response Measure. Also its architectonic style.
-
-(1) TACTICS (TOP-3 with highest success probability):
+## Tactics (TOP-3)
 Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.
-For EACH tactic include: Name, Rationale, Consequences / Trade-offs, When to use, Why it ranks in TOP-3, Sucess probability.
+For EACH tactic use a ### heading with the tactic name and include: **Rationale**, **Consequences / Trade-offs**, **When to use**, **Why it ranks in TOP-3**, **Success probability**.
 
 (2) JSON:
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
 - Use dot as decimal separator (e.g., 0.82), never commas.
 - Do not use percent signs, just 0..1 floats for success_probability.
+- If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
 - Do not add any prose or markdown outside the JSON fence.
 
 Example shape (values are illustrative — adjust to your tactics):
@@ -174,6 +246,39 @@ Example shape (values are illustrative — adjust to your tactics):
     if not (isinstance(struct, list) and struct):
         struct = build_json_from_markdown(raw, top_n=3)
     struct = normalize_tactics_json(struct, top_n=3)
+
+    if restrict_to_preferred_tactics and allowed_names and isinstance(struct, list):
+        taken: set[str] = set()
+
+        def _pick_unused_fallback() -> str:
+            for cand in allowed_names:
+                if cand.casefold() not in taken:
+                    return cand
+            return allowed_names[0]
+
+        for it in struct:
+            if not isinstance(it, dict):
+                continue
+            canon = _canonicalize_tactic_name(str(it.get("name", "")), allowed_names)
+            if canon.casefold() in taken:
+                canon = _pick_unused_fallback()
+            it["name"] = canon
+            taken.add(canon.casefold())
+
+        while isinstance(struct, list) and len(struct) < 3:
+            cand = _pick_unused_fallback()
+            struct.append(
+                {
+                    "name": cand,
+                    "rationale": "",
+                    "categories": ["fault-detection"],
+                    "success_probability": 0.5,
+                    "rank": len(struct) + 1,
+                }
+            )
+            taken.add(cand.casefold())
+
+        struct = normalize_tactics_json(struct, top_n=3)
 
     md_only = strip_first_json_fence(raw)
     if os.getenv("SHOW_TACTICS_JSON", "0") == "1":
