@@ -13,6 +13,7 @@ from src.graph.nodes.unifier import unifier_node
 from src.graph.nodes.asr import asr_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
+from src.graph.nodes.style_tactics_parallel import style_tactics_parallel_node
 from src.graph.qa_registry import (
     normalize_qa,
     supported_qas,
@@ -45,6 +46,9 @@ def boot_node(state: GraphState) -> GraphState:
 def router(state: GraphState) -> str:
     if state["nextNode"] == "unifier":
         return "unifier"
+
+    if state["nextNode"] == "style_tactics_parallel":
+        return "style_tactics_parallel"
 
     # NEW: para peticiones de ASR con RAG, pasa primero por el investigador
     if state["nextNode"] == "asr" and not state.get("hasVisitedASR", False):
@@ -89,8 +93,9 @@ builder.add_node("diagram_agent", diagram_orchestrator_node)  # Orquestador
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("unifier", unifier_node)
 builder.add_node("asr", asr_node)
-builder.add_node("style", style_node) 
+builder.add_node("style", style_node)
 builder.add_node("tactics", tactics_node)
+builder.add_node("style_tactics_parallel", style_tactics_parallel_node)
 
 # Registro dinámico de nodos style/tactics por QA.
 # Al agregar un QA en config/indices.json, el grafo registra sus nodos
@@ -116,6 +121,7 @@ builder.add_edge("evaluator", "supervisor")
 builder.add_edge("asr", "supervisor")
 builder.add_edge("style", "supervisor")
 builder.add_edge("tactics", "supervisor")
+builder.add_edge("style_tactics_parallel", "supervisor")
 
 # Edges de retorno de nodos QA-específicos.
 for node_name in sorted(_STYLE_QA_NODE_NAMES):

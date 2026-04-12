@@ -3,7 +3,7 @@ import os
 import json
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
 from src.graph.resources import llm, log, rag_trace_record
@@ -22,36 +22,6 @@ from src.graph.utils import (
 )
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.qa_registry import normalize_qa
-
-_TACTICS_SYSTEM = (
-    "You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).\n\n"
-    "We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.\n"
-    "Your job now is to continue the ADD 3.0 process by selecting architectural tactics.\n\n"
-    "If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you \"know\" typical tactics. "
-    "If the document does not support a tactic, state \"not supported by the document\".\n\n"
-    "You MUST output THREE sections, in EXACT order.\n"
-    "Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.\n"
-    + MARKDOWN_FORMAT_DIRECTIVE
-    + "\n\n## ASR & Style Context\n"
-    "3-5 concise lines. Explicitly link back to the ASR's **Source**, **Stimulus**, **Artifact**, "
-    "**Environment** and **Response Measure**. Also its architectonic style.\n\n"
-    "## Tactics (TOP-3)\n"
-    "Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.\n"
-    "For EACH tactic use a ### heading with the tactic name and include: **Rationale**, "
-    "**Consequences / Trade-offs**, **When to use**, **Why it ranks in TOP-3**, **Success probability**.\n\n"
-    "(2) JSON:\n"
-    "Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array "
-    "with EXACTLY 3 objects.\n"
-    "- Use dot as decimal separator (e.g., 0.82), never commas.\n"
-    "- Do not use percent signs, just 0..1 floats for success_probability.\n"
-    "- If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), "
-    "then each JSON object's \"name\" MUST exactly match one allowed canonical tactic name from that list. "
-    "Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics "
-    "when appropriate.\n"
-    "- Do not add any prose or markdown outside the JSON fence.\n\n"
-    "Example shape (values are illustrative — adjust to your tactics):\n"
-    + TACTICS_JSON_EXAMPLE
-)
 
 
 @lru_cache(maxsize=64)
@@ -252,25 +222,52 @@ def tactics_node_impl(
             "\nFor section (1) and the JSON in section (2): tactic names MUST come ONLY from the ALLOWED TACTICS list above.\n"
         )
 
-    human_content = f”””{directive}
+    prompt = f"""{directive}
+You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
+
+We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.
+Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
 
 PROJECT CONTEXT (if any)
-{ctx or “None”}
+{ctx or "None"}
 
 ASR (driver to satisfy):
-{asr_text or “(none provided)”}
+{asr_text or "(none provided)"}
 
 Primary quality attribute (guessed):
 {qa}
 Selected architecture style (if any):
-{style_text or “(none)”}
+{style_text or "(none)"}
 {preferred_block}
 
+
 GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
-{book_snippets or “(none)”}
+{book_snippets or "(none)"}
+
+If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you "know" typical tactics. If the document does not support a tactic, state "not supported by the document".
 {restriction_clause}
-“””
-    resp = llm.invoke([SystemMessage(content=_TACTICS_SYSTEM), HumanMessage(content=human_content)])
+You MUST output THREE sections, in EXACT order.
+Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.
+{MARKDOWN_FORMAT_DIRECTIVE}
+
+## ASR & Style Context
+3-5 concise lines. Explicitly link back to the ASR's **Source**, **Stimulus**, **Artifact**, **Environment** and **Response Measure**. Also its architectonic style.
+
+## Tactics (TOP-3)
+Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.
+For EACH tactic use a ### heading with the tactic name and include: **Rationale**, **Consequences / Trade-offs**, **When to use**, **Why it ranks in TOP-3**, **Success probability**.
+
+(2) JSON:
+Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
+- Use dot as decimal separator (e.g., 0.82), never commas.
+- Do not use percent signs, just 0..1 floats for success_probability.
+- If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
+- Do not add any prose or markdown outside the JSON fence.
+
+Example shape (values are illustrative — adjust to your tactics):
+{TACTICS_JSON_EXAMPLE}
+"""
+    resp = llm.invoke(prompt)
     raw = getattr(resp, "content", str(resp)).strip()
 
     log.debug("tactics raw (first 400): %s", raw[:400].replace("\n", " "))
@@ -331,7 +328,7 @@ GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
     src_lines = list(dict.fromkeys(src_lines))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
 
-    _push_turn(state, role="system", name="tactics_system", content=_TACTICS_SYSTEM + "\n---\n" + human_content)
+    _push_turn(state, role="system", name="tactics_system", content=prompt)
     _push_turn(state, role="assistant", name="tactics_advisor", content=md_only)
     _push_turn(state, role="assistant", name="tactics_sources", content=src_block)
 

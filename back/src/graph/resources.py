@@ -1,5 +1,6 @@
 
 import os
+import threading
 import requests
 import logging
 from pathlib import Path
@@ -41,6 +42,7 @@ llm = get_chat_model(temperature=0.0)
 
 _rag_trace_store: dict[str, dict] = {}
 _rag_trace_session: str | None = None
+_rag_trace_lock = threading.Lock()
 
 
 def rag_trace_set_session(session_id: str | None) -> None:
@@ -74,20 +76,21 @@ def rag_trace_record(*, query: str | None = None, docs: list | None = None, sess
     sid = session_id or _rag_trace_session
     if not sid:
         return
-    t = _rag_trace_store.get(sid) or {"attempted": False, "hit_count": 0, "queries": [], "sources": []}
-    t["attempted"] = True
-    if query:
-        t["queries"].append(query)
-    if docs:
-        t["hit_count"] = int(t.get("hit_count") or 0) + len(docs)
-        for d in docs:
-            md = getattr(d, "metadata", {}) or {}
-            title = md.get("source_title") or md.get("title") or "doc"
-            page = md.get("page_label") or md.get("page")
-            path = md.get("source_path") or md.get("source") or ""
-            page_str = f" (p.{page})" if page is not None else ""
-            t["sources"].append(f"{title}{page_str} — {path}")
-    _rag_trace_store[sid] = t
+    with _rag_trace_lock:
+        t = _rag_trace_store.get(sid) or {"attempted": False, "hit_count": 0, "queries": [], "sources": []}
+        t["attempted"] = True
+        if query:
+            t["queries"].append(query)
+        if docs:
+            t["hit_count"] = int(t.get("hit_count") or 0) + len(docs)
+            for d in docs:
+                md = getattr(d, "metadata", {}) or {}
+                title = md.get("source_title") or md.get("title") or "doc"
+                page = md.get("page_label") or md.get("page")
+                path = md.get("source_path") or md.get("source") or ""
+                page_str = f" (p.{page})" if page is not None else ""
+                t["sources"].append(f"{title}{page_str} — {path}")
+        _rag_trace_store[sid] = t
 
 
 # Lazy retriever: initialized on first access to avoid import-time OpenAI errors
