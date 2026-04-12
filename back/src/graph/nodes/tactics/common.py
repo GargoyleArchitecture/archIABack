@@ -1,6 +1,7 @@
 import re
 import os
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
@@ -141,17 +142,22 @@ def tactics_node_impl(
             )
             seen = set()
             gathered = []
-            for q in queries:
-                for d in _retriever.invoke(q):
-                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    gathered.append(d)
+            with ThreadPoolExecutor(max_workers=len(queries)) as executor:
+                futures = {executor.submit(_retriever.invoke, q): q for q in queries}
+                for future in as_completed(futures):
+                    try:
+                        for d in future.result():
+                            key = (d.metadata.get("source_path"), d.metadata.get("page"))
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            gathered.append(d)
+                            if len(gathered) >= 6:
+                                break
+                    except Exception:
+                        pass
                     if len(gathered) >= 6:
                         break
-                if len(gathered) >= 6:
-                    break
             docs_list = gathered
             rag_trace_record(query=" | ".join(queries), docs=docs_list)
         except Exception:
