@@ -1,13 +1,76 @@
 # -*- coding: utf-8 -*-
 
 import json
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.qa_registry import normalize_qa
 from src.rag_agent import get_indexed_retriever
 from src.graph.utils import _dedupe_snippets
+
+_STYLES_SYSTEM = (
+    "You are a software architect applying ADD 3.0.\n\n"
+    "Given the following Quality Attribute Scenario (ASR) and its business context,\n"
+    "propose 1-3 different architecture styles as reasonable candidates to solve this ASR,\n"
+    "and then recommend which of them is BETTER to satisfy this ASR,\n"
+    "explaining the recommendation in terms of its impact on the system and the quality attribute.\n\n"
+    "You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:\n\n"
+    "{\n"
+    '  "style_1": {\n'
+    '    "name": "Short name of style 1 (e.g., \'Layered\', \'Microservices\')",\n'
+    '    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."\n'
+    "  },\n"
+    '  "style_2": {\n'
+    '    "name": "Short name of style 2",\n'
+    '    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."\n'
+    "  },\n"
+    '  "best_style": "style_1 or style_2 (choose ONE)",\n'
+    '  "rationale": "Explain why the chosen style is better for this ASR, based on its impact."\n'
+    "}\n\n"
+    "Do NOT add comments or any text outside of this JSON object."
+)
+
+
+@lru_cache(maxsize=64)
+def _fetch_styles_rag(qa: str, resolved_index: str, k: int = 6) -> str:
+    """Returns book_snippets string. Cached by (qa, resolved_index, k).
+    Cache hit skips all ChromaDB queries."""
+    queries = [
+        f"{qa} architecture style",
+        f"{qa} architectural style patterns",
+        "architecture styles ADD 3.0",
+        "Bass Clements Kazman architecture styles",
+        "microservices layered event-driven architecture styles",
+        "architecture style patterns and tradeoffs",
+    ]
+    _retriever = get_indexed_retriever(
+        quality_attribute=normalize_qa(resolved_index or qa),
+        content_type="estilos",
+        k=k,
+    )
+    seen: set = set()
+    gathered: list = []
+    with ThreadPoolExecutor(max_workers=len(queries)) as executor:
+        futures = {executor.submit(_retriever.invoke, q): q for q in queries}
+        for future in as_completed(futures):
+            try:
+                for d in future.result():
+                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    gathered.append(d)
+                    if len(gathered) >= 6:
+                        break
+            except Exception:
+                pass
+            if len(gathered) >= 6:
+                break
+
+    return _dedupe_snippets(gathered, max_items=5, max_chars=600)
 
 
 def resolve_qa_for_style(state: GraphState, qa_override: str | None = None) -> str:
@@ -54,53 +117,17 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     qa = resolve_qa_for_style(state, qa_override=qa_override)
     ctx = (state.get("add_context") or "").strip()
 
-    docs_list = []
-    try:
-        queries = [
+    book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
+    rag_trace_record(
+        query=" | ".join([
             f"{qa} architecture style",
             f"{qa} architectural style patterns",
             "architecture styles ADD 3.0",
             "Bass Clements Kazman architecture styles",
-            "microservices layered event-driven architecture styles",
-            "architecture style patterns and tradeoffs",
-        ]
-        _retriever = get_indexed_retriever(
-            quality_attribute=normalize_qa(state.get("resolved_index") or qa),
-            content_type="estilos",
-            k=6,
-        )
-        seen = set()
-        gathered = []
-        with ThreadPoolExecutor(max_workers=len(queries)) as executor:
-            futures = {executor.submit(_retriever.invoke, q): q for q in queries}
-            for future in as_completed(futures):
-                try:
-                    for d in future.result():
-                        key = (d.metadata.get("source_path"), d.metadata.get("page"))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        gathered.append(d)
-                        if len(gathered) >= 6:
-                            break
-                except Exception:
-                    pass
-                if len(gathered) >= 6:
-                    break
-        docs_list = gathered
-        rag_trace_record(query=" | ".join(queries), docs=docs_list)
-    except Exception:
-        docs_list = []
+        ])
+    )
 
-    book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
-
-    prompt = f"""{directive}
-You are a software architect applying ADD 3.0.
-
-Given the following Quality Attribute Scenario (ASR) and its business context,
-propose 1-3 different architecture styles as reasonable candidates to solve this ASR,
-and then recommend which of them is BETTER to satisfy this ASR,
-explaining the recommendation in terms of its impact on the system and the quality attribute.
+    human_content = f"""{directive}
 
 Quality attribute focus (e.g., availability, performance, latency, security, etc.):
 {qa}
@@ -113,26 +140,9 @@ ASR:
 
 GROUNDING (use this context from architecture documentation; prefer it over general knowledge):
 {book_snippets or "(none)"}
-
-You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:
-
-{{
-  "style_1": {{
-    "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
-  }},
-  "style_2": {{
-    "name": "Short name of style 2",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
-  }},
-  "best_style": "style_1 or style_2 (choose ONE)",
-  "rationale": "Explain why the chosen style is better for this ASR, based on its impact."
-}}
-
-Do NOT add comments or any text outside of this JSON object.
 """
 
-    result = llm.invoke(prompt)
+    result = llm.invoke([SystemMessage(content=_STYLES_SYSTEM), HumanMessage(content=human_content)])
     raw = getattr(result, "content", str(result))
 
     try:
