@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 from pathlib import Path
 
+import json
 import os, re, sqlite3, base64
 
 log = logging.getLogger("main")
@@ -41,13 +42,18 @@ def fix_utf8_recursive(obj):
         return {k: fix_utf8_recursive(v) for k, v in obj.items()}
     return obj
 
+def _sse(data: dict) -> str:
+    """Format a dict as a single SSE data line."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
 
 from fastapi import UploadFile, File, Form, HTTPException, Request, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -316,7 +322,7 @@ def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
 
 # ===================== /diagram/export (user architecture diagrams) ==============
 @app.get("/diagram/export")
-def diagram_export(
+async def diagram_export(
     session_id: str = Query(..., description="Session that produced the diagram"),
     format: str = Query("svg", regex="^(svg|dot|dot_drawio|drawio)$"),
     detail_level: str = Query("overview", regex="^(overview|detailed)$"),
@@ -350,6 +356,7 @@ def diagram_export(
         render_dot_drawio,
         render_drawio,
         render_svg as render_svg_from_dot,
+        render_svg_async as render_svg_async_from_dot,
     )
 
     # Retrieve the last diagram for this session from memory
@@ -394,7 +401,7 @@ def diagram_export(
 
         if format == "svg":
             dot_str = render_dot_from_ir(ir_model)
-            svg_bytes = render_svg_from_dot(dot_str, engine=engine)
+            svg_bytes = await render_svg_async_from_dot(dot_str, engine=engine)
             return Response(
                 content=svg_bytes,
                 media_type="image/svg+xml; charset=utf-8",
@@ -435,6 +442,82 @@ def diagram_export(
     except Exception as exc:
         log.exception("diagram_export: unexpected error")
         raise HTTPException(status_code=500, detail=f"Export failed: {exc}")
+
+def _stream_post_process(
+    result: dict,
+    user_id: str,
+    message_id: int,
+    session_id: str,
+    user_intent: str,
+    made_asr: bool,
+    message: str,
+    arch_flow: dict,
+) -> None:
+    """Post-processing after the graph finishes: persist feedback, memory, arch_flow."""
+    upsert_feedback(session_id=session_id, message_id=message_id, up=0, down=0)
+
+    low = message.lower()
+    if "latencia" in low:
+        memory_set(user_id, "topic", "latencia")
+    elif "escalabilidad" in low:
+        memory_set(user_id, "topic", "escalabilidad")
+    if "asr" in low:
+        memory_set(user_id, "asr_notes", message)
+
+    end_msg = result.get("endMessage", "") or ""
+    asr_from_result = _extract_asr_from_result_text(end_msg)
+    if asr_from_result:
+        memory_set(user_id, "current_asr", asr_from_result)
+    elif made_asr and len(end_msg) > 80:
+        memory_set(user_id, "current_asr", end_msg.strip())
+
+    if result.get("hasVisitedASR"):
+        arch_flow["current_asr"] = memory_get(user_id, "current_asr", "")
+        arch_flow["quality_attribute"] = result.get(
+            "asr_quality_attribute",
+            arch_flow.get("quality_attribute", "")
+        )
+        arch_flow["add_context"] = result.get(
+            "asr_context",
+            arch_flow.get("add_context", "")
+        )
+        arch_flow["stage"] = "ASR"
+
+    style_text = (
+        result.get("style")
+        or result.get("selected_style")
+        or result.get("last_style")
+    )
+    if style_text and result.get("arch_stage") == "STYLE":
+        arch_flow["style"] = style_text
+        arch_flow["stage"] = "STYLE"
+
+    tactics_json = result.get("tactics_struct") or None
+    tactics_md   = result.get("tactics_md") or ""
+    if user_intent == "tactics" and (tactics_json or tactics_md):
+        arch_flow["tactics"] = tactics_json or []
+        arch_flow["stage"] = "TACTICS"
+
+    diagram_obj = result.get("diagram") or {}
+    if diagram_obj.get("ok") and diagram_obj.get("dot"):
+        arch_flow["last_diagram"] = {
+            "dot": diagram_obj.get("dot", ""),
+            "dot_raw": diagram_obj.get("dot_raw", ""),
+            "dot_drawio": diagram_obj.get("dot_drawio", ""),
+            "detail_level": diagram_obj.get("detail_level", "overview"),
+            "level": diagram_obj.get("level", 1),
+            "overview_mapping": diagram_obj.get("overview_mapping"),
+        }
+
+    result_diagram_history = result.get("diagram_history") or {}
+    if result_diagram_history:
+        arch_flow["diagram_levels"] = {str(k): v for k, v in result_diagram_history.items()}
+
+    if _wants_deployment(message):
+        arch_flow["stage"] = "DEPLOYMENT"
+
+    save_arch_flow(user_id, arch_flow)
+
 
 # ===================== /message =========================
 @app.post("/message")
@@ -585,144 +668,138 @@ async def message(
     except Exception:
         pass
 
-    # --- Invocación del grafo ---
-    try:
-        result = graph.invoke(
-            {
-                "messages": turn_messages,
-                "userQuestion": message,
-                "localQuestion": "",
-                "hasVisitedInvestigator": False,
-                "hasVisitedEvaluator": False,
-                "hasVisitedASR": False,
-                "nextNode": "supervisor",
-                "requested_nodes": [],
-                "pending_nodes": [],
-                "completed_nodes": [],
-                "imagePath1": image_path1,
-                "imagePath2": image_path2,
-                "doc_only": doc_only,
-                "doc_context": doc_context,
-                "endMessage": "",
-                "turn_messages": [],
-                "retrieved_docs": [],
-                "memory_text": memory_text,  # memoria rica
-                "suggestions": [],
-                "language": user_lang,
-                "intent": user_intent,
-                "force_rag": force_rag,
-                "topic_hint": topic_hint,  # opcional; el grafo puede ignorarlo
-                "current_asr": memory_get(user_id, "current_asr", ""),
-                "style": arch_flow.get("style", ""),
-                "selected_style": arch_flow.get("style", ""),
-                "last_style": arch_flow.get("style", ""),
-                "arch_stage": arch_flow.get("stage", ""),
-                "quality_attribute": arch_flow.get("quality_attribute", ""),
-                "add_context": arch_flow.get("add_context", ""),
-                "tactics_list": arch_flow.get("tactics", []),
-                "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
-            },
-            config,
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Graph error: {e}")
-
-    # --- Feedback inicial ---
-    upsert_feedback(session_id=session_id, message_id=message_id, up=0, down=0)
-
-    # --- Actualiza memoria simple ---
-    low = message.lower()
-    if "latencia" in low:
-        memory_set(user_id, "topic", "latencia")
-    elif "escalabilidad" in low:
-        memory_set(user_id, "topic", "escalabilidad")
-    if "asr" in low:
-        memory_set(user_id, "asr_notes", message)
-
-    # --- Captura ASR desde la respuesta del grafo (si redactó uno) ---
-    end_msg = result.get("endMessage", "") or ""
-    asr_from_result = _extract_asr_from_result_text(end_msg)
-    if asr_from_result:
-        memory_set(user_id, "current_asr", asr_from_result)
-    elif made_asr and len(end_msg) > 80:
-        memory_set(user_id, "current_asr", end_msg.strip())
-
-    # Actualizar arch_flow con el ASR generado/refinado
-    if result.get("hasVisitedASR"):
-        arch_flow["current_asr"] = memory_get(user_id, "current_asr", "")
-        arch_flow["quality_attribute"] = result.get(
-            "asr_quality_attribute",
-            arch_flow.get("quality_attribute", "")
-        )
-        arch_flow["add_context"] = result.get(
-            "asr_context",
-            arch_flow.get("add_context", "")
-        )
-        arch_flow["stage"] = "ASR"
-
-    style_text = (
-    result.get("style")
-    or result.get("selected_style")
-    or result.get("last_style")
-    )
-
-    if style_text and result.get("arch_stage") == "STYLE":
-        arch_flow["style"] = style_text
-        arch_flow["stage"] = "STYLE"
-
-
-    # --- Persistir tácticas si este turno fue de tácticas ---
-    tactics_json = result.get("tactics_struct") or None
-    tactics_md   = result.get("tactics_md") or ""
-    if user_intent == "tactics" and (tactics_json or tactics_md):
-        arch_flow["tactics"] = tactics_json or []
-        arch_flow["stage"] = "TACTICS"
-    # ===================== DIAGRAMA =====================
-    # The orchestrator now generates DOT and renders SVG with Graphviz.
-    diagram_obj = result.get("diagram") or {}
-
-    # Persist diagram data in arch_flow for later export via /diagram/export
-    if diagram_obj.get("ok") and diagram_obj.get("dot"):
-        arch_flow["last_diagram"] = {
-            "dot": diagram_obj.get("dot", ""),
-            "dot_raw": diagram_obj.get("dot_raw", ""),
-            "dot_drawio": diagram_obj.get("dot_drawio", ""),
-            "detail_level": diagram_obj.get("detail_level", "overview"),
-            "level": diagram_obj.get("level", 1),
-            "overview_mapping": diagram_obj.get("overview_mapping"),
-        }
-
-    # Persist diagram history per level for cross-level expansion
-    result_diagram_history = result.get("diagram_history") or {}
-    if result_diagram_history:
-        arch_flow["diagram_levels"] = {str(k): v for k, v in result_diagram_history.items()}
-
-    # If user explicitly asked for a deployment diagram, mark the stage.
-    if _wants_deployment(message):
-        arch_flow["stage"] = "DEPLOYMENT"
-
-    # Persist updated ADD flow.
-    save_arch_flow(user_id, arch_flow)
-
-    # Ensure end message is defined.
-    end_msg = end_msg.strip()
-    # --- Payload al front (no pisamos suggestions si las necesitas) ---
-    clean_payload = {
-        "endMessage": end_msg,
-        "diagram": diagram_obj,
-        "messages": result.get("turn_messages", []),
-        "session_id": session_id,
-        "message_id": message_id,
-        "thread_id": thread_id,
-        "suggestions": result.get("suggestions", []),
+    # --- Invocación del grafo (streaming SSE) ---
+    input_state = {
+        "messages": turn_messages,
+        "userQuestion": message,
+        "localQuestion": "",
+        "hasVisitedInvestigator": False,
+        "hasVisitedEvaluator": False,
+        "hasVisitedASR": False,
+        "nextNode": "supervisor",
+        "requested_nodes": [],
+        "pending_nodes": [],
+        "completed_nodes": [],
+        "imagePath1": image_path1,
+        "imagePath2": image_path2,
+        "doc_only": doc_only,
+        "doc_context": doc_context,
+        "endMessage": "",
+        "turn_messages": [],
+        "retrieved_docs": [],
+        "memory_text": memory_text,
+        "suggestions": [],
+        "language": user_lang,
+        "intent": user_intent,
+        "force_rag": force_rag,
+        "topic_hint": topic_hint,
+        "current_asr": memory_get(user_id, "current_asr", ""),
+        "style": arch_flow.get("style", ""),
+        "selected_style": arch_flow.get("style", ""),
+        "last_style": arch_flow.get("style", ""),
+        "arch_stage": arch_flow.get("stage", ""),
+        "quality_attribute": arch_flow.get("quality_attribute", ""),
+        "add_context": arch_flow.get("add_context", ""),
+        "tactics_list": arch_flow.get("tactics", []),
+        "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
     }
 
-    # Fix any double-encoded UTF-8 in the response
-    clean_payload = fix_utf8_recursive(clean_payload)
+    # Capture variables needed by the generator closure
+    _user_id      = user_id
+    _message_id   = message_id
+    _session_id   = session_id
+    _thread_id    = thread_id
+    _user_intent  = user_intent
+    _made_asr     = made_asr
+    _message      = message
+    _arch_flow    = arch_flow
 
-    return JSONResponse(content=clean_payload, media_type="application/json; charset=utf-8")
+    async def generate():
+        _final: dict = {}
+
+        try:
+            # graph.astream(stream_mode="updates") emits one event per node (just
+            # that node's return dict), with no intermediate token/sub-chain events.
+            # This avoids the serialisation overhead of astream_events(version="v2")
+            # which copies the full state on every LLM token.
+            _done = False
+            async for chunk in graph.astream(input_state, config, stream_mode="updates"):
+                for node_name, node_output in chunk.items():
+                    if not isinstance(node_output, dict):
+                        continue
+
+                    if node_name == "asr":
+                        yield _sse({
+                            "type": "partial",
+                            "node": "asr",
+                            "endMessage": node_output.get("endMessage", ""),
+                        })
+
+                    elif node_name == "style_tactics_parallel":
+                        yield _sse({
+                            "type": "partial",
+                            "node": "style_tactics",
+                            "style": node_output.get("style", ""),
+                            "tactics_md": node_output.get("tactics_md", ""),
+                            "endMessage": node_output.get("endMessage", ""),
+                        })
+
+                    elif node_name == "diagram_agent":
+                        yield _sse({
+                            "type": "partial",
+                            "node": "diagram",
+                            "diagram": node_output.get("diagram", {}),
+                        })
+
+                    elif node_name == "unifier":
+                        # unifier returns {**state, "endMessage": ...} so the full
+                        # accumulated state (diagram, turn_messages, suggestions…)
+                        # is available here.
+                        _final = node_output
+                        payload = fix_utf8_recursive({
+                            "type": "complete",
+                            "endMessage": (node_output.get("endMessage", "") or "").strip(),
+                            "diagram":    node_output.get("diagram", {}),
+                            "messages":   node_output.get("turn_messages", []),
+                            "session_id": _session_id,
+                            "message_id": _message_id,
+                            "thread_id":  _thread_id,
+                            "suggestions": node_output.get("suggestions", []),
+                        })
+                        yield _sse(payload)
+                        yield "data: [DONE]\n\n"
+                        _done = True
+                        break  # inner for
+
+                if _done:
+                    break  # outer async for
+
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            log.exception("Streaming pipeline error")
+            yield _sse({"type": "error", "message": str(exc)})
+            yield "data: [DONE]\n\n"
+            return
+
+        # Post-processing after stream closes (arch_flow persistence, memory saves)
+        if _final:
+            _stream_post_process(
+                result=_final,
+                user_id=_user_id,
+                message_id=_message_id,
+                session_id=_session_id,
+                user_intent=_user_intent,
+                made_asr=_made_asr,
+                message=_message,
+                arch_flow=_arch_flow,
+            )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 

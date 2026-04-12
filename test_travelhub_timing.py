@@ -1,11 +1,13 @@
 """
 Test de timing — prompt TravelHub (ASR + estilos + tácticas + diagrama)
 
+El endpoint ahora devuelve SSE (text/event-stream). Este script mide:
+  - t_first : tiempo hasta el primer evento `partial` (lo que el usuario ve primero)
+  - t_complete : tiempo hasta el evento `complete` (toda la información disponible)
+  - t_done : tiempo hasta el sentinel `[DONE]` (cierre limpio del stream)
+
 Uso:
     python test_travelhub_timing.py [--url http://localhost:8000] [--session mi-session]
-
-Mide el tiempo real de extremo a extremo: desde que sale el request HTTP
-hasta que llega la respuesta completa del backend.
 """
 
 import argparse
@@ -63,7 +65,7 @@ def main():
     t_start = time.perf_counter()
 
     try:
-        response = requests.post(endpoint, data=payload, timeout=300)
+        response = requests.post(endpoint, data=payload, timeout=300, stream=True)
     except requests.exceptions.ConnectionError:
         print(f"  ERROR: No se pudo conectar a {endpoint}")
         print("  Asegurate de que el servidor está corriendo (poetry run uvicorn src.main:app --reload)")
@@ -73,29 +75,68 @@ def main():
         print(f"  TIMEOUT después de {elapsed:.1f} s — el servidor no respondió en 5 min")
         sys.exit(1)
 
-    t_end = time.perf_counter()
-    elapsed = t_end - t_start
-
-    separator()
-    print(f"  Tiempo total (request → respuesta completa): {elapsed:.2f} s")
-    separator()
-
     if response.status_code != 200:
         print(f"  HTTP {response.status_code} — respuesta inesperada")
         print(f"  Body: {response.text[:500]}")
         sys.exit(1)
 
-    try:
-        data = response.json()
-    except Exception:
-        print("  ERROR: La respuesta no es JSON válido")
-        print(f"  Body (primeros 500 chars): {response.text[:500]}")
+    # ── Parse SSE stream ──────────────────────────────────────────────────
+    t_first: float | None = None
+    t_complete: float | None = None
+    t_done: float | None = None
+    final_data: dict = {}
+    chunks_seen: list[str] = []
+
+    for raw_line in response.iter_lines():
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+        if not line.startswith("data:"):
+            continue
+        payload_str = line[5:].strip()
+
+        if payload_str == "[DONE]":
+            t_done = time.perf_counter()
+            break
+
+        try:
+            event = json.loads(payload_str)
+        except json.JSONDecodeError:
+            continue
+
+        etype = event.get("type")
+        now = time.perf_counter()
+
+        if etype == "partial":
+            node = event.get("node", "?")
+            chunks_seen.append(node)
+            elapsed = now - t_start
+            print(f"  ↳ partial [{node:20s}] : {elapsed:.2f} s", flush=True)
+            if t_first is None:
+                t_first = now
+
+        elif etype == "complete":
+            t_complete = now
+            final_data = event
+
+        elif etype == "error":
+            print(f"  ERROR del servidor: {event.get('message', '?')}")
+            sys.exit(1)
+
+    t_end = t_done or t_complete or time.perf_counter()
+
+    separator()
+    print(f"  Tiempo hasta primer chunk  : {(t_first - t_start):.2f} s" if t_first else "  Primer chunk             : (no recibido)")
+    print(f"  Tiempo hasta 'complete'    : {(t_complete - t_start):.2f} s" if t_complete else "  complete                  : (no recibido)")
+    print(f"  Tiempo total (→ [DONE])    : {(t_end - t_start):.2f} s")
+    separator()
+
+    if not final_data:
+        print("  ERROR: no se recibió evento 'complete'")
         sys.exit(1)
 
-    end_message = data.get("endMessage", "")
-    diagram = data.get("diagram") or {}
-    suggestions = data.get("suggestions", [])
-    turn_messages = data.get("messages", [])
+    end_message = final_data.get("endMessage", "")
+    diagram = final_data.get("diagram") or {}
+    suggestions = final_data.get("suggestions", [])
+    turn_messages = final_data.get("messages", [])
 
     print(f"  endMessage  : {len(end_message)} caracteres")
     print(f"  turn_msgs   : {len(turn_messages)} mensaje(s) de turno")
@@ -119,8 +160,9 @@ def main():
             print(f"    • {str(s)[:100]}")
         separator()
 
+    total = t_end - t_start
     print(f"\n  Resultado final: {'OK' if end_message else 'WARNING: endMessage vacío'}")
-    print(f"  Tiempo: {elapsed:.2f} s\n")
+    print(f"  Tiempo total  : {total:.2f} s\n")
     separator("═")
 
 
