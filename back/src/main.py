@@ -444,6 +444,7 @@ async def message(
     session_id: str = Form(...),
     image1: Optional[UploadFile] = File(None),
     image2: Optional[UploadFile] = File(None),
+    project_id: Optional[str] = Form(None),
 ):
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
@@ -451,7 +452,8 @@ async def message(
         raise HTTPException(status_code=400, detail="No session ID provided")
 
     # Identidad simple por sesión
-    user_id = request.headers.get("X-User-Id") or session_id
+    user_id   = request.headers.get("X-User-Id") or session_id
+    api_token = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
     arch_flow = load_arch_flow(user_id)
 
     # ID incremental para feedback por mensaje
@@ -621,6 +623,11 @@ async def message(
                 "add_context": arch_flow.get("add_context", ""),
                 "tactics_list": arch_flow.get("tactics", []),
                 "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
+                "project_id":           project_id or "",
+                "user_id_for_prefs":    user_id,
+                "api_token":            api_token,
+                "project_context_text": arch_flow.get("project_context_text", ""),
+                "user_style_hint":      arch_flow.get("user_style_hint", ""),
             },
             config,
         )
@@ -702,6 +709,12 @@ async def message(
     # If user explicitly asked for a deployment diagram, mark the stage.
     if _wants_deployment(message):
         arch_flow["stage"] = "DEPLOYMENT"
+
+    # Persistir contexto dual (una vez cargado, sobrevive entre turnos)
+    if result.get("project_context_text"):
+        arch_flow["project_context_text"] = result["project_context_text"]
+    if result.get("user_style_hint"):
+        arch_flow["user_style_hint"] = result["user_style_hint"]
 
     # Persist updated ADD flow.
     save_arch_flow(user_id, arch_flow)

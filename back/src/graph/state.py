@@ -174,6 +174,13 @@ class GraphState(TypedDict):
     # {1: "dot_level_1", 2: "dot_level_2", 3: "dot_level_3"}
     diagram_history: dict
 
+    # Motor de Contexto Dual — persistentes por sesión
+    project_context_text: str   # ProjectContext formateado (Backend API)
+    user_style_hint: str        # UserPreference formateado (Backend API)
+    project_id: str             # ID del proyecto activo (pasado desde /message)
+    user_id_for_prefs: str      # User ID para preferencias (pasado desde /message)
+    api_token: str              # Bearer token para llamadas al Backend API
+
 class AgentState(TypedDict):
     messages: list
     userQuestion: str

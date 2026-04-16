@@ -104,10 +104,14 @@ def tactics_node_impl(
     """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
     directive = "Answer in English." if lang == "en" else "Responde en español."
+    style_hint = (state.get("user_style_hint") or "").strip()
+    if style_hint:
+        directive = f"{directive} {style_hint}"
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
     ctx_add = (state.get("add_context") or "").strip()
     ctx = (ctx_doc if (doc_only and ctx_doc) else ctx_add)[:2000]
+    proj_ctx = (state.get("project_context_text") or "").strip()
 
     asr_text = (
         state.get("current_asr")
@@ -189,13 +193,25 @@ def tactics_node_impl(
             "\nFor section (1) and the JSON in section (2): tactic names MUST come ONLY from the ALLOWED TACTICS list above.\n"
         )
 
+    proj_ctx_block = ""
+    if proj_ctx:
+        proj_ctx_block = f"""
+{"=" * 60}
+PROJECT CONTEXT — MANDATORY CONSTRAINTS FOR TACTIC SELECTION:
+{proj_ctx}
+
+IMPORTANT: All proposed tactics MUST be compatible with the listed tech stack and business rules.
+Mention specific technologies from the stack when describing how each tactic would be implemented.
+{"=" * 60}
+"""
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
 We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.
 Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
-
-PROJECT CONTEXT (if any)
+{proj_ctx_block}
+Additional session context (if any):
 {ctx or "None"}
 
 ASR (driver to satisfy):
