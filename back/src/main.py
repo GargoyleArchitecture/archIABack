@@ -722,7 +722,6 @@ async def message(
             # that node's return dict), with no intermediate token/sub-chain events.
             # This avoids the serialisation overhead of astream_events(version="v2")
             # which copies the full state on every LLM token.
-            _done = False
             async for chunk in graph.astream(input_state, config, stream_mode="updates"):
                 for node_name, node_output in chunk.items():
                     if not isinstance(node_output, dict):
@@ -754,7 +753,8 @@ async def message(
                     elif node_name == "unifier":
                         # unifier returns {**state, "endMessage": ...} so the full
                         # accumulated state (diagram, turn_messages, suggestions…)
-                        # is available here.
+                        # is available here. unifier -> END, so astream will
+                        # terminate naturally on the next iteration.
                         _final = node_output
                         payload = fix_utf8_recursive({
                             "type": "complete",
@@ -767,13 +767,12 @@ async def message(
                             "suggestions": node_output.get("suggestions", []),
                         })
                         yield _sse(payload)
-                        yield "data: [DONE]\n\n"
-                        _done = True
-                        break  # inner for
 
-                if _done:
-                    break  # outer async for
+            yield "data: [DONE]\n\n"
 
+        except GeneratorExit:
+            # Client disconnected mid-stream; let the generator close cleanly.
+            raise
         except Exception as exc:
             import traceback
             traceback.print_exc()
