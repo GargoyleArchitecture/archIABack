@@ -61,6 +61,7 @@ from src.memory import (
     set_kv as memory_set,
     load_arch_flow,
     save_arch_flow,
+    _project_key,
 )
 from src.services.doc_ingest import extract_pdf_text
 memory_init()
@@ -452,9 +453,11 @@ async def message(
         raise HTTPException(status_code=400, detail="No session ID provided")
 
     # Identidad simple por sesión
-    user_id   = request.headers.get("X-User-Id") or session_id
-    api_token = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-    arch_flow = load_arch_flow(user_id)
+    user_id    = request.headers.get("X-User-Id") or session_id
+    api_token  = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    project_id = (project_id or "").strip() or None          # normalizar: "" → None
+    asr_key    = _project_key("current_asr", project_id)     # clave escopada por proyecto
+    arch_flow  = load_arch_flow(user_id, project_id)
 
     # ID incremental para feedback por mensaje
     message_id = get_next_message_id(session_id)
@@ -521,7 +524,7 @@ async def message(
         af = dict(arch_flow)
         prev_ctx = (af.get("add_context") or "").strip()
         af["add_context"] = (prev_ctx + "\n\n" + pdf_context_turn).strip() if prev_ctx else pdf_context_turn
-        save_arch_flow(user_id, af)
+        save_arch_flow(user_id, af, project_id)
         arch_flow = af  # usarlo ya mismo
 
     memory_text = (
@@ -537,7 +540,7 @@ async def message(
     # --- ASR pegado por el usuario (si lo hay) ---
     asr_in_msg = _extract_asr_from_message(message)
     if asr_in_msg:
-        memory_set(user_id, "current_asr", asr_in_msg)
+        memory_set(user_id, asr_key, asr_in_msg)
     made_asr = _looks_like_make_asr(message)
 
     # --- Config del grafo ---
@@ -582,7 +585,7 @@ async def message(
             "requested_nodes": [],
             "pending_nodes": [],
             "completed_nodes": [],
-            "current_asr": memory_get(user_id, "current_asr", ""),
+            "current_asr": memory_get(user_id, asr_key, ""),
         }})
     except Exception:
         pass
@@ -614,7 +617,7 @@ async def message(
                 "intent": user_intent,
                 "force_rag": force_rag,
                 "topic_hint": topic_hint,  # opcional; el grafo puede ignorarlo
-                "current_asr": memory_get(user_id, "current_asr", ""),
+                "current_asr": memory_get(user_id, asr_key, ""),
                 "style": arch_flow.get("style", ""),
                 "selected_style": arch_flow.get("style", ""),
                 "last_style": arch_flow.get("style", ""),
@@ -652,13 +655,13 @@ async def message(
     end_msg = result.get("endMessage", "") or ""
     asr_from_result = _extract_asr_from_result_text(end_msg)
     if asr_from_result:
-        memory_set(user_id, "current_asr", asr_from_result)
+        memory_set(user_id, asr_key, asr_from_result)
     elif made_asr and len(end_msg) > 80:
-        memory_set(user_id, "current_asr", end_msg.strip())
+        memory_set(user_id, asr_key, end_msg.strip())
 
     # Actualizar arch_flow con el ASR generado/refinado
     if result.get("hasVisitedASR"):
-        arch_flow["current_asr"] = memory_get(user_id, "current_asr", "")
+        arch_flow["current_asr"] = memory_get(user_id, asr_key, "")
         arch_flow["quality_attribute"] = result.get(
             "asr_quality_attribute",
             arch_flow.get("quality_attribute", "")
@@ -716,8 +719,8 @@ async def message(
     if result.get("user_style_hint"):
         arch_flow["user_style_hint"] = result["user_style_hint"]
 
-    # Persist updated ADD flow.
-    save_arch_flow(user_id, arch_flow)
+    # Persist updated ADD flow (escopado por proyecto).
+    save_arch_flow(user_id, arch_flow, project_id)
 
     # Ensure end message is defined.
     end_msg = end_msg.strip()

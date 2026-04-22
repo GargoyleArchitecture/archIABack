@@ -1,5 +1,5 @@
 # src/memory.py
-import sqlite3, os, json
+import sqlite3, os, json, re
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_DIR = BASE_DIR / "state_db"
@@ -35,6 +35,26 @@ def get(user_id: str, key: str, default: str = "") -> str:
 # Clave unica para guardar todo el contexto de arquirectura
 ARCH_FLOW_KEY = "arch_flow"
 
+def _arch_flow_key(project_id: str | None) -> str:
+    """
+    Clave de almacenamiento para arch_flow.
+    Con project_id  → "arch_flow:proj-abc123"
+    Sin project_id  → "arch_flow"  (backward-compatible)
+    """
+    pid = (project_id or "").strip()
+    if pid and not re.match(r'^[\w\-.:]+$', pid):
+        raise ValueError(f"project_id inválido: {pid!r}")
+    return f"arch_flow:{pid}" if pid else ARCH_FLOW_KEY
+
+def _project_key(base_key: str, project_id: str | None) -> str:
+    """
+    Para claves planas (ej. "current_asr") que deben escoparse por proyecto.
+    Con project_id  → "proj:abc123:current_asr"
+    Sin project_id  → "current_asr"
+    """
+    pid = (project_id or "").strip()
+    return f"proj:{pid}:{base_key}" if pid else base_key
+
 def empty_arch_flow() -> dict:
     """
     Estado minimo que queremos recordar entre turnos
@@ -55,12 +75,15 @@ def empty_arch_flow() -> dict:
         "deployment_diagram_svg_b64":"", #SVG base 64 del despliegue final
     }
 
-def load_arch_flow(user_id: str) -> dict:
+def load_arch_flow(user_id: str, project_id: str | None = None) -> dict:
     """
-    Devuelve el estado ADD 3.0 para este usuario/sesión
+    Devuelve el estado ADD 3.0 para este usuario/proyecto.
+    Con project_id  → aislado por proyecto (clave "arch_flow:{project_id}").
+    Sin project_id  → comportamiento previo (clave "arch_flow").
     Siempre retorna todas las llaves esperadas.
     """
-    raw = get(user_id, ARCH_FLOW_KEY, "")
+    key = _arch_flow_key(project_id)
+    raw = get(user_id, key, "")
     if not raw:
         return empty_arch_flow()
     try:
@@ -71,10 +94,13 @@ def load_arch_flow(user_id: str) -> dict:
     base.update(data or {})
     return base
 
-def save_arch_flow(user_id: str, flow: dict):
+def save_arch_flow(user_id: str, flow: dict, project_id: str | None = None):
     """
-    Guarda el estado ADD 3.0 actualizado
+    Guarda el estado ADD 3.0 actualizado.
+    Con project_id  → aislado por proyecto.
+    Sin project_id  → comportamiento previo.
     """
+    key = _arch_flow_key(project_id)
     base = empty_arch_flow()
     base.update(flow or {})
-    set_kv(user_id, ARCH_FLOW_KEY, json.dumps(base))
+    set_kv(user_id, key, json.dumps(base))
