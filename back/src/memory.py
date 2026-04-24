@@ -32,13 +32,13 @@ def get(user_id: str, key: str, default: str = "") -> str:
 ### Nueva memoria persistente para el flujo ADD 3.0
 ###
 
-# Clave unica para guardar todo el contexto de arquirectura
+# Clave única para guardar todo el contexto de arquitectura
 ARCH_FLOW_KEY = "arch_flow"
 
 def _arch_flow_key(project_id: str | None) -> str:
     """
     Clave de almacenamiento para arch_flow.
-    Con project_id  → "arch_flow:proj-abc123"
+    Con project_id  → "arch_flow:abc123"
     Sin project_id  → "arch_flow"  (backward-compatible)
     """
     pid = (project_id or "").strip()
@@ -46,7 +46,7 @@ def _arch_flow_key(project_id: str | None) -> str:
         raise ValueError(f"project_id inválido: {pid!r}")
     return f"arch_flow:{pid}" if pid else ARCH_FLOW_KEY
 
-def _project_key(base_key: str, project_id: str | None) -> str:
+def project_key(base_key: str, project_id: str | None) -> str:
     """
     Para claves planas (ej. "current_asr") que deben escoparse por proyecto.
     Con project_id  → "proj:abc123:current_asr"

@@ -61,7 +61,7 @@ from src.memory import (
     set_kv as memory_set,
     load_arch_flow,
     save_arch_flow,
-    _project_key,
+    project_key,
 )
 from src.services.doc_ingest import extract_pdf_text
 memory_init()
@@ -454,10 +454,21 @@ async def message(
 
     # Identidad simple por sesión
     user_id    = request.headers.get("X-User-Id") or session_id
-    api_token  = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    authorization_header = (request.headers.get("Authorization") or "").strip()
+    authorization_parts = authorization_header.split()
+    api_token = (
+        authorization_parts[1]
+        if len(authorization_parts) == 2 and authorization_parts[0].lower() == "bearer"
+        else ""
+    )
     project_id = (project_id or "").strip() or None          # normalizar: "" → None
-    asr_key    = _project_key("current_asr", project_id)     # clave escopada por proyecto
-    arch_flow  = load_arch_flow(user_id, project_id)
+    try:
+        arch_flow = load_arch_flow(user_id, project_id)
+    except ValueError:
+        log.warning("Invalid project_id received in /message; falling back to default arch_flow", exc_info=True)
+        project_id = None
+        arch_flow = load_arch_flow(user_id, project_id)
+    asr_key = project_key("current_asr", project_id)         # clave escopada por proyecto
 
     # ID incremental para feedback por mensaje
     message_id = get_next_message_id(session_id)
@@ -544,7 +555,7 @@ async def message(
     made_asr = _looks_like_make_asr(message)
 
     # --- Config del grafo ---
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 20}
+    config = {"configurable": {"thread_id": thread_id, "api_token": api_token}, "recursion_limit": 20}
     user_lang = detect_lang(message)
 
     # --- Heuristicas locales ---
@@ -628,9 +639,10 @@ async def message(
                 "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
                 "project_id":           project_id or "",
                 "user_id_for_prefs":    user_id,
-                "api_token":            api_token,
                 "project_context_text": arch_flow.get("project_context_text", ""),
                 "user_style_hint":      arch_flow.get("user_style_hint", ""),
+                "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
+                "user_style_loaded":    bool(arch_flow.get("user_style_hint", "")),
             },
             config,
         )

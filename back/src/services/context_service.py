@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 import logging
-from src.graph.resources import _HTTP
+import requests
+from urllib.parse import quote
 
 log = logging.getLogger("context_service")
+
+_HTTP = requests.Session()
 
 _BASE_URL = os.getenv("ARCHIA_API_BASE_URL", "").rstrip("/")
 
@@ -16,7 +19,7 @@ def fetch_project_context(project_id: str, api_token: str) -> dict:
     """
     if not _BASE_URL or not project_id or not api_token:
         return {}
-    url = f"{_BASE_URL}/api/v1/projects/{project_id}/context"
+    url = f"{_BASE_URL}/api/v1/projects/{quote(project_id, safe='')}/context"
     try:
         resp = _HTTP.get(
             url,
@@ -41,7 +44,7 @@ def fetch_user_preferences(user_id: str, api_token: str) -> dict:
     """
     if not _BASE_URL or not user_id or not api_token:
         return {}
-    url = f"{_BASE_URL}/api/v1/users/{user_id}/preferences"
+    url = f"{_BASE_URL}/api/v1/users/{quote(user_id, safe='')}/preferences"
     try:
         resp = _HTTP.get(
             url,
