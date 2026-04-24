@@ -462,10 +462,15 @@ async def message(
         else ""
     )
     project_id = (project_id or "").strip() or None          # normalizar: "" → None
+    _raw_project_id = project_id
     try:
         arch_flow = load_arch_flow(user_id, project_id)
     except ValueError:
-        log.warning("Invalid project_id received in /message; falling back to default arch_flow", exc_info=True)
+        log.warning(
+            "Invalid project_id=%r received in /message; falling back to default arch_flow",
+            _raw_project_id,
+            exc_info=True,
+        )
         project_id = None
         arch_flow = load_arch_flow(user_id, project_id)
     asr_key = project_key("current_asr", project_id)         # clave escopada por proyecto
