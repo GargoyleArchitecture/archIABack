@@ -66,9 +66,14 @@ def asr_node(state: GraphState) -> GraphState:
     book_snippets = _dedupe_snippets(docs_list, max_items=6, max_chars=800)
 
     directive = "Answer in English." if lang == "en" else "Responde en español."
+    style_hint = (state.get("user_style_hint") or "").strip()
+    if style_hint:
+        directive = f"{directive} {style_hint}"
+
     ctx = (
         ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")
     ).strip()[:2000]
+    proj_ctx = (state.get("project_context_text") or "").strip()
 
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
@@ -82,6 +87,15 @@ Each ASR MUST:
 - Be realistic for production systems in the given domain.
 - Follow a single quality attribute focus (e.g. latency, scalability, availability) inferred from the user question.
 
+{"=" * 60}
+PROJECT CONTEXT — YOU MUST RESPECT THESE CONSTRAINTS:
+{proj_ctx if proj_ctx else "(none — no project configured)"}
+
+IMPORTANT: If a tech stack is listed above, the ASR's Artifact and Response MUST reference
+those specific technologies. If business rules are listed, the ASR scenario MUST be coherent
+with them. Do NOT use generic placeholders like "the system" when a real stack is provided.
+{"=" * 60}
+
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 
@@ -91,7 +105,7 @@ Quality attribute focus inferred from the user message:
 User input to ground this ASR:
 {uq}
 
-PROJECT CONTEXT (if any):
+Additional session context (if any):
 {ctx or "None"}
 
 OPTIONAL BOOK CONTEXT (only if not in DOC-ONLY mode):
