@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import re
+import asyncio
 import subprocess
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
@@ -190,11 +191,23 @@ def _render_edge_line(edge: DiagramEdge) -> str:
 # SVG rendering via Graphviz
 # ---------------------------------------------------------------------------
 
+# DOT→SVG render cache keyed by (dot_string, engine) hash.
+# Shared between render_svg() and render_svg_async().
+_SVG_CACHE: dict[int, bytes] = {}
+
+
 def render_svg(dot_string: str, engine: str = "dot") -> bytes:
     """Render DOT to SVG bytes using the system Graphviz binary.
 
     Falls back to python-graphviz ``Source.pipe()`` if available.
+    Results are cached in ``_SVG_CACHE`` by (dot_string, engine) hash.
     """
+    key = hash((dot_string, engine))
+    if key in _SVG_CACHE:
+        return _SVG_CACHE[key]
+
+    svg_bytes: bytes | None = None
+
     # Try subprocess first (more reliable)
     try:
         result = subprocess.run(
@@ -207,30 +220,74 @@ def render_svg(dot_string: str, engine: str = "dot") -> bytes:
             timeout=30,
         )
         if result.returncode == 0:
-            return normalize_text(result.stdout).encode("utf-8")
-        stderr = normalize_text(result.stderr)
-        log.warning("Graphviz render failed (exit %d): %s", result.returncode, stderr)
+            svg_bytes = normalize_text(result.stdout).encode("utf-8")
+        else:
+            stderr = normalize_text(result.stderr)
+            log.warning("Graphviz render failed (exit %d): %s", result.returncode, stderr)
     except FileNotFoundError:
         log.info("System %s binary not found, trying python-graphviz", engine)
     except subprocess.TimeoutExpired:
         raise RuntimeError("Graphviz rendering timed out (>30s)")
 
-    # Fallback: python-graphviz
-    try:
-        from graphviz import Source
-        src = Source(normalize_text(dot_string), format="svg", engine=engine)
-        return normalize_text(src.pipe(format="svg")).encode("utf-8")
-    except ImportError:
-        raise RuntimeError(
-            f"Neither system '{engine}' binary nor python-graphviz is available. "
-            "Install Graphviz: https://graphviz.org/download/"
-        )
+    if svg_bytes is None:
+        # Fallback: python-graphviz
+        try:
+            from graphviz import Source
+            src = Source(normalize_text(dot_string), format="svg", engine=engine)
+            svg_bytes = normalize_text(src.pipe(format="svg")).encode("utf-8")
+        except ImportError:
+            raise RuntimeError(
+                f"Neither system '{engine}' binary nor python-graphviz is available. "
+                "Install Graphviz: https://graphviz.org/download/"
+            )
+
+    _SVG_CACHE[key] = svg_bytes
+    return svg_bytes
 
 
 def render_svg_b64(dot_string: str, engine: str = "dot") -> str:
     """Render DOT to a base64-encoded SVG string."""
     svg_bytes = render_svg(dot_string, engine=engine)
     return base64.b64encode(svg_bytes).decode("ascii")
+
+
+async def render_svg_async(dot_string: str, engine: str = "dot") -> bytes:
+    """Non-blocking DOT→SVG render using asyncio subprocess.
+
+    Shares ``_SVG_CACHE`` with ``render_svg()``.  Falls back to the
+    synchronous path if the async subprocess fails.
+    """
+    key = hash((dot_string, engine))
+    if key in _SVG_CACHE:
+        return _SVG_CACHE[key]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            engine, "-Tsvg",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=normalize_text(dot_string).encode("utf-8")),
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            svg_bytes = normalize_text(stdout.decode("utf-8", errors="replace")).encode("utf-8")
+            _SVG_CACHE[key] = svg_bytes
+            return svg_bytes
+        log.warning(
+            "Graphviz async render failed (exit %d): %s",
+            proc.returncode,
+            stderr.decode("utf-8", errors="replace"),
+        )
+    except asyncio.TimeoutError:
+        log.warning("Graphviz async render timed out (>30s), falling back to sync")
+    except FileNotFoundError:
+        log.info("System %s binary not found in async path, falling back to sync", engine)
+
+    # Sync fallback (also populates the cache)
+    return render_svg(dot_string, engine=engine)
 
 
 # ---------------------------------------------------------------------------

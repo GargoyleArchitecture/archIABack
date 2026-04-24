@@ -1,6 +1,8 @@
 import re
 import os
 import json
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import AIMessage
 
 from src.graph.state import GraphState
@@ -20,6 +22,54 @@ from src.graph.utils import (
 )
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.qa_registry import normalize_qa
+
+
+@lru_cache(maxsize=64)
+def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6) -> tuple:
+    """Returns (book_snippets: str, src_meta: tuple of (title, page_str, path)).
+    Cached by (qa, resolved_index, k). Cache hit skips all ChromaDB queries."""
+    queries = [
+        f"{qa} architectural tactics",
+        f"{qa} tactics performance scalability latency availability security modifiability",
+        "Bass Clements Kazman performance and scalability tactics",
+        "quality attribute tactics list",
+    ]
+    _retriever = get_indexed_retriever(
+        quality_attribute=normalize_qa(resolved_index or qa),
+        content_type="tacticas",
+        k=k,
+    )
+    seen: set = set()
+    gathered: list = []
+    with ThreadPoolExecutor(max_workers=len(queries)) as executor:
+        futures = {executor.submit(_retriever.invoke, q): q for q in queries}
+        for future in as_completed(futures):
+            try:
+                for d in future.result():
+                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    gathered.append(d)
+                    if len(gathered) >= 6:
+                        break
+            except Exception:
+                pass
+            if len(gathered) >= 6:
+                break
+
+    book_snippets = _dedupe_snippets(gathered, max_items=5, max_chars=600)
+
+    src_meta = []
+    for d in gathered:
+        md = d.metadata or {}
+        title = md.get("source_title") or md.get("title") or "doc"
+        page = md.get("page_label") or md.get("page")
+        path = md.get("source_path") or md.get("source") or ""
+        page_str = f" (p.{page})" if page is not None else ""
+        src_meta.append((title, page_str, path))
+
+    return book_snippets, tuple(src_meta)
 
 
 def guess_quality_attribute(text: str) -> str:
@@ -127,40 +177,23 @@ def tactics_node_impl(
     qa = resolve_qa_for_tactics(state, asr_text=asr_text, qa_override=qa_override)
     style_text = state.get("style") or state.get("selected_style") or state.get("last_style") or ""
 
-    docs_list = []
+    src_meta: tuple = ()
     if doc_only and ctx_doc:
         book_snippets = f"[DOC] {ctx_doc[:2000]}"
     else:
-        try:
-            queries = [
+        book_snippets, src_meta = _fetch_tactics_rag(
+            qa,
+            state.get("resolved_index") or qa,
+            k=6,
+        )
+        rag_trace_record(
+            query=" | ".join([
                 f"{qa} architectural tactics",
                 f"{qa} tactics performance scalability latency availability security modifiability",
                 "Bass Clements Kazman performance and scalability tactics",
                 "quality attribute tactics list",
-            ]
-            _retriever = get_indexed_retriever(
-                quality_attribute=normalize_qa(state.get("resolved_index") or qa),
-                content_type="tacticas",
-                k=6,
-            )
-            seen = set()
-            gathered = []
-            for q in queries:
-                for d in _retriever.invoke(q):
-                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    gathered.append(d)
-                    if len(gathered) >= 6:
-                        break
-                if len(gathered) >= 6:
-                    break
-            docs_list = gathered
-            rag_trace_record(query=" | ".join(queries), docs=docs_list)
-        except Exception:
-            docs_list = []
-        book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
+            ])
+        )
 
     preferred_block = ""
     allowed_names: list[str] = []
@@ -227,7 +260,7 @@ Selected architecture style (if any):
 GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
 {book_snippets or "(none)"}
 
-If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you “know” typical tactics. If the document does not support a tactic, state “not supported by the document”.
+If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you "know" typical tactics. If the document does not support a tactic, state "not supported by the document".
 {restriction_clause}
 You MUST output THREE sections, in EXACT order.
 Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.
@@ -304,16 +337,11 @@ Example shape (values are illustrative — adjust to your tactics):
     if (not md_only) and isinstance(struct, list) and struct:
         md_only = "\n".join(f"- {it.get('name','')}: {it.get('rationale','')}" for it in struct if isinstance(it, dict))
 
-    src_lines = []
-    for d in (docs_list or []):
-        md = d.metadata or {}
-        title = md.get("source_title") or md.get("title") or "doc"
-        page = md.get("page_label") or md.get("page")
-        path = md.get("source_path") or md.get("source") or ""
-        page_str = f" (p.{page})" if page is not None else ""
-        src_lines.append(f"- {title}{page_str} — {path}")
-    if src_lines:
-        src_lines = list(dict.fromkeys([_clip_text(s, 60) for s in src_lines]))[:6]
+    src_lines = [
+        _clip_text(f"- {title}{page_str} — {path}", 60)
+        for title, page_str, path in src_meta
+    ]
+    src_lines = list(dict.fromkeys(src_lines))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
 
     _push_turn(state, role="system", name="tactics_system", content=prompt)

@@ -123,7 +123,11 @@ class GraphState(TypedDict):
     hasVisitedASR: bool
     hasVisitedDiagram: bool
     
-    nextNode: Literal["investigator", "evaluator", "diagram_agent", "tactics", "asr", "style", "unifier"]
+    nextNode: Literal[
+        "investigator", "evaluator", "diagram_agent",
+        "tactics", "asr", "style", "unifier",
+        "style_tactics_parallel",  # transient: emitido por supervisor, consumido por router
+    ]
 
     # planificación multi-intent por turno
     requested_nodes: list

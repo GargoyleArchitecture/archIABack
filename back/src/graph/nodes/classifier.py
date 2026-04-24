@@ -1,3 +1,4 @@
+from functools import lru_cache
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
 from src.graph.index_resolver import resolve_quality_attribute
@@ -15,17 +16,9 @@ FOLLOWUP_PATTERNS = [
     ("checklist",       r"\b(checklist|lista de verificación|lista de verificacion)"),
 ]
 
-def classifier_node(state: GraphState) -> GraphState:
-    """Clasifica intención/idioma y fija QA operativo para el turno.
-
-    Además de "resolved_index" (para RAG), este nodo propaga
-    "quality_attribute" para que supervisor/router puedan decidir nodos
-    específicos por QA (p. ej. style_latency vs style_scalability).
-    """
-    msg = state.get("userQuestion", "") or ""
-    qa_ids = supported_qas()
-    qa_opts = qa_ids + ["general"]
-    qa_opts_str = ", ".join(f'"{q}"' for q in qa_opts)
+@lru_cache(maxsize=256)
+def _classify_cached(msg: str, qa_opts_str: str) -> tuple:
+    """Returns (language, intent, use_rag, quality_attribute). Cached by (msg, qa_opts_str)."""
     prompt = f"""
 Classify the user's last message. Return JSON with:
 - language: "en" or "es"
@@ -39,9 +32,30 @@ User message:
 {msg}
 """
     out = llm.with_structured_output(ClassifyOut).invoke(prompt)
+    return (out["language"], out["intent"], bool(out["use_rag"]), out.get("quality_attribute", "general"))
+
+
+@lru_cache(maxsize=128)
+def _resolve_qa_cached(msg: str) -> str:
+    """Cached wrapper around resolve_quality_attribute (deterministic, temperature=0.0)."""
+    return resolve_quality_attribute(msg, llm)
+
+
+def classifier_node(state: GraphState) -> GraphState:
+    """Clasifica intención/idioma y fija QA operativo para el turno.
+
+    Además de "resolved_index" (para RAG), este nodo propaga
+    "quality_attribute" para que supervisor/router puedan decidir nodos
+    específicos por QA (p. ej. style_latency vs style_scalability).
+    """
+    msg = state.get("userQuestion", "") or ""
+    qa_ids = supported_qas()
+    qa_opts = qa_ids + ["general"]
+    qa_opts_str = ", ".join(f'"{q}"' for q in qa_opts)
+    lang_raw, intent_raw, use_rag, qa_attr = _classify_cached(msg, qa_opts_str)
 
     low = msg.lower()
-    intent = out["intent"]
+    intent = intent_raw
 
     #disparadores de estilo arquitectónico
     style_triggers = [
@@ -72,19 +86,19 @@ User message:
 
 
     # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
-    lang = state.get("language") or out["language"]
+    lang = state.get("language") or lang_raw
 
     # QA primario clasificado junto al intent (misma invocación del classifier).
-    qa_from_classifier = normalize_qa(out.get("quality_attribute", "general"))
+    qa_from_classifier = normalize_qa(qa_attr)
 
     # Resolución del índice QA para RAG.
     # Regla: usar QA del classifier primero; si no, resolver por fallback.
     resolved_index = "general"
-    if out["use_rag"]:
+    if use_rag:
         if qa_from_classifier != "general":
             resolved_index = qa_from_classifier
         else:
-            resolved_index = resolve_quality_attribute(msg, llm)
+            resolved_index = _resolve_qa_cached(msg)
 
     # QA operativo del turno (prioridad):
     # 1) QA clasificado junto al intent,
@@ -115,7 +129,7 @@ User message:
         "style",
     ] else "general",
 
-        "force_rag": bool(out["use_rag"]),
+        "force_rag": bool(use_rag),
         "resolved_index": resolved_index,
         "quality_attribute": quality_attribute,
     }

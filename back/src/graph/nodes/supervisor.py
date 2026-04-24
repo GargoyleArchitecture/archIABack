@@ -187,10 +187,17 @@ def supervisor_node(state: GraphState):
         next_node = "asr"
         pending_nodes = [n for n in pending_nodes if n != "asr"]
     elif pending_nodes:
-        next_node = pending_nodes.pop(0)
+        if "style" in pending_nodes and "tactics" in pending_nodes:
+            pending_nodes = [n for n in pending_nodes if n not in ("style", "tactics")]
+            next_node = "style_tactics_parallel"
+        else:
+            next_node = pending_nodes.pop(0)
     elif requested_nodes:
         remaining = [n for n in requested_nodes if n not in completed_nodes]
-        if remaining:
+        if "style" in remaining and "tactics" in remaining:
+            next_node = "style_tactics_parallel"
+            pending_nodes = [n for n in remaining if n not in ("style", "tactics")]
+        elif remaining:
             next_node = remaining[0]
             pending_nodes = remaining[1:]
         else:
@@ -198,8 +205,13 @@ def supervisor_node(state: GraphState):
     else:
         next_node = "investigator"
 
-    if next_node in ("asr", "style", "tactics", "diagram_agent"):
-        intent_val = "diagram" if next_node == "diagram_agent" else next_node
+    if next_node in ("asr", "style", "tactics", "diagram_agent", "style_tactics_parallel"):
+        if next_node == "diagram_agent":
+            intent_val = "diagram"
+        elif next_node == "style_tactics_parallel":
+            intent_val = "tactics"
+        else:
+            intent_val = next_node
     elif next_node == "evaluator":
         intent_val = "architecture"
     else:
@@ -217,6 +229,12 @@ def supervisor_node(state: GraphState):
         local_q = (
             "Propose architecture tactics to satisfy the previous ASR. "
             "Explain why each tactic helps and how it ties to the ASR response/measure."
+        )
+    elif next_node == "style_tactics_parallel":
+        local_q = (
+            "Selecciona el estilo arquitectónico y propón tácticas para el ASR actual."
+            if state_lang == "es"
+            else "Select the architecture style and propose tactics for the current ASR."
         )
     else:
         local_q = uq

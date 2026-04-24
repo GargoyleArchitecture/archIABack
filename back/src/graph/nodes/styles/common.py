@@ -1,12 +1,53 @@
 # -*- coding: utf-8 -*-
 
 import json
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.qa_registry import normalize_qa
 from src.rag_agent import get_indexed_retriever
 from src.graph.utils import _dedupe_snippets
+
+
+@lru_cache(maxsize=64)
+def _fetch_styles_rag(qa: str, resolved_index: str, k: int = 6) -> str:
+    """Returns book_snippets string. Cached by (qa, resolved_index, k).
+    Cache hit skips all ChromaDB queries."""
+    queries = [
+        f"{qa} architecture style",
+        f"{qa} architectural style patterns",
+        "architecture styles ADD 3.0",
+        "Bass Clements Kazman architecture styles",
+        "microservices layered event-driven architecture styles",
+        "architecture style patterns and tradeoffs",
+    ]
+    _retriever = get_indexed_retriever(
+        quality_attribute=normalize_qa(resolved_index or qa),
+        content_type="estilos",
+        k=k,
+    )
+    seen: set = set()
+    gathered: list = []
+    with ThreadPoolExecutor(max_workers=len(queries)) as executor:
+        futures = {executor.submit(_retriever.invoke, q): q for q in queries}
+        for future in as_completed(futures):
+            try:
+                for d in future.result():
+                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    gathered.append(d)
+                    if len(gathered) >= 6:
+                        break
+            except Exception:
+                pass
+            if len(gathered) >= 6:
+                break
+
+    return _dedupe_snippets(gathered, max_items=5, max_chars=600)
 
 
 def resolve_qa_for_style(state: GraphState, qa_override: str | None = None) -> str:
@@ -57,43 +98,7 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     ctx = (state.get("add_context") or "").strip()
     proj_ctx = (state.get("project_context_text") or "").strip()
 
-    docs_list = []
-    try:
-        queries = [
-            f"{qa} architecture style",
-            f"{qa} architectural style patterns",
-            "architecture styles ADD 3.0",
-            "Bass Clements Kazman architecture styles",
-            "microservices layered event-driven architecture styles",
-            "architecture style patterns and tradeoffs",
-        ]
-        _retriever = get_indexed_retriever(
-            quality_attribute=normalize_qa(state.get("resolved_index") or qa),
-            content_type="estilos",
-            k=6,
-        )
-        seen = set()
-        gathered = []
-        for q in queries:
-            try:
-                for d in _retriever.invoke(q):
-                    key = (d.metadata.get("source_path"), d.metadata.get("page"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    gathered.append(d)
-                    if len(gathered) >= 6:
-                        break
-            except Exception:
-                pass
-            if len(gathered) >= 6:
-                break
-        docs_list = gathered
-        rag_trace_record(query=" | ".join(queries), docs=docs_list)
-    except Exception:
-        docs_list = []
-
-    book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
+    book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
 
     proj_ctx_block = ""
     if proj_ctx:
