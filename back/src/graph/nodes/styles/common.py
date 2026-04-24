@@ -85,6 +85,9 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     """
     lang = state.get("language", "es")
     directive = "Answer in English." if lang == "en" else "Responde en español."
+    style_hint = (state.get("user_style_hint") or "").strip()
+    if style_hint:
+        directive = f"{directive} {style_hint}"
 
     asr_text = (
         state.get("current_asr")
@@ -93,8 +96,22 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     )
     qa = resolve_qa_for_style(state, qa_override=qa_override)
     ctx = (state.get("add_context") or "").strip()
+    proj_ctx = (state.get("project_context_text") or "").strip()
 
     book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
+
+    proj_ctx_block = ""
+    if proj_ctx:
+        proj_ctx_block = f"""
+{"=" * 60}
+PROJECT CONTEXT — MANDATORY CONSTRAINTS FOR STYLE SELECTION:
+{proj_ctx}
+
+IMPORTANT: The recommended style MUST be compatible with the listed tech stack.
+Your rationale MUST explicitly explain how the chosen style fits (or requires adapting)
+the specific technologies listed. Business rules must be respected in all trade-off analysis.
+{"=" * 60}
+"""
 
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
@@ -103,11 +120,11 @@ Given the following Quality Attribute Scenario (ASR) and its business context,
 propose 1-3 different architecture styles as reasonable candidates to solve this ASR,
 and then recommend which of them is BETTER to satisfy this ASR,
 explaining the recommendation in terms of its impact on the system and the quality attribute.
-
+{proj_ctx_block}
 Quality attribute focus (e.g., availability, performance, latency, security, etc.):
 {qa}
 
-Business / context:
+Additional session context:
 {ctx or "(none)"}
 
 ASR:

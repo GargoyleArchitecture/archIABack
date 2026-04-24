@@ -51,6 +51,9 @@ def researcher_node(state: GraphState) -> GraphState:
     # ---- Agente de investigación (con RAG opcional / DOC-ONLY bloquea RAG) ----
     resolved_index = state.get("resolved_index", "general") or "general"
 
+    proj_ctx = (state.get("project_context_text") or "").strip()
+    style_hint = (state.get("user_style_hint") or "").strip()
+
     sys = (
         prompt_researcher +
         f"Always reply in {('Spanish' if lang=='es' else 'English')}.\n" +
@@ -58,6 +61,18 @@ def researcher_node(state: GraphState) -> GraphState:
          if not doc_only else
          "- DOC-ONLY is ON: do NOT call retrieval. Base your answer ONLY on the PROJECT DOCUMENT.\n")
     )
+    if style_hint:
+        sys += f"\n- {style_hint}"
+
+    if proj_ctx:
+        sys += (
+            f"\n\n{'=' * 60}\n"
+            f"PROJECT CONTEXT — THESE CONSTRAINTS ARE MANDATORY:\n"
+            f"{proj_ctx}\n"
+            f"You MUST tailor every explanation and recommendation to this specific tech stack "
+            f"and business rules. Do NOT give generic answers when specific technologies are listed.\n"
+            f"{'=' * 60}"
+        )
 
     # Instrucción de índice: guía al agente a pasar el quality_attribute correcto
     if not doc_only and resolved_index != "general":
@@ -117,7 +132,9 @@ def researcher_node(state: GraphState) -> GraphState:
     if msgs_out:
         last_msg = msgs_out[-1]
         last_text = getattr(last_msg, "content", str(last_msg)) or ""
-        # Lo recortamos para no romper el prompt de los siguientes nodos
+        # Lo recortamos para no romper el prompt de los siguientes nodos.
+        # project_context_text se mantiene intacto — add_context solo almacena
+        # el resultado conversacional del investigador para contexto de los nodos siguientes.
         state["add_context"] = _clip_text(str(last_text).strip(), 2000)
 
         return {

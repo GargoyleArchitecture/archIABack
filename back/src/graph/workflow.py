@@ -4,6 +4,7 @@ from langgraph.graph import START, END
 from src.graph.state import GraphState
 from src.graph.resources import sqlite_saver, builder
 
+from src.graph.nodes.context_loader import context_loader_node
 from src.graph.nodes.classifier import classifier_node
 from src.graph.nodes.supervisor import supervisor_node
 from src.graph.nodes.investigator import researcher_node
@@ -111,8 +112,10 @@ for qa_id in _SUPPORTED_QAS:
 
 
 builder.add_node("boot", boot_node)
+builder.add_node("context_loader", context_loader_node)
 builder.add_edge(START, "boot")
-builder.add_edge("boot", "classifier")
+builder.add_edge("boot", "context_loader")
+builder.add_edge("context_loader", "classifier")
 builder.add_edge("classifier", "supervisor")
 builder.add_conditional_edges("supervisor", router)
 builder.add_edge("investigator", "supervisor")

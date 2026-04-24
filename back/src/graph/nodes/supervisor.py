@@ -127,6 +127,10 @@ def makeSupervisorPrompt(state: GraphState) -> str:
     if state.get("hasVisitedASR", False): visited_nodes.append("asr")
     visited_nodes_str = ", ".join(visited_nodes) if visited_nodes else "none"
     doc_flag = "ON" if state.get("doc_only") else "OFF"
+
+    proj_ctx = (state.get("project_context_text") or "").strip()
+    project_block = f"\n{proj_ctx}\n" if proj_ctx else ""
+
     return f"""You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and ASR advisor.
 Choose the next worker and craft a specific sub-question.
 
@@ -138,7 +142,7 @@ Rules:
 - If user asks for an ASR or a QAS, route to asr.
 - If two images are provided, evaluator may compare/analyze.
 - Do not go directly to unifier unless at least one worker has produced output.
-
+{project_block}
 Visited so far: {visited_nodes_str}.
 User question: {state["userQuestion"]}
 Outputs: ['investigator','diagram_agent','evaluator','asr','unifier'].

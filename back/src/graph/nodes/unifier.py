@@ -62,6 +62,8 @@ def _split_sections(text: str) -> dict:
 def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
+    style_hint = (state.get("user_style_hint") or "").strip()
+    proj_ctx = (state.get("project_context_text") or "").strip()
 
     requested_nodes = list(state.get("requested_nodes", []) or [])
     requested_set = set(requested_nodes)
@@ -302,6 +304,16 @@ def unifier_node(state: GraphState) -> GraphState:
     )
 
     directive = "Responde en español." if lang == "es" else "Answer in English."
+    if style_hint:
+        directive = directive + f" {style_hint}"
+
+    proj_ctx_block = ""
+    if proj_ctx:
+        proj_ctx_block = (
+            f"\nPROJECT CONTEXT (use this to ground your answer to the actual tech stack and business rules):\n"
+            f"{proj_ctx}\n"
+        )
+
     prompt = f"""{directive}
 You are writing the FINAL chat reply.
 
@@ -313,10 +325,11 @@ You are writing the FINAL chat reply.
 Constraints:
 - Use the user's language.
 - Do not invent sources outside RAG_SOURCES.
+- If a PROJECT CONTEXT is provided, your answer MUST reference the specific technologies and respect the business rules.
 {MARKDOWN_FORMAT_DIRECTIVE}
 
 Conversation memory (for continuity): {memory_hint}
-
+{proj_ctx_block}
 RAG_SOURCES:
 {rag_refs}
 

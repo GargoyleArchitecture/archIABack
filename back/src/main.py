@@ -67,6 +67,7 @@ from src.memory import (
     set_kv as memory_set,
     load_arch_flow,
     save_arch_flow,
+    project_key,
 )
 from src.services.doc_ingest import extract_pdf_text
 memory_init()
@@ -452,6 +453,8 @@ def _stream_post_process(
     made_asr: bool,
     message: str,
     arch_flow: dict,
+    asr_key: str = "current_asr",
+    project_id: Optional[str] = None,
 ) -> None:
     """Post-processing after the graph finishes: persist feedback, memory, arch_flow."""
     upsert_feedback(session_id=session_id, message_id=message_id, up=0, down=0)
@@ -467,12 +470,12 @@ def _stream_post_process(
     end_msg = result.get("endMessage", "") or ""
     asr_from_result = _extract_asr_from_result_text(end_msg)
     if asr_from_result:
-        memory_set(user_id, "current_asr", asr_from_result)
+        memory_set(user_id, asr_key, asr_from_result)
     elif made_asr and len(end_msg) > 80:
-        memory_set(user_id, "current_asr", end_msg.strip())
+        memory_set(user_id, asr_key, end_msg.strip())
 
     if result.get("hasVisitedASR"):
-        arch_flow["current_asr"] = memory_get(user_id, "current_asr", "")
+        arch_flow["current_asr"] = memory_get(user_id, asr_key, "")
         arch_flow["quality_attribute"] = result.get(
             "asr_quality_attribute",
             arch_flow.get("quality_attribute", "")
@@ -516,7 +519,13 @@ def _stream_post_process(
     if _wants_deployment(message):
         arch_flow["stage"] = "DEPLOYMENT"
 
-    save_arch_flow(user_id, arch_flow)
+    # Persist dual context (survives across turns once loaded)
+    if result.get("project_context_text"):
+        arch_flow["project_context_text"] = result["project_context_text"]
+    if result.get("user_style_hint"):
+        arch_flow["user_style_hint"] = result["user_style_hint"]
+
+    save_arch_flow(user_id, arch_flow, project_id)
 
 
 # ===================== /message =========================
@@ -527,6 +536,7 @@ async def message(
     session_id: str = Form(...),
     image1: Optional[UploadFile] = File(None),
     image2: Optional[UploadFile] = File(None),
+    project_id: Optional[str] = Form(None),
 ):
     if not message:
         raise HTTPException(status_code=400, detail="No message provided")
@@ -534,8 +544,27 @@ async def message(
         raise HTTPException(status_code=400, detail="No session ID provided")
 
     # Identidad simple por sesión
-    user_id = request.headers.get("X-User-Id") or session_id
-    arch_flow = load_arch_flow(user_id)
+    user_id    = request.headers.get("X-User-Id") or session_id
+    authorization_header = (request.headers.get("Authorization") or "").strip()
+    authorization_parts = authorization_header.split()
+    api_token = (
+        authorization_parts[1]
+        if len(authorization_parts) == 2 and authorization_parts[0].lower() == "bearer"
+        else ""
+    )
+    project_id = (project_id or "").strip() or None          # normalizar: "" → None
+    _raw_project_id = project_id
+    try:
+        arch_flow = load_arch_flow(user_id, project_id)
+    except ValueError:
+        log.warning(
+            "Invalid project_id=%r received in /message; falling back to default arch_flow",
+            _raw_project_id,
+            exc_info=True,
+        )
+        project_id = None
+        arch_flow = load_arch_flow(user_id, project_id)
+    asr_key = project_key("current_asr", project_id)         # clave escopada por proyecto
 
     # ID incremental para feedback por mensaje
     message_id = get_next_message_id(session_id)
@@ -602,7 +631,7 @@ async def message(
         af = dict(arch_flow)
         prev_ctx = (af.get("add_context") or "").strip()
         af["add_context"] = (prev_ctx + "\n\n" + pdf_context_turn).strip() if prev_ctx else pdf_context_turn
-        save_arch_flow(user_id, af)
+        save_arch_flow(user_id, af, project_id)
         arch_flow = af  # usarlo ya mismo
 
     memory_text = (
@@ -618,11 +647,11 @@ async def message(
     # --- ASR pegado por el usuario (si lo hay) ---
     asr_in_msg = _extract_asr_from_message(message)
     if asr_in_msg:
-        memory_set(user_id, "current_asr", asr_in_msg)
+        memory_set(user_id, asr_key, asr_in_msg)
     made_asr = _looks_like_make_asr(message)
 
     # --- Config del grafo ---
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 20}
+    config = {"configurable": {"thread_id": thread_id, "api_token": api_token}, "recursion_limit": 20}
     user_lang = detect_lang(message)
 
     # --- Heuristicas locales ---
@@ -663,7 +692,7 @@ async def message(
             "requested_nodes": [],
             "pending_nodes": [],
             "completed_nodes": [],
-            "current_asr": memory_get(user_id, "current_asr", ""),
+            "current_asr": memory_get(user_id, asr_key, ""),
         }})
     except Exception:
         pass
@@ -693,7 +722,7 @@ async def message(
         "intent": user_intent,
         "force_rag": force_rag,
         "topic_hint": topic_hint,
-        "current_asr": memory_get(user_id, "current_asr", ""),
+        "current_asr": memory_get(user_id, asr_key, ""),
         "style": arch_flow.get("style", ""),
         "selected_style": arch_flow.get("style", ""),
         "last_style": arch_flow.get("style", ""),
@@ -702,6 +731,12 @@ async def message(
         "add_context": arch_flow.get("add_context", ""),
         "tactics_list": arch_flow.get("tactics", []),
         "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
+        "project_id":             project_id or "",
+        "user_id_for_prefs":      user_id,
+        "project_context_text":   arch_flow.get("project_context_text", ""),
+        "user_style_hint":        arch_flow.get("user_style_hint", ""),
+        "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
+        "user_style_loaded":      bool(arch_flow.get("user_style_hint", "")),
     }
 
     # Capture variables needed by the generator closure
@@ -713,6 +748,8 @@ async def message(
     _made_asr     = made_asr
     _message      = message
     _arch_flow    = arch_flow
+    _asr_key      = asr_key
+    _project_id   = project_id
 
     async def generate():
         _final: dict = {}
@@ -792,6 +829,8 @@ async def message(
                 made_asr=_made_asr,
                 message=_message,
                 arch_flow=_arch_flow,
+                asr_key=_asr_key,
+                project_id=_project_id,
             )
 
     return StreamingResponse(
