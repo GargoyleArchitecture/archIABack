@@ -25,6 +25,10 @@ venv.bak/
 # =========================
 __pycache__/
 *.py[cod]
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
 *$py.class
 *.so
 .Python
