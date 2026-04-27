@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project_id": "test-project",
+  "user_id": "test-user",
+  "current_phase": "INTAKE",
+  "current_iteration": 0,
+  "phase_history": [],
+  "pending_advance": null,
+  "decisions": [],
+  "project_context": {},
+  "user_style_hint": ""
+}

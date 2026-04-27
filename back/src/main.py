@@ -870,3 +870,66 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
     return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
 
 
+# ===================== /sessions — ledger endpoints (P1) =====================
+from src.ledger import (
+    load_ledger as _load_ledger,
+    is_phase_complete as _is_phase_complete,
+    Phase as _LedgerPhase,
+    render_dossier as _render_dossier,
+    render_dossier_compact as _render_dossier_compact,
+)
+
+
+@app.get("/sessions/{session_id}/dossier")
+def get_session_dossier(
+    session_id: str,
+    lang: str = "es",
+    focus: Optional[str] = None,
+    compact: bool = False,
+    project_id: Optional[str] = None,
+):
+    """Render the design dossier as Markdown for a session."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    ledger = _load_ledger(user_id, pid)
+    if compact:
+        md = _render_dossier_compact(ledger, lang=lang)
+    else:
+        md = _render_dossier(ledger, lang=lang, focus=focus)
+    return Response(content=md, media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/sessions/{session_id}/ledger")
+def get_session_ledger(
+    session_id: str,
+    project_id: Optional[str] = None,
+):
+    """Return the raw Design Ledger JSON for a session."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    return _load_ledger(user_id, pid)
+
+
+@app.get("/sessions/{session_id}/phase")
+def get_session_phase(
+    session_id: str,
+    project_id: Optional[str] = None,
+):
+    """Return current phase, iteration, pending advance and per-phase completion flags."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    ledger = _load_ledger(user_id, pid)
+    return {
+        "current_phase":     ledger["current_phase"],
+        "current_iteration": ledger["current_iteration"],
+        "pending_advance":   ledger["pending_advance"],
+        "completion": {
+            p.value.lower(): _is_phase_complete(ledger, p)
+            for p in [
+                _LedgerPhase.ASR, _LedgerPhase.STYLE, _LedgerPhase.TACTICS,
+                _LedgerPhase.DIAGRAM, _LedgerPhase.ANALYSIS,
+            ]
+        },
+    }
+
+
