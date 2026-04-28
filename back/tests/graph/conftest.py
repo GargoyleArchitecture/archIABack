@@ -1,4 +1,5 @@
 import pytest
+import src.memory as _memory_mod
 from src.ledger.types import empty_ledger
 
 
@@ -62,6 +63,45 @@ def mock_ledger_full(mock_ledger_with_asr):
             "superseded_by": None, "rejection_reason": None,
             "created_at": "2024-01-01T02:00:00Z", "created_by_node": "tactics_node",
         },
+    ]
+    return ledger
+
+
+@pytest.fixture
+def tmp_db(monkeypatch, tmp_path):
+    """Redirect memory DB to a temp file; creates the schema fresh per test."""
+    db_path = tmp_path / "test_memory.db"
+    monkeypatch.setattr(_memory_mod, "DB_PATH", db_path)
+    _memory_mod.init()
+    yield db_path
+
+
+@pytest.fixture
+def mock_ledger_with_superseded_asr(mock_ledger_empty):
+    """Ledger with one superseded ASR — used for history-injection tests."""
+    ledger = dict(mock_ledger_empty)
+    ledger["current_phase"] = "ASR"
+    ledger["current_iteration"] = 1
+    ledger["decisions"] = [
+        {
+            "id": "01TEST000000000000ASR0001",
+            "kind": "asr", "phase": "ASR", "iteration": 1,
+            "qa": "latencia", "parents": [],
+            "payload": {
+                "summary": "p95 < 200ms at 5k RPS",
+                "source": "user", "stimulus": "checkout click",
+                "environment": "production", "artifact": "payment service",
+                "response": "process payment",
+                "response_measure": "p95<200ms@5kRPS", "domain": "e-commerce",
+            },
+            "rationale": "test", "sources": [],
+            "status": "superseded",
+            "parent_status": "ok",
+            "superseded_by": "01TEST000000000000ASR0002",
+            "rejection_reason": None,
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by_node": "asr_node",
+        }
     ]
     return ledger
 

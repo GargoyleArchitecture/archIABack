@@ -200,6 +200,20 @@ def asr_node(state: GraphState) -> GraphState:
     ).strip()[:2000]
     proj_ctx = (state.get("project_context_text") or "").strip()
 
+    # ── Dossier history injection (P3) ─────────────────────────────────────
+    history_block = _extract_dossier_history(
+        (state.get("design_dossier_md") or "").strip()
+    )
+    history_clipped = _clip_text(history_block, 1500) if history_block else ""
+    prior_asr_section = (
+        f'\n{"=" * 60}\n'
+        f'PRIOR ASR HISTORY — DO NOT REPEAT THESE DESIGNS:\n'
+        f'{history_clipped}\n\n'
+        f'IMPORTANT: Your new ASR MUST be meaningfully different '
+        f'in at least its Response Measure or Stimulus.\n'
+        f'{"=" * 60}\n'
+    ) if history_clipped else ""
+
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
@@ -220,7 +234,7 @@ IMPORTANT: If a tech stack is listed above, the ASR's Artifact and Response MUST
 those specific technologies. If business rules are listed, the ASR scenario MUST be coherent
 with them. Do NOT use generic placeholders like "the system" when a real stack is provided.
 {"=" * 60}
-
+{prior_asr_section}
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 
