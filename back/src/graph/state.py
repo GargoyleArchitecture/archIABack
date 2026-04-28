@@ -186,6 +186,16 @@ class GraphState(TypedDict):
     project_context_loaded: bool  # True si ya se intentó cargar project context (incluso si vacío)
     user_style_loaded: bool       # True si ya se intentó cargar user preferences (incluso si vacío)
 
+    # ── Ledger hydration (P2) ─────────────────────────────────────────────
+    # Refreshed by context_loader on every turn. Never reset by boot_node.
+    ledger: dict                  # full DesignLedger blob; {} before first successful load
+    ledger_active: dict           # output of compute_active_view(ledger); {} when empty
+    design_dossier_md: str        # render_dossier(ledger, lang=language); "" before load
+    current_phase: str            # mirror of ledger["current_phase"]; "" before load
+    ledger_dossier_compact: str   # render_dossier_compact(ledger, lang); "" before load
+    ledger_phase_prompt: str      # render_phase_prompt(ledger, lang); "" before load
+    ledger_pending_advance: dict  # mirror of ledger["pending_advance"]; {} when None
+
 class AgentState(TypedDict):
     messages: list
     userQuestion: str

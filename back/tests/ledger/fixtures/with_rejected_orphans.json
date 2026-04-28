@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "project_id": "test-project",
+  "user_id": "test-user",
+  "current_phase": "STYLE",
+  "current_iteration": 2,
+  "phase_history": [
+    {
+      "from_phase": "INTAKE",
+      "to_phase": "ASR",
+      "iteration": 1,
+      "triggered_by": "user_request",
+      "user_message": "necesito un ASR",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T10:00:00Z"
+    },
+    {
+      "from_phase": "ASR",
+      "to_phase": "STYLE",
+      "iteration": 2,
+      "triggered_by": "agent_suggestion_accepted",
+      "user_message": "sí",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T11:00:00Z"
+    }
+  ],
+  "pending_advance": null,
+  "decisions": [
+    {
+      "id": "01FIXTURE000000000ASR00001",
+      "kind": "asr",
+      "phase": "ASR",
+      "iteration": 1,
+      "qa": "latencia",
+      "parents": [],
+      "payload": {
+        "summary": "Sistema de pagos con latencia inferior a 200ms",
+        "source": "usuario final",
+        "stimulus": "solicitud de pago",
+        "environment": "producción",
+        "artifact": "servicio de pagos",
+        "response": "procesar pago",
+        "response_measure": "p95 < 200ms",
+        "domain": "pagos"
+      },
+      "rationale": "SLA de negocio.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T10:05:00Z",
+      "created_by_node": "asr_node"
+    },
+    {
+      "id": "01FIXTURE000000000STY00001",
+      "kind": "style",
+      "phase": "STYLE",
+      "iteration": 2,
+      "qa": "latencia",
+      "parents": [
+        {"id": "01FIXTURE000000000ASR00001", "kind": "asr", "iteration": 1}
+      ],
+      "payload": {
+        "chosen": "Arquitectura por capas",
+        "candidates": [
+          {"name": "Arquitectura por capas", "impact": "Simple pero no óptima para latencia"}
+        ],
+        "tradeoffs": ""
+      },
+      "rationale": "Primera propuesta de estilo.",
+      "sources": [],
+      "status": "rejected",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": "No encaja con el stack de Kafka y procesamiento reactivo",
+      "created_at": "2024-01-15T11:05:00Z",
+      "created_by_node": "style_latency"
+    },
+    {
+      "id": "01FIXTURE000000000TAC00001",
+      "kind": "tactic",
+      "phase": "TACTICS",
+      "iteration": 2,
+      "qa": "latencia",
+      "parents": [
+        {"id": "01FIXTURE000000000ASR00001", "kind": "asr",   "iteration": 1},
+        {"id": "01FIXTURE000000000STY00001", "kind": "style", "iteration": 2}
+      ],
+      "payload": {
+        "items": [
+          {
+            "name": "Cache local",
+            "purpose": "Reducir latencia",
+            "rationale": "",
+            "risks": "",
+            "tradeoffs": "",
+            "traces_to_asr": "p95 < 200ms",
+            "expected_effect": "",
+            "success_probability": "0.80",
+            "rank": 1
+          }
+        ]
+      },
+      "rationale": "Táctica para el estilo rechazado.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "parent_rejected",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T11:30:00Z",
+      "created_by_node": "tactics_latency"
+    }
+  ],
+  "project_context": {},
+  "user_style_hint": ""
+}

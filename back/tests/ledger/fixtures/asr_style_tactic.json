@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "project_id": "test-project",
+  "user_id": "test-user",
+  "current_phase": "TACTICS",
+  "current_iteration": 3,
+  "phase_history": [
+    {
+      "from_phase": "INTAKE",
+      "to_phase": "ASR",
+      "iteration": 1,
+      "triggered_by": "user_request",
+      "user_message": "necesito un ASR",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T10:00:00Z"
+    },
+    {
+      "from_phase": "ASR",
+      "to_phase": "STYLE",
+      "iteration": 2,
+      "triggered_by": "agent_suggestion_accepted",
+      "user_message": "sí",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T11:00:00Z"
+    },
+    {
+      "from_phase": "STYLE",
+      "to_phase": "TACTICS",
+      "iteration": 3,
+      "triggered_by": "agent_suggestion_accepted",
+      "user_message": "continúa",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T12:00:00Z"
+    }
+  ],
+  "pending_advance": null,
+  "decisions": [
+    {
+      "id": "01FIXTURE000000000ASR00001",
+      "kind": "asr",
+      "phase": "ASR",
+      "iteration": 1,
+      "qa": "latencia",
+      "parents": [],
+      "payload": {
+        "summary": "Sistema de pagos con latencia inferior a 200ms bajo carga normal",
+        "source": "usuario final",
+        "stimulus": "solicitud de pago",
+        "environment": "producción bajo carga normal",
+        "artifact": "servicio de pagos",
+        "response": "procesar pago y retornar confirmación",
+        "response_measure": "p95 < 200ms @ 5k RPS",
+        "domain": "pagos financieros"
+      },
+      "rationale": "SLA de negocio exige respuesta rápida.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T10:05:00Z",
+      "created_by_node": "asr_node"
+    },
+    {
+      "id": "01FIXTURE000000000STY00001",
+      "kind": "style",
+      "phase": "STYLE",
+      "iteration": 2,
+      "qa": "latencia",
+      "parents": [
+        {"id": "01FIXTURE000000000ASR00001", "kind": "asr", "iteration": 1}
+      ],
+      "payload": {
+        "chosen": "CQRS + Event Sourcing",
+        "candidates": [
+          {"name": "CQRS + Event Sourcing", "impact": "Separa lecturas de escrituras, reduce latencia de consulta"},
+          {"name": "Microkernel", "impact": "Extensible pero mayor overhead de coordinación"}
+        ],
+        "tradeoffs": "Mayor complejidad operacional a cambio de escalabilidad de lecturas"
+      },
+      "rationale": "CQRS permite optimizar el camino de lectura independientemente.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T11:05:00Z",
+      "created_by_node": "style_latency"
+    },
+    {
+      "id": "01FIXTURE000000000TAC00001",
+      "kind": "tactic",
+      "phase": "TACTICS",
+      "iteration": 3,
+      "qa": "latencia",
+      "parents": [
+        {"id": "01FIXTURE000000000ASR00001", "kind": "asr",   "iteration": 1},
+        {"id": "01FIXTURE000000000STY00001", "kind": "style", "iteration": 2}
+      ],
+      "payload": {
+        "items": [
+          {
+            "name": "Cache de lecturas Redis",
+            "purpose": "Reducir latencia de consultas frecuentes",
+            "rationale": "Redis sub-milisegundo para datos calientes",
+            "risks": "Invalidación de caché, consistencia eventual",
+            "tradeoffs": "Consistencia eventual vs latencia",
+            "traces_to_asr": "p95 < 200ms @ 5k RPS",
+            "expected_effect": "Reducir p95 de 350ms a <100ms",
+            "success_probability": "0.90",
+            "rank": 1
+          },
+          {
+            "name": "Connection pooling",
+            "purpose": "Reutilizar conexiones a base de datos",
+            "rationale": "Eliminar overhead de establecimiento de conexión TCP",
+            "risks": "Pool exhaustion bajo pico extremo",
+            "tradeoffs": "Recursos de memoria vs latencia",
+            "traces_to_asr": "p95 < 200ms @ 5k RPS",
+            "expected_effect": "Reducir overhead de conexión en 30ms",
+            "success_probability": "0.95",
+            "rank": 2
+          }
+        ]
+      },
+      "rationale": "Tácticas enfocadas en la ruta crítica de lectura.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T12:05:00Z",
+      "created_by_node": "tactics_latency"
+    }
+  ],
+  "project_context": {},
+  "user_style_hint": ""
+}
