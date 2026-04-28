@@ -15,6 +15,95 @@ from src.rag_agent import get_indexed_retriever
 from src.graph.qa_registry import normalize_qa, qa_to_focus_label
 
 
+# ---------------------------------------------------------------------------
+# Compile-time regexes (Step 1 — P3)
+# ---------------------------------------------------------------------------
+
+_HISTORY_HEADING_RE = re.compile(
+    r"^##\s+(?:History\s+\(superseded\s*/\s*rejected\)|"
+    r"Historial\s+\(reemplazadas\s*/\s*rechazadas\))\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+_ASR_SUMMARY_RE = re.compile(r"\*\*ASR\s+complete\s*:\*\*\s*(.+)", re.IGNORECASE)
+
+_ASR_FIELD_RE: dict[str, re.Pattern] = {
+    "source":           re.compile(r"-\s*\*\*Source\s*:\*\*\s*(.+)",             re.IGNORECASE),
+    "stimulus":         re.compile(r"-\s*\*\*Stimulus\s*:\*\*\s*(.+)",           re.IGNORECASE),
+    "environment":      re.compile(r"-\s*\*\*Environment\s*:\*\*\s*(.+)",        re.IGNORECASE),
+    "artifact":         re.compile(r"-\s*\*\*Artifact\s*:\*\*\s*(.+)",           re.IGNORECASE),
+    "response":         re.compile(r"-\s*\*\*Response\s*:\*\*\s*(.+)",           re.IGNORECASE),
+    "response_measure": re.compile(r"-\s*\*\*Response\s+Measure\s*:\*\*\s*(.+)", re.IGNORECASE),
+}
+
+_NONE_MARKER_RE = re.compile(r"_\((?:ninguna aún|none yet)\)_", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers (Step 1 — P3, not yet called by asr_node)
+# ---------------------------------------------------------------------------
+
+def _extract_dossier_history(dossier_md: str) -> str:
+    """Return the history section from design_dossier_md, or '' if absent/empty."""
+    if not dossier_md:
+        return ""
+    m = _HISTORY_HEADING_RE.search(dossier_md)
+    if not m:
+        return ""
+    section = dossier_md[m.start():].strip()
+    content_lines = [
+        ln for ln in section.splitlines()
+        if ln.strip()
+        and not ln.strip().startswith("##")
+        and not _NONE_MARKER_RE.fullmatch(ln.strip())
+    ]
+    return section if content_lines else ""
+
+
+def _build_asr_payload(content: str, domain: str) -> dict:
+    """Parse structured ASR markdown into a ledger payload dict."""
+    m = _ASR_SUMMARY_RE.search(content)
+    summary = m.group(1).strip() if m else _clip_text(content.strip(), 300)
+
+    payload: dict = {
+        "summary":          summary,
+        "source":           "",
+        "stimulus":         "",
+        "environment":      "",
+        "artifact":         "",
+        "response":         "",
+        "response_measure": "",
+        "domain":           domain or "",
+    }
+    for field_key, pattern in _ASR_FIELD_RE.items():
+        fm = pattern.search(content)
+        if fm:
+            payload[field_key] = fm.group(1).strip()
+    return payload
+
+
+def _build_sources_from_docs(docs_list: list) -> list[dict]:
+    """Convert RAG Document objects to ledger source dicts (title, page, path)."""
+    seen: set = set()
+    result: list = []
+    for d in docs_list or []:
+        md = d.metadata or {}
+        title = (md.get("source_title") or md.get("title") or "doc").strip()
+        page  = md.get("page_label") or md.get("page")
+        path  = (md.get("source_path") or md.get("source") or "").strip()
+        key   = (title, str(page), path)
+        if key in seen:
+            continue
+        seen.add(key)
+        entry: dict = {"title": title, "path": path}
+        if page is not None:
+            entry["page"] = page
+        result.append(entry)
+        if len(result) >= 4:
+            break
+    return result
+
+
 def asr_node(state: GraphState) -> GraphState:
     """Genera ASR y deja QA coherente para nodos siguientes (style/tactics)."""
     lang = state.get("language", "es")
