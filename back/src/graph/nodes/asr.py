@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 import re
 
 from langchain_core.messages import AIMessage
@@ -13,6 +14,19 @@ from src.graph.utils import (
 )
 from src.rag_agent import get_indexed_retriever
 from src.graph.qa_registry import normalize_qa, qa_to_focus_label
+from src.ledger import (
+    append_decision,
+    compute_active_view,
+    load_ledger,
+    render_dossier,
+    render_dossier_compact,
+    render_phase_prompt,
+    LedgerValidationError,
+    LedgerConcurrencyError,
+)
+from src.ledger.types import Phase
+
+log = logging.getLogger("asr_node")
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +116,28 @@ def _build_sources_from_docs(docs_list: list) -> list[dict]:
         if len(result) >= 4:
             break
     return result
+
+
+def _refresh_ledger_state(
+    state: dict,
+    user_id: str,
+    project_id: str | None,
+    lang: str,
+) -> None:
+    """Refresh ledger-derived state fields in-place after a successful append_decision."""
+    try:
+        fresh  = load_ledger(user_id, project_id, auto_migrate=False)
+        active = compute_active_view(fresh)
+        state["ledger"]                 = fresh
+        state["ledger_active"]          = active
+        state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
+        state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
+        state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
+        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
+        log.debug("asr_node: ledger state refreshed phase=%s", state["current_phase"])
+    except Exception as exc:
+        log.warning("asr_node: state refresh failed (nonfatal): %s", exc)
 
 
 def asr_node(state: GraphState) -> GraphState:
@@ -275,6 +311,42 @@ Rules:
     state["quality_attribute"] = qa_pipeline
     state["arch_stage"] = "ASR"
     state["current_asr"] = content
+
+    # ── Ledger write-back (P3) ────────────────────────────────────────────
+    _user_id    = (state.get("user_id_for_prefs") or "").strip()
+    _project_id = (state.get("project_id") or "").strip() or None
+
+    if _user_id:
+        try:
+            _new_decision: dict = {
+                "id":               "",
+                "kind":             "asr",
+                "phase":            Phase.ASR.value,
+                "iteration":        0,
+                "qa":               qa_pipeline,
+                "parents":          [],
+                "payload":          _build_asr_payload(content, domain),
+                "rationale":        "",
+                "sources":          _build_sources_from_docs(docs_list),
+                "status":           "active",
+                "parent_status":    "ok",
+                "superseded_by":    None,
+                "rejection_reason": None,
+                "created_at":       "",
+                "created_by_node":  "asr_node",
+            }
+            _saved = append_decision(_user_id, _project_id, _new_decision)
+            log.info(
+                "asr_node: ledger ok id=%s qa=%s project=%s",
+                _saved["id"], qa_pipeline, _project_id,
+            )
+            _refresh_ledger_state(state, _user_id, _project_id, lang)
+        except LedgerValidationError as _exc:
+            log.warning("asr_node: ledger validation error (nonfatal): %s", _exc)
+        except LedgerConcurrencyError as _exc:
+            log.warning("asr_node: ledger concurrency error (nonfatal): %s", _exc)
+        except Exception as _exc:
+            log.warning("asr_node: unexpected ledger error (nonfatal): %s", _exc)
 
     # Señales de fin de turno
     state["endMessage"] = content
