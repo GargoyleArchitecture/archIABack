@@ -23,6 +23,12 @@ from src.services.diagram_ir import (
     to_detail_level,
 )
 from src.services.diagram_render import render_dot, render_dot_drawio, render_svg_b64
+from src.ledger import (
+    append_decision, compute_active_view, load_ledger,
+    render_dossier, render_dossier_compact, render_phase_prompt,
+    LedgerValidationError, LedgerConcurrencyError,
+)
+from src.ledger.types import Phase
 
 try:
     from graphviz import Source
@@ -131,6 +137,44 @@ def _resolve_diagram_level(state: GraphState, user_q: str) -> DiagramLevel:
             log.warning("diagram_orchestrator_node: invalid diagram level override %r", level_override)
 
     return _infer_level_from_user_request(user_q)
+
+
+def _build_diagram_parent_refs(state: GraphState) -> list[dict]:
+    """Extract style + tactic refs from ledger_active for diagram parents."""
+    active = state.get("ledger_active") or {}
+    refs = []
+    style = active.get("style")
+    if style and style.get("id"):
+        refs.append({"id": style["id"], "kind": "style", "iteration": style.get("iteration", 0)})
+    tactic = active.get("tactic")
+    if tactic and tactic.get("id"):
+        refs.append({"id": tactic["id"], "kind": "tactic", "iteration": tactic.get("iteration", 0)})
+    return refs
+
+
+def _build_diagram_payload(diagram_obj: dict) -> dict:
+    """Map diagram_orchestrator output to ledger payload contract."""
+    return {
+        "level": diagram_obj.get("level"),
+        "dot": diagram_obj.get("dot", ""),
+        "dot_drawio": diagram_obj.get("dot_drawio", ""),
+        "svg_b64": diagram_obj.get("svg_b64", ""),
+        "focus": diagram_obj.get("detail_level", ""),
+        "mapping": diagram_obj.get("overview_mapping"),
+    }
+
+
+def _refresh_ledger_state(state: GraphState, user_id: str, project_id: str | None, lang: str) -> None:
+    """Reload ledger into state after a successful append_decision."""
+    ledger = load_ledger(user_id, project_id)
+    active = compute_active_view(ledger)
+    state["ledger"] = ledger
+    state["ledger_active"] = active
+    state["design_dossier_md"] = render_dossier(ledger, lang=lang)
+    state["current_phase"] = ledger.get("current_phase", "INTAKE")
+    state["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
+    state["ledger_phase_prompt"] = render_phase_prompt(ledger, lang=lang)
+    state["ledger_pending_advance"] = ledger.get("pending_advance") or {}
 
 
 def diagram_orchestrator_node(state: GraphState) -> GraphState:
@@ -275,4 +319,41 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
     state["diagram_history"] = diagram_history
     state["hasVisitedDiagram"] = True
     state["intent"] = "diagram"
+
+    # --- Ledger write-back (nonfatal) ---
+    _user_id = state.get("user_id_for_prefs") or ""
+    _project_id = state.get("project_id")
+    _lang = (state.get("language") or "es")
+    if _user_id and diagram_obj.get("ok"):
+        _qa = (
+            (state.get("ledger_active") or {}).get("asr", {}) or {}
+        ).get("qa", state.get("quality_attribute", ""))
+        _parent_refs = _build_diagram_parent_refs(state)
+        try:
+            append_decision(_user_id, _project_id, {
+                "id": "",
+                "kind": "diagram",
+                "phase": state.get("current_phase") or Phase.DIAGRAM,
+                "iteration": 0,
+                "qa": _qa,
+                "parents": _parent_refs,
+                "payload": _build_diagram_payload(diagram_obj),
+                "rationale": f"Level {diagram_obj.get('level')} diagram generated for {_qa or 'current design'}",
+                "sources": [],
+                "status": "active",
+                "parent_status": "ok",
+                "superseded_by": None,
+                "rejection_reason": None,
+                "created_at": "",
+                "created_by_node": "diagram_orchestrator_node",
+            })
+            _refresh_ledger_state(state, _user_id, _project_id, _lang)
+            log.info("diagram_orchestrator_node: ledger write ok — kind=diagram qa=%s", _qa)
+        except LedgerValidationError as exc:
+            log.warning("diagram_orchestrator_node: ledger validation error: %s", exc)
+        except LedgerConcurrencyError as exc:
+            log.warning("diagram_orchestrator_node: ledger concurrency error: %s", exc)
+        except Exception as exc:
+            log.warning("diagram_orchestrator_node: ledger write failed: %s", exc)
+
     return state
