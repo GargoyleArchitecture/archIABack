@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import logging
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import AIMessage
@@ -22,6 +23,19 @@ from src.graph.utils import (
 )
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.qa_registry import normalize_qa
+from src.ledger import (
+    append_decision,
+    compute_active_view,
+    load_ledger,
+    render_dossier,
+    render_dossier_compact,
+    render_phase_prompt,
+    LedgerValidationError,
+    LedgerConcurrencyError,
+)
+from src.ledger.types import Phase
+
+_tac_log = logging.getLogger("tactics_node")
 
 
 @lru_cache(maxsize=64)
@@ -89,9 +103,9 @@ def guess_quality_attribute(text: str) -> str:
         return "reliability"
     return "performance"
 
-def _allowed_tactic_names_from_lines(lines: list[str]) -> list[str]:
+def _allowed_tactic_names_from_lines(lines: list) -> list:
     """Extrae el nombre canónico de líneas tipo 'Nombre — descripción'."""
-    out: list[str] = []
+    out: list = []
     for raw in lines or []:
         line = (raw or "").strip()
         if not line:
@@ -105,7 +119,7 @@ def _allowed_tactic_names_from_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def _canonicalize_tactic_name(name: str, allowed: list[str]) -> str:
+def _canonicalize_tactic_name(name: str, allowed: list) -> str:
     """Fuerza el nombre a uno del catálogo permitido (mejor esfuerzo)."""
     n = (name or "").strip()
     if not allowed:
@@ -144,10 +158,122 @@ def resolve_qa_for_tactics(state: GraphState, asr_text: str, qa_override: str | 
     return guess_quality_attribute(asr_text)
 
 
+# ---------------------------------------------------------------------------
+# Pure helpers (Step 4 — P4)
+# ---------------------------------------------------------------------------
+
+def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
+    """Build a HARD-BINDING prompt block sourced from the active ASR + active style.
+    Returns "" when either is missing (first-turn sessions, pre-style sessions).
+    Both required: tactics without a confirmed ASR and style are structurally incomplete.
+    """
+    active = ledger_active or {}
+    asr    = active.get("asr")
+    style  = active.get("style")
+    if not asr or not style:
+        return ""
+
+    asr_id        = asr.get("id", "")
+    qa            = asr.get("qa", "")
+    asr_payload   = asr.get("payload") or {}
+    rm            = asr_payload.get("response_measure", "")
+    style_id      = style.get("id", "")
+    style_payload = style.get("payload") or {}
+    style_chosen  = style_payload.get("chosen", "")
+    style_trades  = style_payload.get("tradeoffs", "")[:200]
+
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'ACTIVE DESIGN DECISIONS — BINDING CONSTRAINTS FOR TACTICS:\n'
+            f'  ASR ID:            {asr_id}\n'
+            f'  Quality Attribute: {qa}\n'
+            f'  Response Measure:  {rm}\n\n'
+            f'  Active Style:      {style_chosen}  (id: {style_id})\n'
+            f'  Style Tradeoffs:   {style_trades}\n\n'
+            f'REQUIREMENTS:\n'
+            f'1. Each tactic\'s "traces_to_asr" field MUST cite: "{rm}"\n'
+            f'2. Tactics MUST realize style "{style_chosen}" — do NOT contradict its tradeoffs.\n'
+            f'3. Tactics that conflict with "{style_chosen}" MUST be excluded with explanation.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'DECISIONES DE DISEÑO ACTIVAS — RESTRICCIONES VINCULANTES PARA TÁCTICAS:\n'
+        f'  ID del ASR:          {asr_id}\n'
+        f'  Atributo de Calidad: {qa}\n'
+        f'  Medida de Respuesta: {rm}\n\n'
+        f'  Estilo Activo:       {style_chosen}  (id: {style_id})\n'
+        f'  Compromisos:         {style_trades}\n\n'
+        f'REQUISITOS:\n'
+        f'1. El campo "traces_to_asr" de cada táctica DEBE citar: "{rm}"\n'
+        f'2. Las tácticas DEBEN realizar el estilo "{style_chosen}" — no contradigan sus compromisos.\n'
+        f'3. Las tácticas que conflictúen con "{style_chosen}" DEBEN excluirse con explicación.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _build_tactic_payload(items: list) -> dict:
+    return {"items": items}
+
+
+def _build_parent_refs(ledger_active: dict) -> list:
+    active = ledger_active or {}
+    refs   = []
+    asr    = active.get("asr")
+    style  = active.get("style")
+    if asr:
+        refs.append({"id": asr["id"], "kind": "asr",   "iteration": asr.get("iteration", 0)})
+    if style:
+        refs.append({"id": style["id"], "kind": "style", "iteration": style.get("iteration", 0)})
+    return refs
+
+
+def _validate_tactic_traces(items: list, response_measure: str) -> list:
+    """Post-processing guard: if LLM emitted an empty traces_to_asr, fill a
+    sensible default so the ledger payload is structurally complete.
+    Mutates and returns the list.
+    """
+    default = f"Satisfies Response Measure: {response_measure}" if response_measure else ""
+    for item in items:
+        if isinstance(item, dict) and not (item.get("traces_to_asr") or "").strip():
+            item["traces_to_asr"] = default
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Ledger state refresh (Step 5 — P4)
+# ---------------------------------------------------------------------------
+
+def _refresh_ledger_state(
+    state: dict,
+    user_id: str,
+    project_id,
+    lang: str,
+) -> None:
+    try:
+        fresh  = load_ledger(user_id, project_id, auto_migrate=False)
+        active = compute_active_view(fresh)
+        state["ledger"]                 = fresh
+        state["ledger_active"]          = active
+        state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
+        state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
+        state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
+        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
+        _tac_log.debug("tactics_node: ledger state refreshed phase=%s", state["current_phase"])
+    except Exception as exc:
+        _tac_log.warning("tactics_node: state refresh failed (nonfatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Main node implementation
+# ---------------------------------------------------------------------------
+
 def tactics_node_impl(
     state: GraphState,
     qa_override: str | None = None,
-    preferred_tactics: list[str] | None = None,
+    preferred_tactics: list | None = None,
     preferred_group_label: str | None = None,
     restrict_to_preferred_tactics: bool = False,
 ) -> GraphState:
@@ -196,7 +322,7 @@ def tactics_node_impl(
         )
 
     preferred_block = ""
-    allowed_names: list[str] = []
+    allowed_names: list = []
     if preferred_tactics:
         group_label = (preferred_group_label or "Preferred tactics").strip()
         items = "\n".join(f"- {t}" for t in preferred_tactics if str(t).strip())
@@ -238,12 +364,21 @@ Mention specific technologies from the stack when describing how each tactic wou
 {"=" * 60}
 """
 
+    # ── Dossier design binding (P4) ─────────────────────────────────────────
+    dossier_binding_block = _build_dossier_design_binding(
+        state.get("ledger_active") or {}, lang
+    )
+    # Extract response_measure for traces validation fallback
+    _active_asr = (state.get("ledger_active") or {}).get("asr")
+    _response_measure = ((_active_asr or {}).get("payload") or {}).get("response_measure", "")
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
 We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.
 Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
 {proj_ctx_block}
+{dossier_binding_block}
 Additional session context (if any):
 {ctx or "None"}
 
@@ -277,6 +412,7 @@ For EACH tactic use a ### heading with the tactic name and include: **Rationale*
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
 - Use dot as decimal separator (e.g., 0.82), never commas.
 - Do not use percent signs, just 0..1 floats for success_probability.
+- Each object MUST include a "traces_to_asr" field: one sentence citing the ASR's Response Measure that this tactic helps satisfy.
 - If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
 - Do not add any prose or markdown outside the JSON fence.
 
@@ -297,7 +433,7 @@ Example shape (values are illustrative — adjust to your tactics):
     struct = normalize_tactics_json(struct, top_n=3)
 
     if restrict_to_preferred_tactics and allowed_names and isinstance(struct, list):
-        taken: set[str] = set()
+        taken: set = set()
 
         def _pick_unused_fallback() -> str:
             for cand in allowed_names:
@@ -350,6 +486,7 @@ Example shape (values are illustrative — adjust to your tactics):
 
     msgs = [AIMessage(content=md_only, name="tactics_advisor"), AIMessage(content=src_block, name="tactics_sources")]
 
+    # ── Scalar writes (unconditional) ────────────────────────────────────────
     state["tactics_md"] = md_only
     state["tactics_struct"] = struct if isinstance(struct, list) else []
     state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
@@ -357,6 +494,49 @@ Example shape (values are illustrative — adjust to your tactics):
     state["quality_attribute"] = qa
     if asr_text:
         state["current_asr"] = asr_text
+
+    # ── Ledger write-back (P4) ───────────────────────────────────────────────
+    _user_id    = (state.get("user_id_for_prefs") or "").strip()
+    _project_id = (state.get("project_id") or "").strip() or None
+
+    if _user_id:
+        try:
+            _items   = _validate_tactic_traces(
+                list(state.get("tactics_struct") or []),
+                _response_measure,
+            )
+            _parents = _build_parent_refs(state.get("ledger_active") or {})
+            _qa      = state.get("quality_attribute") or qa
+            _new_decision: dict = {
+                "id":               "",
+                "kind":             "tactic",
+                "phase":            Phase.TACTICS.value,
+                "iteration":        0,
+                "qa":               _qa,
+                "parents":          _parents,
+                "payload":          _build_tactic_payload(_items),
+                "rationale":        "",
+                "sources":          [],
+                "status":           "active",
+                "parent_status":    "ok",
+                "superseded_by":    None,
+                "rejection_reason": None,
+                "created_at":       "",
+                "created_by_node":  "tactics_node",
+            }
+            _saved = append_decision(_user_id, _project_id, _new_decision)
+            _tac_log.info(
+                "tactics_node: ledger ok id=%s qa=%s items=%d project=%s",
+                _saved["id"], _qa, len(_items), _project_id,
+            )
+            _refresh_ledger_state(state, _user_id, _project_id, lang)
+
+        except LedgerValidationError as _exc:
+            _tac_log.warning("tactics_node: ledger validation error (nonfatal): %s", _exc)
+        except LedgerConcurrencyError as _exc:
+            _tac_log.warning("tactics_node: ledger concurrency error (nonfatal): %s", _exc)
+        except Exception as _exc:
+            _tac_log.warning("tactics_node: unexpected ledger error (nonfatal): %s", _exc)
 
     state["endMessage"] = md_only
     state["intent"] = "tactics"

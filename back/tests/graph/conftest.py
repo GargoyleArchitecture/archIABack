@@ -107,6 +107,60 @@ def mock_ledger_with_superseded_asr(mock_ledger_empty):
 
 
 @pytest.fixture
+def mock_ledger_with_style(mock_ledger_with_asr):
+    """Ledger with one active ASR + one active style — for tactics tests."""
+    ledger = dict(mock_ledger_with_asr)
+    ledger["current_phase"] = "STYLE"
+    asr_id = ledger["decisions"][0]["id"]
+    ledger["decisions"] = list(ledger["decisions"]) + [{
+        "id": "01TEST000000000000STY0001",
+        "kind": "style", "phase": "STYLE", "iteration": 1,
+        "qa": "latencia",
+        "parents": [{"id": asr_id, "kind": "asr", "iteration": 1}],
+        "payload": {
+            "name": "Event-Driven",
+            "candidates": [
+                {"name": "Event-Driven", "impact": "decoupled, async processing"},
+                {"name": "Layered",      "impact": "simple, but synchronous bottleneck"},
+            ],
+            "chosen": "Event-Driven",
+            "tradeoffs": "Async processing reduces p95 latency under load",
+        },
+        "rationale": "best satisfies p95<200ms@5kRPS",
+        "sources": [],
+        "status": "active", "parent_status": "ok",
+        "superseded_by": None, "rejection_reason": None,
+        "created_at": "2024-01-02T00:00:00Z", "created_by_node": "style_node",
+    }]
+    return ledger
+
+
+@pytest.fixture
+def mock_ledger_with_rejected_style(mock_ledger_with_asr):
+    """Ledger with one active ASR + one REJECTED style — for parent validation tests."""
+    ledger = dict(mock_ledger_with_asr)
+    asr_id = ledger["decisions"][0]["id"]
+    ledger["decisions"] = list(ledger["decisions"]) + [{
+        "id": "01TEST000000000000STY0002",
+        "kind": "style", "phase": "STYLE", "iteration": 1,
+        "qa": "latencia",
+        "parents": [{"id": asr_id, "kind": "asr", "iteration": 1}],
+        "payload": {
+            "name": "Layered",
+            "candidates": [{"name": "Layered", "impact": "simple"}],
+            "chosen": "Layered",
+            "tradeoffs": "not suited for high-throughput latency scenarios",
+        },
+        "rationale": "test rejected style",
+        "sources": [],
+        "status": "rejected", "parent_status": "ok",
+        "superseded_by": None, "rejection_reason": "No encaja con stack Kafka",
+        "created_at": "2024-01-02T00:00:00Z", "created_by_node": "style_node",
+    }]
+    return ledger
+
+
+@pytest.fixture
 def base_state():
     """Minimal valid GraphState for unit-testing context_loader."""
     return {
