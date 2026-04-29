@@ -312,9 +312,18 @@ def unifier_node(state: GraphState) -> GraphState:
         + "\n\n".join(buckets)
     )
 
-    directive = "Responde en español." if lang == "es" else "Answer in English."
+    if lang == "es":
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
+    else:
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
     if style_hint:
-        directive = directive + f" {style_hint}"
+        directive = directive + f"\n{style_hint}"
 
     proj_ctx_block = ""
     if proj_ctx:
@@ -344,6 +353,8 @@ RAG_SOURCES:
 
 SOURCE:
 {synthesis_source}
+
+{"RECORDATORIO FINAL: toda tu respuesta debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response must be in English."}
 """
 
     resp = llm.invoke(prompt)

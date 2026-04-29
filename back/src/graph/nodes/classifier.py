@@ -85,8 +85,10 @@ def classifier_node(state: GraphState) -> GraphState:
         intent = "diagram"
 
 
-    # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
-    lang = state.get("language") or lang_raw
+    # Always use the LLM's fresh classification for the CURRENT message.
+    # Stale state language is intentionally ignored so the language can switch
+    # if the user changes their language between turns.
+    lang = lang_raw or state.get("language") or "es"
 
     # QA primario clasificado junto al intent (misma invocación del classifier).
     qa_from_classifier = normalize_qa(qa_attr)

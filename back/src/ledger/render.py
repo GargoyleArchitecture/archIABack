@@ -41,6 +41,15 @@ _T: dict[str, dict[str, str]] = {
         "traces_to":        "traza a ASR",
         "via_style":        "vía estilo",
         "pending_advance":  "Avance pendiente",
+        "superseded_by":    "reemplazado por",
+        # ASR scenario field labels (shown as bullet keys in the dossier)
+        "field_source":           "Fuente",
+        "field_stimulus":         "Estímulo",
+        "field_environment":      "Entorno",
+        "field_artifact":         "Artefacto",
+        "field_response":         "Respuesta",
+        "field_response_measure": "Medida de Respuesta",
+        "field_domain":           "Dominio",
     },
     "en": {
         "title":            "Design Dossier",
@@ -67,6 +76,15 @@ _T: dict[str, dict[str, str]] = {
         "traces_to":        "traces to ASR",
         "via_style":        "via style",
         "pending_advance":  "Pending advance",
+        "superseded_by":    "superseded by",
+        # ASR scenario field labels
+        "field_source":           "Source",
+        "field_stimulus":         "Stimulus",
+        "field_environment":      "Environment",
+        "field_artifact":         "Artifact",
+        "field_response":         "Response",
+        "field_response_measure": "Response Measure",
+        "field_domain":           "Domain",
     },
 }
 
@@ -154,13 +172,15 @@ def render_dossier(
             payload = asr.get("payload") or {}
             lines.append(f"**{T['summary']}:** {_clip_text(payload.get('summary', ''), _MAX_SUMMARY)}")
             lines.append("")
-            for field in ("source", "stimulus", "environment", "artifact", "response", "response_measure"):
+            _field_keys = ("source", "stimulus", "environment", "artifact", "response", "response_measure")
+            for field in _field_keys:
                 val = payload.get(field, "")
                 if val:
-                    lines.append(f"- **{field.replace('_', ' ').title()}:** {val}")
+                    label = T.get(f"field_{field}", field.replace("_", " ").title())
+                    lines.append(f"- **{label}:** {val}")
             domain = payload.get("domain", "")
             if domain:
-                lines.append(f"- **Dominio:** {domain}")
+                lines.append(f"- **{T.get('field_domain', 'Domain')}:** {domain}")
             rationale = asr.get("rationale", "")
             if rationale:
                 lines += ["", f"**{T['rationale']}:** {_clip_text(rationale)}"]
@@ -261,7 +281,9 @@ def render_dossier(
             for d in superseded_list:
                 sup_by = d.get("superseded_by") or "?"
                 date   = (d.get("created_at") or "")[:10]
-                lines.append(f"- {d['kind'].upper()} {d['id']} → reemplazado por {sup_by} el {date}")
+                lines.append(
+                    f"- {d['kind'].upper()} {d['id']} → {T['superseded_by']} {sup_by} {T['on_date']} {date}"
+                )
         else:
             lines.append(none_yet)
         lines.append("")
@@ -278,7 +300,7 @@ def render_dossier(
                 )
                 lines.append(
                     f"- {d['kind'].upper()} **{name}**"
-                    f" (id: {d['id']}, iteración {d['iteration']}) — {status}: \"{reason}\""
+                    f" (id: {d['id']}, {T['iteration'].lower()} {d['iteration']}) — {status}: \"{reason}\""
                 )
         else:
             lines.append(none_yet)

@@ -209,10 +209,19 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     - publica turn_message con name='style_recommender'.
     """
     lang = state.get("language", "es")
-    directive = "Answer in English." if lang == "en" else "Responde en español."
+    if lang == "en":
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
+    else:
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
     style_hint = (state.get("user_style_hint") or "").strip()
     if style_hint:
-        directive = f"{directive} {style_hint}"
+        directive = f"{directive}\n{style_hint}"
 
     asr_text = (
         state.get("current_asr")
@@ -282,6 +291,7 @@ You MUST respond with a VALID JSON object ONLY, with NO extra text, in the follo
 }}
 
 Do NOT add comments or any text outside of this JSON object.
+All string values in the JSON (name, impact, rationale) MUST be written in {"English" if lang == "en" else "español"}.
 """
 
     result = llm.invoke(prompt)
@@ -369,6 +379,7 @@ Do NOT add comments or any text outside of this JSON object.
         header = "## Estilos Arquitectónicos Candidatos"
         rec_label = "## Recomendación"
         because = "porque"
+        impact_label = "Impacto"
         followups = [
             f"Explícame tácticas concretas para el ASR usando el estilo recomendado ({chosen_name}).",
             "Compárame más a fondo estos dos estilos para este ASR.",
@@ -377,6 +388,7 @@ Do NOT add comments or any text outside of this JSON object.
         header = "## Candidate Architecture Styles"
         rec_label = "## Recommendation"
         because = "because"
+        impact_label = "Impact"
         followups = [
             f"Explain concrete tactics for the ASR using the recommended style ({chosen_name}).",
             "Compare these two styles in more depth for this ASR.",
@@ -385,9 +397,9 @@ Do NOT add comments or any text outside of this JSON object.
     content = (
         f"{header}\n\n"
         f"### 1. {style1_name}\n\n"
-        f"- **Impact:** {style1_impact}\n\n"
+        f"- **{impact_label}:** {style1_impact}\n\n"
         f"### 2. {style2_name}\n\n"
-        f"- **Impact:** {style2_impact}\n\n"
+        f"- **{impact_label}:** {style2_impact}\n\n"
         f"---\n\n"
         f"{rec_label}\n\n"
         f"**{chosen_name}** {because}:\n\n"

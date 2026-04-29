@@ -229,10 +229,19 @@ def asr_node(state: GraphState) -> GraphState:
 
     book_snippets = _dedupe_snippets(docs_list, max_items=6, max_chars=800)
 
-    directive = "Answer in English." if lang == "en" else "Responde en español."
+    if lang == "en":
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
+    else:
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
     style_hint = (state.get("user_style_hint") or "").strip()
     if style_hint:
-        directive = f"{directive} {style_hint}"
+        directive = f"{directive}\n{style_hint}"
 
     ctx = (
         ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")
@@ -244,14 +253,27 @@ def asr_node(state: GraphState) -> GraphState:
         (state.get("design_dossier_md") or "").strip()
     )
     history_clipped = _clip_text(history_block, 1500) if history_block else ""
-    prior_asr_section = (
-        f'\n{"=" * 60}\n'
-        f'PRIOR ASR HISTORY — DO NOT REPEAT THESE DESIGNS:\n'
-        f'{history_clipped}\n\n'
-        f'IMPORTANT: Your new ASR MUST be meaningfully different '
-        f'in at least its Response Measure or Stimulus.\n'
-        f'{"=" * 60}\n'
-    ) if history_clipped else ""
+    if history_clipped:
+        if lang == "en":
+            prior_asr_section = (
+                f'\n{"=" * 60}\n'
+                f'PRIOR ASR HISTORY — DO NOT REPEAT THESE DESIGNS:\n'
+                f'{history_clipped}\n\n'
+                f'IMPORTANT: Your new ASR MUST be meaningfully different '
+                f'in at least its Response Measure or Stimulus.\n'
+                f'{"=" * 60}\n'
+            )
+        else:
+            prior_asr_section = (
+                f'\n{"=" * 60}\n'
+                f'HISTORIAL DE ASR PREVIOS — NO REPITAS ESTOS DISEÑOS:\n'
+                f'{history_clipped}\n\n'
+                f'IMPORTANTE: Tu nuevo ASR DEBE ser notablemente distinto '
+                f'en al menos su Medida de Respuesta o Estímulo.\n'
+                f'{"=" * 60}\n'
+            )
+    else:
+        prior_asr_section = ""
 
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
@@ -314,6 +336,8 @@ Rules:
 - Keep the numbers realistic and measurable (p95 / p99, RPS, error rate, availability, etc.).
 - Answer entirely in the requested language.
 {MARKDOWN_FORMAT_DIRECTIVE}
+
+{"RECORDATORIO FINAL: responde completamente en español." if lang == "es" else "FINAL REMINDER: answer entirely in English."}
 """
 
     result = llm.invoke(prompt)

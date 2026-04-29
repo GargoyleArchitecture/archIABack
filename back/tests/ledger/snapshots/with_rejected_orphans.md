@@ -10,12 +10,12 @@ _(ninguna aún)_
 ### ASR  (id: 01FIXTURE000000000ASR00001, QA: latencia, fase: ASR)
 **Resumen:** Sistema de pagos con latencia inferior a 200ms
 
-- **Source:** usuario final
-- **Stimulus:** solicitud de pago
-- **Environment:** producción
-- **Artifact:** servicio de pagos
-- **Response:** procesar pago
-- **Response Measure:** p95 < 200ms
+- **Fuente:** usuario final
+- **Estímulo:** solicitud de pago
+- **Entorno:** producción
+- **Artefacto:** servicio de pagos
+- **Respuesta:** procesar pago
+- **Medida de Respuesta:** p95 < 200ms
 - **Dominio:** pagos
 
 **Justificación:** SLA de negocio.

@@ -138,7 +138,16 @@ def evaluator_node(state: GraphState) -> GraphState:
         else:
             book_snips = _book_snippets_for_eval(retriever, concern_hint)
 
-        directive = "Responde en español." if lang=="es" else "Answer in English."
+        if lang == "es":
+            directive = (
+                "IDIOMA OBLIGATORIO: español.\n"
+                "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+            )
+        else:
+            directive = (
+                "MANDATORY LANGUAGE: English.\n"
+                "Your ENTIRE response MUST be in English. Do not mix languages."
+            )
         eval_prompt = f"""{directive}
 You are evaluating a Quality Attribute Scenario (Architecture Significant Requirement).
 
@@ -168,6 +177,8 @@ Provide a tightened ASR using the same QAS structure (Summary, Context, Scenario
 ## References
 List 2-5 short items only if grounded by BOOK_SNIPPETS; otherwise write "None".
 {MARKDOWN_FORMAT_DIRECTIVE}
+
+{"RECORDATORIO FINAL: toda tu respuesta debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response must be in English."}
 """
         eval_prompt = ("DOC-ONLY mode: ON. Reason exclusively from the PROJECT DOCUMENT.\n\n" + eval_prompt) if doc_only else eval_prompt
         result = llm.invoke(eval_prompt)
