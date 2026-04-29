@@ -69,6 +69,7 @@ from src.memory import (
     save_arch_flow,
     project_key,
 )
+from src.graph.utils import is_explicit_asr_request
 from src.services.doc_ingest import extract_pdf_text
 memory_init()
 
@@ -196,10 +197,7 @@ ASR_HEAD_RE = re.compile(
 )
 
 def _looks_like_make_asr(msg: str) -> bool:
-    if not msg: return False
-    low = msg.lower()
-    return bool(re.search(r"\b(create|make|draft|write|generate|produce|compose)\b.*\b(asr)\b", low)) \
-        or bool(re.search(r"\b(crea|haz|redacta|genera|produce)\b.*\b(asr)\b", low))
+    return is_explicit_asr_request(msg)
 
 def _extract_asr_from_message(msg: str) -> str:
     if not msg: return ""
@@ -243,18 +241,27 @@ def _wants_style(txt: str) -> bool:
         # EN
         "architecture style",
         "architectural style",
+        "architecture styles",
+        "architectural styles",
         "style for this asr",
         "styles for this asr",
         "style for the asr",
         "what style", "which style",
         # ES
         "estilo de arquitectura",
+        "estilos de arquitectura",
         "estilo arquitectonico", "estilo arquitect\u00f3nico",
+        "estilos arquitectonicos", "estilos arquitect\u00f3nicos",
         "estilos para este asr",
         "que estilo", "qu\u00e9 estilo",
     ]
     # Tambien capturamos frases donde se combinan "style" y "asr".
-    return any(k in low for k in keys) or ("style" in low and "asr" in low)
+    return (
+        any(k in low for k in keys)
+        or ("style" in low and "asr" in low)
+        or ("estilos" in low and "arquitect" in low)
+        or ("estilo" in low and "arquitect" in low)
+    )
 
 
 def _wants_tactics(txt: str) -> bool:
@@ -634,11 +641,16 @@ async def message(
         save_arch_flow(user_id, af, project_id)
         arch_flow = af  # usarlo ya mismo
 
+    stored_current_asr = (
+        memory_get(user_id, asr_key, "")
+        or arch_flow.get("current_asr", "")
+    ).strip()
+
     memory_text = (
         f"Stage: {arch_flow.get('stage','')}\n"
         f"Quality Attribute: {arch_flow.get('quality_attribute','')}\n"
         f"Business / Context: {arch_flow.get('add_context','')}\n"
-        f"Current ASR:\n{arch_flow.get('current_asr','')}\n\n"
+        f"Current ASR:\n{stored_current_asr}\n\n"
         f"Architecture style: {arch_flow.get('style','')}\n"
         f"Tactics so far: {arch_flow.get('tactics', [])}\n"
         f"User last topic: {last_topic}"
@@ -655,12 +667,14 @@ async def message(
     user_lang = detect_lang(message)
 
     # --- Heuristicas locales ---
+    explicit_asr_request = is_explicit_asr_request(message)
     topic_hint = _extract_topic_from_text(message) or _extract_topic_from_text(last_topic)
     msg_low = message.lower()
     force_rag = (
+        explicit_asr_request or
         _needs_topic_hint(message) or
         bool(re.search(
-            r"\b(add|qas|asr|tactic|tactica|t\u00e1ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
+            r"\b(add|qas|tactic|tactica|t\u00e1ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
             msg_low
         ))
     )
@@ -668,8 +682,12 @@ async def message(
     if doc_only:
         force_rag = False  # DOC-ONLY desactiva RAG
 
+    has_existing_asr = bool(stored_current_asr)
+
     user_intent = "general"
-    if not arch_flow.get("current_asr"):
+    if explicit_asr_request:
+        user_intent = "asr"
+    elif not has_existing_asr:
         # Si aún no hay ASR, cualquier cosa va a ASR primero
         user_intent = "asr"
     elif _wants_style(message):
@@ -692,7 +710,7 @@ async def message(
             "requested_nodes": [],
             "pending_nodes": [],
             "completed_nodes": [],
-            "current_asr": memory_get(user_id, asr_key, ""),
+            "current_asr": stored_current_asr,
         }})
     except Exception:
         pass
@@ -722,12 +740,12 @@ async def message(
         "intent": user_intent,
         "force_rag": force_rag,
         "topic_hint": topic_hint,
-        "current_asr": memory_get(user_id, asr_key, ""),
+        "current_asr": stored_current_asr,
         "style": arch_flow.get("style", ""),
         "selected_style": arch_flow.get("style", ""),
         "last_style": arch_flow.get("style", ""),
         "arch_stage": arch_flow.get("stage", ""),
-        "quality_attribute": arch_flow.get("quality_attribute", ""),
+        "quality_attribute": arch_flow.get("quality_attribute", "") or topic_hint or last_topic,
         "add_context": arch_flow.get("add_context", ""),
         "tactics_list": arch_flow.get("tactics", []),
         "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
@@ -931,5 +949,4 @@ def get_session_phase(
             ]
         },
     }
-
 

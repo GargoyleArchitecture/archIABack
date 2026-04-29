@@ -10,11 +10,49 @@ from src.graph.state import GraphState, TACTICS_ARRAY_SCHEMA
 
 log = logging.getLogger("graph")
 
+_ASR_TERM_PATTERN = r"(?:asr|qas|quality attribute scenario|architecture significant requirement)"
+_ASR_CREATE_RE = re.compile(
+    rf"\b(?:create|make|draft|write|generate|produce|compose|define|formulate|propose|"
+    rf"crea|haz|redacta|genera|produce|define|formula|prop[oó]n)\b"
+    rf"(?:\W+\w+){{0,4}}\W+\b{_ASR_TERM_PATTERN}\b",
+    re.I,
+)
+_ASR_REPLAN_RE = re.compile(
+    rf"\b(?:rewrite|reframe|rework|revise|adjust|fix|correct|change|refine|regenerate|"
+    rf"replantea|reformula|ajusta|corrige|cambia|modifica|refina|regenera)\b"
+    rf"(?:\W+\w+){{0,5}}\W+\b{_ASR_TERM_PATTERN}\b",
+    re.I,
+)
+_ASR_MISALIGNED_RE = re.compile(
+    rf"\b(?:this|that|current|este|ese|el)\s+{_ASR_TERM_PATTERN}\b"
+    rf"[\s\S]{{0,80}}?"
+    rf"\b(?:misaligned|not aligned|does(?:\s+not|n't)\s+fit|is\s+wrong|"
+    rf"no\s+(?:est[aá]|esta)\s+alinead[oa]|no\s+aplica|no\s+sirve|"
+    rf"incorrect[oa]|equivocad[oa])\b",
+    re.I,
+)
+
 # ========== Helpers ==========
 
 def _push_turn(state: GraphState, role: str, name: str, content: str) -> None:
     line = {"role": role, "name": name, "content": content}
     state["turn_messages"] = state.get("turn_messages", []) + [line]
+
+
+def is_explicit_asr_request(text: str) -> bool:
+    """True only when the user explicitly asks to create or rework the ASR.
+
+    Mentioning an existing ASR in a follow-up such as "propón estilos ... para
+    cumplir con el ASR" must NOT count as a request to regenerate it.
+    """
+    txt = (text or "").strip()
+    if not txt:
+        return False
+    return bool(
+        _ASR_CREATE_RE.search(txt)
+        or _ASR_REPLAN_RE.search(txt)
+        or _ASR_MISALIGNED_RE.search(txt)
+    )
 
 
 # ========== Token utils (soft) ==========

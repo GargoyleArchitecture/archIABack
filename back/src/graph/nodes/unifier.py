@@ -59,6 +59,15 @@ def _split_sections(text: str) -> dict:
         sections[k] = sections[k].strip()
     return sections
 
+
+def _ensure_section(title: str, body: str) -> str:
+    body = (body or "").strip()
+    if not body:
+        return ""
+    if re.match(r"^##\s+", body):
+        return body
+    return f"{title}\n\n{body}"
+
 def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
@@ -96,11 +105,11 @@ def unifier_node(state: GraphState) -> GraphState:
         blocks = []
         if lang == "es":
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"## ASR\n\n{asr_txt}")
+                blocks.append(_ensure_section("## ASR", asr_txt))
             if style_txt and "style" in requested_set:
-                blocks.append(f"## Estilos Arquitectónicos\n\n{style_txt}")
+                blocks.append(_ensure_section("## Estilos Arquitectónicos", style_txt))
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"## Tácticas\n\n{tactics_txt}")
+                blocks.append(_ensure_section("## Tácticas", tactics_txt))
             if has_diagram and "diagram_agent" in requested_set:
                 blocks.append("## Diagrama\n\nRenderizado listo en esta misma respuesta.")
             followups = [
@@ -109,11 +118,11 @@ def unifier_node(state: GraphState) -> GraphState:
             ]
         else:
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"## ASR\n\n{asr_txt}")
+                blocks.append(_ensure_section("## ASR", asr_txt))
             if style_txt and "style" in requested_set:
-                blocks.append(f"## Architecture Styles\n\n{style_txt}")
+                blocks.append(_ensure_section("## Architecture Styles", style_txt))
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"## Tactics\n\n{tactics_txt}")
+                blocks.append(_ensure_section("## Tactics", tactics_txt))
             if has_diagram and "diagram_agent" in requested_set:
                 blocks.append("## Diagram\n\nRendered output is included in this same response.")
             followups = [
@@ -354,5 +363,4 @@ SOURCE:
     _push_turn(state, role="assistant", name="unifier", content=final_text)
 
     return {**state, "endMessage": final_text}
-
 

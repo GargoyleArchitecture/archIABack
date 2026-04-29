@@ -41,7 +41,15 @@ def _ledger_key(project_id: str | None) -> str:
 
 
 def _new_decision_id() -> str:
-    return str(ulid.ULID())
+    # Support both the lightweight `ulid` module (which exposes `ulid()`)
+    # and libraries that offer object-oriented constructors.
+    if hasattr(ulid, "ulid"):
+        return str(ulid.ulid())
+    if hasattr(ulid, "new"):
+        return str(ulid.new())
+    if hasattr(ulid, "ULID"):
+        return str(ulid.ULID())
+    raise RuntimeError("No compatible ULID generator found")
 
 
 def _now_iso() -> str:

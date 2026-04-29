@@ -9,6 +9,7 @@ from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
+    is_explicit_asr_request,
     _sanitize_response,
     _strip_tactics_sections,
 )
@@ -146,6 +147,20 @@ def asr_node(state: GraphState) -> GraphState:
     uq = state.get("userQuestion", "") or ""
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
+    existing_asr = (state.get("current_asr") or state.get("last_asr") or "").strip()
+    explicit_asr_request = is_explicit_asr_request(uq)
+
+    if existing_asr and not explicit_asr_request:
+        log.info("asr_node: preserving existing ASR for non-ASR follow-up")
+        requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
+        pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
+        return {
+            **state,
+            "requested_nodes": requested_nodes,
+            "pending_nodes": pending_nodes,
+            "endMessage": "",
+            "nextNode": "unifier",
+        }
 
     # Heurística del atributo
     concern = (
