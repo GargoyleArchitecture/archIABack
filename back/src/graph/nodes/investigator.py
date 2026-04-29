@@ -1,4 +1,4 @@
-
+import re
 from typing import Literal
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langgraph.prebuilt import create_react_agent
@@ -8,6 +8,19 @@ from src.graph.resources import llm, _HAS_VERTEX
 from src.graph.consts import prompt_researcher
 from src.graph.utils import _push_turn, _last_k_messages, _clip_text
 from src.graph.nodes.tools import local_RAG, LLM, LLMWithImages
+
+_SOURCES_BLOCK_RE = re.compile(r"SOURCES:\s*[\s\S]*", re.I)
+
+
+def _compact_sources_block(text: str) -> str:
+    if not text:
+        return ""
+    m = _SOURCES_BLOCK_RE.search(text)
+    if not m:
+        return ""
+    lines = [ln.rstrip() for ln in m.group(0).splitlines() if ln.strip()]
+    return "\n".join(lines[:7]).strip()
+
 
 def researcher_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
@@ -126,25 +139,38 @@ def researcher_node(state: GraphState) -> GraphState:
         result = agent.invoke(payload, config={"recursion_limit": 8})
 
     msgs_out = result.get("messages", [])
+    ai_candidates: list[str] = []
+    tool_sources: list[str] = []
     for m in msgs_out:
-        _push_turn(state, role="assistant", name="researcher", content=str(getattr(m, "content", m)))
-        # NEW: usar la última respuesta del investigador como contexto de negocio/técnico
-    if msgs_out:
-        last_msg = msgs_out[-1]
-        last_text = getattr(last_msg, "content", str(last_msg)) or ""
-        # Lo recortamos para no romper el prompt de los siguientes nodos.
-        # project_context_text se mantiene intacto — add_context solo almacena
-        # el resultado conversacional del investigador para contexto de los nodos siguientes.
-        state["add_context"] = _clip_text(str(last_text).strip(), 2000)
+        content = str(getattr(m, "content", "") or "").strip()
+        if not content:
+            continue
+        mtype = getattr(m, "type", "")
+        if mtype == "tool":
+            compact = _compact_sources_block(content)
+            if compact:
+                tool_sources.append(compact)
+            continue
+        if mtype == "ai" and not getattr(m, "tool_calls", None):
+            ai_candidates.append(content)
+
+    final_text = ai_candidates[-1].strip() if ai_candidates else ""
+    if not final_text and tool_sources:
+        final_text = tool_sources[-1]
+
+    if final_text:
+        sources_block = tool_sources[-1] if tool_sources else ""
+        researcher_text = final_text
+        if sources_block and "SOURCES:" not in researcher_text:
+            researcher_text = f"{researcher_text}\n\n{sources_block}".strip()
+
+        _push_turn(state, role="assistant", name="researcher", content=researcher_text)
+        # Solo propagamos la síntesis final útil como contexto para los nodos siguientes.
+        state["add_context"] = _clip_text(final_text, 2000)
 
         return {
-        **state,
-        "messages": state["messages"] + [
-            AIMessage(
-                content=str(getattr(m, "content", m)),
-                name="researcher"
-            ) for m in msgs_out
-        ],
-        "hasVisitedInvestigator": True
-    }
+            **state,
+            "messages": state["messages"] + [AIMessage(content=researcher_text, name="researcher")],
+            "hasVisitedInvestigator": True
+        }
     return state

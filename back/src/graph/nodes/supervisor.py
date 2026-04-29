@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, supervisorSchema
 from src.graph.nodes.classifier import FOLLOWUP_PATTERNS
+from src.graph.utils import is_explicit_asr_request
 import logging
 
 log = logging.getLogger("graph")
@@ -61,6 +62,8 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
 def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> list[str]:
     low = (uq or "").lower()
     fu_intent = classify_followup(uq) or ""
+    has_existing_asr = bool((state.get("current_asr") or state.get("last_asr") or "").strip())
+    explicit_asr_request = is_explicit_asr_request(uq)
 
     style_terms = [
         "style", "styles",
@@ -89,17 +92,15 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         wants_diagram = True
 
     wants_asr = (
-        forced == "asr"
+        explicit_asr_request
         or fu_intent == "make_asr"
-        or any(x in low for x in [" asr", "asr ", "qas", "quality attribute scenario", "architecture significant requirement"])
-        or bool(re.search(r"\b(genera|generate|crea|create|haz|make)\b.*\b(asr|qas)\b", low))
+        or (forced == "asr" and not has_existing_asr)
     )
 
     explicit_chain = wants_asr or wants_style or wants_tactics or wants_diagram
     if not explicit_chain:
         return []
 
-    has_existing_asr = bool((state.get("current_asr") or state.get("last_asr") or "").strip())
     plan: list[str] = []
 
     if wants_asr:

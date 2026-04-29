@@ -84,6 +84,26 @@ def test_migrate_partial_arch_flow_only_asr(tmp_db):
     assert "tactic" not in kinds
 
 
+def test_migrate_infers_qa_from_asr_text_when_legacy_qa_missing(tmp_db):
+    flow = {
+        "stage": "ASR",
+        "quality_attribute": "",
+        "add_context": "",
+        "current_asr": "ASR: búsqueda hotelera\nSummary: latencia p95 < 800ms",
+        "style": "",
+        "tactics": [],
+        "deployment_diagram_puml": "",
+        "deployment_diagram_svg_b64": "",
+    }
+    _save_arch_flow("user1", "proj1", flow)
+
+    ledger = migrate_legacy_arch_flow("user1", "proj1")
+
+    assert ledger is not None
+    asr = next(d for d in ledger["decisions"] if d["kind"] == "asr")
+    assert asr["qa"] == "latencia"
+
+
 def test_migrate_is_idempotent(tmp_db):
     _save_arch_flow("user1", "proj1", _legacy_arch_flow())
     ledger1 = migrate_legacy_arch_flow("user1", "proj1")

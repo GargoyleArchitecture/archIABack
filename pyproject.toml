@@ -39,6 +39,7 @@ dependencies = [
     "pillow (>=12.1.1,<13.0.0)",
     "langchain-ollama (>=1.0.1,<2.0.0)",
     "openai-whisper (>=20250625,<20250626)",
+    "ulid (>=1.1,<2.0)",
 ]
 
 [tool.poetry]

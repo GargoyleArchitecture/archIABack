@@ -183,7 +183,7 @@ def tactics_node_impl(
     else:
         book_snippets, src_meta = _fetch_tactics_rag(
             qa,
-            state.get("resolved_index") or qa,
+            qa,
             k=6,
         )
         rag_trace_record(

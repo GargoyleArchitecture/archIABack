@@ -9,6 +9,7 @@ from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
+    is_explicit_asr_request,
     _sanitize_response,
     _strip_tactics_sections,
 )
@@ -36,6 +37,11 @@ log = logging.getLogger("asr_node")
 _HISTORY_HEADING_RE = re.compile(
     r"^##\s+(?:History\s+\(superseded\s*/\s*rejected\)|"
     r"Historial\s+\(reemplazadas\s*/\s*rechazadas\))\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+_ASR_HEADING_RE = re.compile(
+    r"^##\s*ASR(?:\s+\d+)?\s*$",
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -118,6 +124,25 @@ def _build_sources_from_docs(docs_list: list) -> list[dict]:
     return result
 
 
+def _coerce_single_asr_markdown(content: str) -> str:
+    """Normalize ASR output to a single ASR block.
+
+    If the model emits `## ASR 1`, `## ASR 2`, etc., we keep only the first
+    block and normalize its heading back to `## ASR`.
+    """
+    text = (content or "").strip()
+    if not text:
+        return text
+
+    matches = list(_ASR_HEADING_RE.finditer(text))
+    if matches:
+        first = matches[0]
+        end = matches[1].start() if len(matches) > 1 else len(text)
+        text = text[first.start():end].strip()
+        text = _ASR_HEADING_RE.sub("## ASR", text, count=1)
+    return text
+
+
 def _refresh_ledger_state(
     state: dict,
     user_id: str,
@@ -146,6 +171,20 @@ def asr_node(state: GraphState) -> GraphState:
     uq = state.get("userQuestion", "") or ""
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
+    existing_asr = (state.get("current_asr") or state.get("last_asr") or "").strip()
+    explicit_asr_request = is_explicit_asr_request(uq)
+
+    if existing_asr and not explicit_asr_request:
+        log.info("asr_node: preserving existing ASR for non-ASR follow-up")
+        requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
+        pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
+        return {
+            **state,
+            "requested_nodes": requested_nodes,
+            "pending_nodes": pending_nodes,
+            "endMessage": "",
+            "nextNode": "unifier",
+        }
 
     # Heurística del atributo
     concern = (
@@ -217,8 +256,8 @@ def asr_node(state: GraphState) -> GraphState:
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
-Your job is to create 1-5 concrete Architecture Significant Requirement(s) (ASR)
-that will be used as an architectural driver.
+Your job is to create EXACTLY ONE concrete Architecture Significant Requirement (ASR)
+that will be used as the architectural driver for this turn.
 
 Each ASR MUST:
 - Follow the classic QAS structure: Source, Stimulus, Environment, Artifact, Response, Response Measure.
@@ -281,6 +320,7 @@ Rules:
     content_raw = getattr(result, "content", str(result))
     content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)
+    content = _coerce_single_asr_markdown(content)
 
     # === Fuentes (si hubo RAG) ===
     src_lines = []

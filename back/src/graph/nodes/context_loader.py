@@ -15,6 +15,7 @@ from src.ledger import (
     render_dossier_compact,
     render_phase_prompt,
 )
+from src.graph.qa_registry import prefer_specific_qa
 
 log = logging.getLogger("context_loader")
 
@@ -31,8 +32,8 @@ def _mirror_legacy(active: dict, updates: dict) -> None:
         summary = (asr.get("payload") or {}).get("summary", "")
         if summary:
             updates["current_asr"] = summary
-        qa = asr.get("qa", "")
-        if qa:
+        qa = prefer_specific_qa(asr.get("qa", ""), summary)
+        if qa != "general":
             updates["quality_attribute"] = qa
 
     style_dec = active.get("style")
