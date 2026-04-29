@@ -71,6 +71,7 @@ from src.memory import (
 )
 from src.graph.utils import is_explicit_asr_request
 from src.services.doc_ingest import extract_pdf_text
+from src.ledger.store import load_ledger as _load_ledger, compute_active_view as _compute_active_view
 memory_init()
 
 # ===================== Deteccion simple de idioma (ES/EN) ==========================
@@ -336,6 +337,7 @@ async def diagram_export(
     detail_level: str = Query("overview", regex="^(overview|detailed)$"),
     level: Optional[str] = Query(None, description="Diagram level: 1=overview, 2=medium, 3=detailed"),
     focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
+    project_id: Optional[str] = Query(None, description="Project scope for ledger lookup"),
 ):
     """Export the last generated architecture diagram in the requested format.
 
@@ -367,12 +369,26 @@ async def diagram_export(
         render_svg_async as render_svg_async_from_dot,
     )
 
-    # Retrieve the last diagram for this session from memory
+    # P5: read from ledger; fallback to arch_flow for pre-migration sessions
     user_id = session_id
-    arch_flow = load_arch_flow(user_id)
-    last_diagram = arch_flow.get("last_diagram") or {}
+    project_id = (project_id or "").strip() or None
 
-    dot_code = last_diagram.get("dot") or last_diagram.get("dot_raw") or ""
+    ledger = _load_ledger(user_id, project_id)
+    active = _compute_active_view(ledger)
+    diagram_decision = active.get("diagram")
+
+    if diagram_decision:
+        payload = diagram_decision.get("payload") or {}
+        dot_code = payload.get("dot") or payload.get("dot_raw") or ""
+        _detail_level_hint = payload.get("focus") or "overview"
+        _overview_mapping = payload.get("mapping") or {}
+    else:
+        arch_flow = load_arch_flow(user_id, project_id)
+        last_diagram = arch_flow.get("last_diagram") or {}
+        dot_code = last_diagram.get("dot") or last_diagram.get("dot_raw") or ""
+        _detail_level_hint = last_diagram.get("detail_level") or "overview"
+        _overview_mapping = last_diagram.get("overview_mapping") or {}
+
     if not dot_code:
         raise HTTPException(
             status_code=404,
@@ -397,7 +413,7 @@ async def diagram_export(
         detail_level_name = to_detail_level(requested_level).value
 
         if focus:
-            mapping_for_focus = last_diagram.get("overview_mapping") or level_mapping
+            mapping_for_focus = _overview_mapping or level_mapping
             ir_model = build_expanded_view(
                 detailed_model,
                 mapping_for_focus,
@@ -510,14 +526,19 @@ def _stream_post_process(
 
     diagram_obj = result.get("diagram") or {}
     if diagram_obj.get("ok") and diagram_obj.get("dot"):
-        arch_flow["last_diagram"] = {
-            "dot": diagram_obj.get("dot", ""),
-            "dot_raw": diagram_obj.get("dot_raw", ""),
-            "dot_drawio": diagram_obj.get("dot_drawio", ""),
-            "detail_level": diagram_obj.get("detail_level", "overview"),
-            "level": diagram_obj.get("level", 1),
-            "overview_mapping": diagram_obj.get("overview_mapping"),
-        }
+        # P5 guard: skip arch_flow write when ledger already captured the diagram
+        _diagram_in_ledger = bool(
+            (result.get("ledger_active") or {}).get("diagram")
+        )
+        if not _diagram_in_ledger:
+            arch_flow["last_diagram"] = {
+                "dot": diagram_obj.get("dot", ""),
+                "dot_raw": diagram_obj.get("dot_raw", ""),
+                "dot_drawio": diagram_obj.get("dot_drawio", ""),
+                "detail_level": diagram_obj.get("detail_level", "overview"),
+                "level": diagram_obj.get("level", 1),
+                "overview_mapping": diagram_obj.get("overview_mapping"),
+            }
 
     result_diagram_history = result.get("diagram_history") or {}
     if result_diagram_history:
