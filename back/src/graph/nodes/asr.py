@@ -40,6 +40,11 @@ _HISTORY_HEADING_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+_ASR_HEADING_RE = re.compile(
+    r"^##\s*ASR(?:\s+\d+)?\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
 _ASR_SUMMARY_RE = re.compile(r"\*\*ASR\s+complete\s*:\*\*\s*(.+)", re.IGNORECASE)
 
 _ASR_FIELD_RE: dict[str, re.Pattern] = {
@@ -117,6 +122,25 @@ def _build_sources_from_docs(docs_list: list) -> list[dict]:
         if len(result) >= 4:
             break
     return result
+
+
+def _coerce_single_asr_markdown(content: str) -> str:
+    """Normalize ASR output to a single ASR block.
+
+    If the model emits `## ASR 1`, `## ASR 2`, etc., we keep only the first
+    block and normalize its heading back to `## ASR`.
+    """
+    text = (content or "").strip()
+    if not text:
+        return text
+
+    matches = list(_ASR_HEADING_RE.finditer(text))
+    if matches:
+        first = matches[0]
+        end = matches[1].start() if len(matches) > 1 else len(text)
+        text = text[first.start():end].strip()
+        text = _ASR_HEADING_RE.sub("## ASR", text, count=1)
+    return text
 
 
 def _refresh_ledger_state(
@@ -232,8 +256,8 @@ def asr_node(state: GraphState) -> GraphState:
     prompt = f"""{directive}
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
-Your job is to create 1-5 concrete Architecture Significant Requirement(s) (ASR)
-that will be used as an architectural driver.
+Your job is to create EXACTLY ONE concrete Architecture Significant Requirement (ASR)
+that will be used as the architectural driver for this turn.
 
 Each ASR MUST:
 - Follow the classic QAS structure: Source, Stimulus, Environment, Artifact, Response, Response Measure.
@@ -296,6 +320,7 @@ Rules:
     content_raw = getattr(result, "content", str(result))
     content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)
+    content = _coerce_single_asr_markdown(content)
 
     # === Fuentes (si hubo RAG) ===
     src_lines = []

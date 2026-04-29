@@ -6,6 +6,7 @@ import pytest
 from src.graph.nodes.asr import (
     _build_asr_payload,
     _build_sources_from_docs,
+    _coerce_single_asr_markdown,
     _extract_dossier_history,
     asr_node,
 )
@@ -41,6 +42,34 @@ _MOCK_CONTENT = """\
 """
 
 _DEFAULT_SAVED = {"id": "01NEWDECISION00000000001", "kind": "asr", "qa": "latencia"}
+
+_MULTI_ASR_CONTENT = """\
+## ASR 1
+
+**ASR complete:** Primer ASR de latencia.
+
+### Scenario
+
+- **Source:** User
+- **Stimulus:** Search request
+- **Environment:** Normal load
+- **Artifact:** Search API
+- **Response:** Return results
+- **Response Measure:** p95 < 800 ms
+
+## ASR 2
+
+**ASR complete:** Segundo ASR de latencia.
+
+### Scenario
+
+- **Source:** User
+- **Stimulus:** Peak search request
+- **Environment:** Peak load
+- **Artifact:** Search API
+- **Response:** Return results under stress
+- **Response Measure:** p95 < 800 ms at 3000 RPS
+"""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -190,6 +219,14 @@ def test_build_sources_from_docs_caps_at_four():
     assert len(result) == 4
 
 
+def test_coerce_single_asr_markdown_keeps_only_first_asr():
+    result = _coerce_single_asr_markdown(_MULTI_ASR_CONTENT)
+    assert result.startswith("## ASR")
+    assert "## ASR 2" not in result
+    assert "Segundo ASR de latencia" not in result
+    assert "Primer ASR de latencia" in result
+
+
 # ===========================================================================
 # Unit tests — mocked LLM + mocked ledger
 # ===========================================================================
@@ -202,6 +239,26 @@ def test_scalar_writes_always_set():
     assert result["hasVisitedASR"]      is True
     assert result["nextNode"]           == "unifier"
     assert result["memory_text"]        != ""
+
+
+def test_asr_node_coerces_multi_asr_output_to_single():
+    multi = _mock_llm_result(_MULTI_ASR_CONTENT)
+    with patch(_PATCH_LLM) as ml, \
+         patch(_PATCH_APPEND, return_value=_DEFAULT_SAVED), \
+         patch(_PATCH_LOAD), \
+         patch(_PATCH_RENDER, return_value="# dossier"), \
+         patch(_PATCH_RENDER_C, return_value="compact"), \
+         patch(_PATCH_PHASE_P, return_value="phase_prompt"), \
+         patch(_PATCH_RETRIEVER):
+
+        ml.invoke.return_value = multi
+        result = asr_node(_state())
+
+    assert result["current_asr"].startswith("## ASR")
+    assert "## ASR 2" not in result["current_asr"]
+    assert "Segundo ASR de latencia" not in result["current_asr"]
+    assert "Primer ASR de latencia" in result["current_asr"]
+    assert "## ASR 2" not in result["last_asr"]
 
 
 def test_no_history_injection_when_dossier_empty():

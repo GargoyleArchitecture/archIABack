@@ -86,6 +86,19 @@ def detect_explicit_qa(text: str) -> str:
     return normalize_qa(text)
 
 
+def prefer_specific_qa(*values: str) -> str:
+    """Devuelve el primer QA específico reconocido entre varios candidatos.
+
+    Útil cuando queremos preservar continuidad y evitar que un valor `general`
+    pise una señal más fuerte encontrada en otro campo (por ejemplo el ASR).
+    """
+    for value in values:
+        qa = normalize_qa(value)
+        if qa != "general":
+            return qa
+    return "general"
+
+
 def qa_to_focus_label(qa_id: str, default: str = "performance") -> str:
     """Convierte un QA canónico a etiqueta de foco para prompts en inglés.
 

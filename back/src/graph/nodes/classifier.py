@@ -2,7 +2,7 @@ from functools import lru_cache
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
 from src.graph.index_resolver import resolve_quality_attribute
-from src.graph.qa_registry import normalize_qa, supported_qas
+from src.graph.qa_registry import detect_explicit_qa, normalize_qa, supported_qas
 
 llm = get_chat_model(temperature=0.0)
 
@@ -90,6 +90,9 @@ def classifier_node(state: GraphState) -> GraphState:
 
     # QA primario clasificado junto al intent (misma invocación del classifier).
     qa_from_classifier = normalize_qa(qa_attr)
+    explicit_qa_in_msg = detect_explicit_qa(msg)
+    prev_qa = normalize_qa(state.get("quality_attribute", ""))
+    has_existing_asr = bool(state.get("current_asr") or state.get("last_asr"))
 
     # Resolución del índice QA para RAG.
     # Regla: usar QA del classifier primero; si no, resolver por fallback.
@@ -105,9 +108,18 @@ def classifier_node(state: GraphState) -> GraphState:
     # 2) índice resuelto para RAG,
     # 3) valor previo del estado (continuidad).
     resolved_qa = normalize_qa(resolved_index)
-    prev_qa = normalize_qa(state.get("quality_attribute", ""))
 
-    if qa_from_classifier != "general":
+    preserve_followup_qa = (
+        intent in ("style", "tactics", "diagram")
+        and has_existing_asr
+        and explicit_qa_in_msg == "general"
+        and prev_qa != "general"
+    )
+
+    if preserve_followup_qa:
+        quality_attribute = prev_qa
+        resolved_index = prev_qa
+    elif qa_from_classifier != "general":
         quality_attribute = qa_from_classifier
     elif resolved_qa != "general":
         quality_attribute = resolved_qa

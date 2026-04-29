@@ -54,6 +54,25 @@ def test_mirrors_asr_to_legacy_scalars(base_state, mock_ledger_with_asr):
     assert result["quality_attribute"] == "latencia"
 
 
+def test_infers_asr_qa_from_summary_when_ledger_has_general(base_state, mock_ledger_with_asr):
+    ledger = dict(mock_ledger_with_asr)
+    ledger["decisions"] = [dict(mock_ledger_with_asr["decisions"][0], qa="general")]
+
+    result, _, _ = _run(base_state, ledger_return=ledger)
+
+    assert result["quality_attribute"] == "latencia"
+
+
+def test_general_ledger_qa_does_not_overwrite_existing_specific_qa(base_state, mock_ledger_with_asr):
+    ledger = dict(mock_ledger_with_asr)
+    ledger["decisions"] = [dict(mock_ledger_with_asr["decisions"][0], qa="general", payload={"summary": "ASR vigente"})]
+    state = {**base_state, "quality_attribute": "seguridad"}
+
+    result, _, _ = _run(state, ledger_return=ledger)
+
+    assert result["quality_attribute"] == "seguridad"
+
+
 def test_mirrors_style_to_legacy_scalars(base_state, mock_ledger_full):
     result, _, _ = _run(base_state, ledger_return=mock_ledger_full)
 

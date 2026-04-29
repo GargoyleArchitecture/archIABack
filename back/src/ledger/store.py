@@ -40,6 +40,33 @@ def _ledger_key(project_id: str | None) -> str:
     return f"ledger:{pid}" if pid else "ledger"
 
 
+def _normalize_legacy_qa(value: str) -> str:
+    low = (value or "").strip().lower()
+    if not low:
+        return "general"
+    if "latenc" in low or "response time" in low:
+        return "latencia"
+    if "escalab" in low or "throughput" in low or "scalab" in low:
+        return "escalabilidad"
+    if "disponib" in low or "availab" in low or "uptime" in low:
+        return "disponibilidad"
+    if "secur" in low or "segurid" in low:
+        return "seguridad"
+    if "modifi" in low or "change" in low:
+        return "modificabilidad"
+    if "reliab" in low or "fault" in low or "confiab" in low:
+        return "confiabilidad"
+    return "general"
+
+
+def _prefer_specific_legacy_qa(*values: str) -> str:
+    for value in values:
+        qa = _normalize_legacy_qa(value)
+        if qa != "general":
+            return qa
+    return "general"
+
+
 def _new_decision_id() -> str:
     # Support both the lightweight `ulid` module (which exposes `ulid()`)
     # and libraries that offer object-oriented constructors.
@@ -503,7 +530,7 @@ def migrate_legacy_arch_flow(
     asr_text = arch_flow.get("current_asr", "").strip()
     asr_decision: Decision | None = None
     if asr_text:
-        qa = arch_flow.get("quality_attribute", "general") or "general"
+        qa = _prefer_specific_legacy_qa(arch_flow.get("quality_attribute", ""), asr_text)
         asr_decision = _make_decision(
             kind="asr",
             phase=Phase.ASR.value,

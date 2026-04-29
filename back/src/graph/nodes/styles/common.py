@@ -98,7 +98,9 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     ctx = (state.get("add_context") or "").strip()
     proj_ctx = (state.get("project_context_text") or "").strip()
 
-    book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
+    # Ground styles with the final QA resolved for the turn, not with a stale
+    # classifier index that may drift on follow-up turns.
+    book_snippets = _fetch_styles_rag(qa, qa, k=6)
 
     proj_ctx_block = ""
     if proj_ctx:
