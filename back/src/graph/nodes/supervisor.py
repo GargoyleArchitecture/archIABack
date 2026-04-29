@@ -26,11 +26,26 @@ def _looks_like_eval(text: str) -> bool:
 
 def detect_lang(text: str) -> str:
     t = (text or "").lower()
-    es_hits = sum(w in t for w in ["qué","que","cómo","como","por qué","porque","cuál","cual","hola","táctica","tactica","vista","despliegue"])
-    en_hits = sum(w in t for w in ["what","how","why","which","hello","tactic","view","deployment","component"])
+    es_hits = sum(w in t for w in [
+        "qué","que","cómo","como","por qué","porque","cuál","cual",
+        "hola","táctica","tactica","vista","despliegue","sistema",
+        "para","con","una","uno","dame","quiero","necesito","genera",
+        "muestra","explica","describe","define","crea","hazme","dime",
+        "estilo","tácticas","diagrama","latencia","disponibilidad",
+        "rendimiento","escalabilidad","seguridad","requerimiento",
+        "arquitectura","servicio","microservicio","componente",
+        "ahora","perfecto","vamos","este","ese","eso","mi","mis",
+    ])
+    en_hits = sum(w in t for w in [
+        "what","how","why","which","hello","tactic","view","deployment",
+        "component","please","give","show","explain","create","define",
+        "style","diagram","latency","availability","performance",
+        "scalability","security","requirement","architecture","service",
+        "microservice","now","this","my",
+    ])
     if es_hits > en_hits: return "es"
     if en_hits > es_hits: return "en"
-    return "en"
+    return "es"  # default to Spanish — this app's primary language
 
 def classify_followup(question: str) -> str | None:
     q = (question or "").lower().strip()

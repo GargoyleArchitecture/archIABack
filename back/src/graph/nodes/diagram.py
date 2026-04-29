@@ -64,13 +64,20 @@ def _sanitize_dot(raw: Any) -> str:
     return normalize_text(txt).strip()
 
 
-def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel, expand: bool = False) -> str:
+def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel, expand: bool = False, lang: str = "es") -> str:
     """Generate DOT code via LLM. Uses expansion prompt when building on a prior level."""
     if expand:
         target_desc = EXPAND_TARGET_MEDIUM if level == DiagramLevel.MEDIUM else EXPAND_TARGET_DETAILED
         system_prompt = DOT_SYSTEM_EXPAND.format(target_description=target_desc)
     else:
         system_prompt = DOT_SYSTEM_OVERVIEW if level == DiagramLevel.OVERVIEW else DOT_SYSTEM
+
+    lang_note = (
+        "Node and edge labels in the DOT graph MUST be written in Spanish (español)."
+        if lang == "es"
+        else "Node and edge labels in the DOT graph MUST be written in English."
+    )
+    system_prompt = f"{system_prompt}\n\n{lang_note}"
     msgs = [SystemMessage(content=normalize_text(system_prompt)), HumanMessage(content=normalize_text(natural_prompt))]
     resp = llm.invoke(msgs)
     raw = getattr(resp, "content", str(resp)) or ""
@@ -178,6 +185,7 @@ def _refresh_ledger_state(state: GraphState, user_id: str, project_id: str | Non
 
 
 def diagram_orchestrator_node(state: GraphState) -> GraphState:
+    _lang = (state.get("language") or "es")
     user_q = normalize_text(state.get("localQuestion") or state.get("userQuestion") or "").strip()
     requested_level = _resolve_diagram_level(state, user_q)
 
@@ -261,7 +269,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
 
     dot_code = ""
     try:
-        dot_code = _llm_nl_to_dot(full_prompt, level=requested_level, expand=expand_mode)
+        dot_code = _llm_nl_to_dot(full_prompt, level=requested_level, expand=expand_mode, lang=_lang)
     except Exception as exc:
         log.warning("diagram_orchestrator_node: DOT generation failed: %s", exc)
 
@@ -323,7 +331,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
     # --- Ledger write-back (nonfatal) ---
     _user_id = state.get("user_id_for_prefs") or ""
     _project_id = state.get("project_id")
-    _lang = (state.get("language") or "es")
+    # _lang already set at the top of this function
     if _user_id and diagram_obj.get("ok"):
         _qa = (
             (state.get("ledger_active") or {}).get("asr", {}) or {}

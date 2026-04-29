@@ -279,10 +279,19 @@ def tactics_node_impl(
 ) -> GraphState:
     """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
-    directive = "Answer in English." if lang == "en" else "Responde en español."
+    if lang == "en":
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
+    else:
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
     style_hint = (state.get("user_style_hint") or "").strip()
     if style_hint:
-        directive = f"{directive} {style_hint}"
+        directive = f"{directive}\n{style_hint}"
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
     ctx_add = (state.get("add_context") or "").strip()
@@ -418,6 +427,8 @@ Return ONE code fence starting with ```json and ending with ``` that contains ON
 
 Example shape (values are illustrative — adjust to your tactics):
 {TACTICS_JSON_EXAMPLE}
+
+{"RECORDATORIO FINAL: toda tu respuesta (secciones de texto y valores JSON) debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response (text sections and JSON string values) must be in English."}
 """
     resp = llm.invoke(prompt)
     raw = getattr(resp, "content", str(resp)).strip()

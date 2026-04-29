@@ -298,7 +298,8 @@ def test_history_injected_when_dossier_has_superseded():
         asr_node(_state(design_dossier_md=dossier_with_history))
 
     assert len(captured) == 1
-    assert "PRIOR ASR HISTORY" in captured[0]
+    # Spanish default: "HISTORIAL DE ASR PREVIOS"; English: "PRIOR ASR HISTORY"
+    assert ("HISTORIAL DE ASR PREVIOS" in captured[0] or "PRIOR ASR HISTORY" in captured[0])
     assert "01OLDASR" in captured[0]
 
 
