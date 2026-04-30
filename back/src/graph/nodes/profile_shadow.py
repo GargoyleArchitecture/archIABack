@@ -24,6 +24,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from src.graph.resources import get_store, llm
 from src.graph.schemas.profile import ConceptScore, UserProfileEvaluation
+from src.services.profile_sync import sync_profile
 
 log = logging.getLogger("shadow_agent")
 
@@ -74,9 +75,18 @@ def _format_messages_window(messages: list, window: int) -> str:
 
 
 async def evaluate_messages(messages: list, llm_obj=None) -> UserProfileEvaluation:
-    """Llama al LLM con structured_output(UserProfileEvaluation) sobre la ventana."""
+    """Llama al LLM con structured_output(UserProfileEvaluation) sobre la ventana.
+
+    Usa `method="function_calling"` para evitar el modo `json_schema` de
+    OpenAI (langchain-openai >= 0.3) que exige `required` con todas las
+    propiedades. Nuestro schema tiene defaults via `default_factory`
+    (strengths/weaknesses/evaluated_concepts/delta_from_previous), por lo
+    que el modo function_calling es la opcion compatible.
+    """
     llm_obj = llm_obj if llm_obj is not None else llm
-    structured = llm_obj.with_structured_output(UserProfileEvaluation)
+    structured = llm_obj.with_structured_output(
+        UserProfileEvaluation, method="function_calling"
+    )
     prompt = _EVAL_PROMPT.format(window=_format_messages_window(messages, SHADOW_WINDOW))
     return await structured.ainvoke(prompt)
 
@@ -101,6 +111,8 @@ def merge_profile(prev: dict, new: UserProfileEvaluation, alpha: float = 0.7) ->
     - mastery_merged = alpha * new + (1 - alpha) * prev
     - strengths / weaknesses: union case-insensitive (prev gana en empate).
     - delta_from_previous: diff de mastery (positivo = mejora).
+    - F3-T4: cada concepto evaluado en `new` recibe `last_seen_at = now_iso`
+      (refuerzo). Conceptos solo-en-prev preservan su `last_seen_at` previo.
     """
     prev = prev or {}
     prev_concepts_idx = {
@@ -109,6 +121,7 @@ def merge_profile(prev: dict, new: UserProfileEvaluation, alpha: float = 0.7) ->
         if isinstance(c, dict) and c.get("name")
     }
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     merged_concepts: List[dict] = []
     deltas: dict = {}
     seen_keys = set()
@@ -132,10 +145,11 @@ def merge_profile(prev: dict, new: UserProfileEvaluation, alpha: float = 0.7) ->
                 "name": c.name,
                 "mastery": round(new_m, 4),
                 "evidence": c.evidence or "",
+                "last_seen_at": now_iso,
             }
         )
 
-    # Conceptos en prev pero no en new se preservan sin cambios.
+    # Conceptos en prev pero no en new se preservan (last_seen_at queda igual).
     for key, prev_c in prev_concepts_idx.items():
         if key not in seen_keys:
             merged_concepts.append(prev_c)
@@ -201,6 +215,14 @@ async def shadow_eval_async(user_id: str, messages: list, llm_obj=None, store=No
         len(merged.get("evaluated_concepts", [])),
         float(merged.get("confidence", 0.0)),
     )
+
+    # F3-T5: sync HTTP a Backend Negocio. Best-effort: si falla, el perfil
+    # ya esta seguro en el Store local. NUNCA lanza al caller.
+    try:
+        await sync_profile(user_id, merged)
+    except Exception:
+        log.exception("profile_sync raised unexpectedly for user_id=%s", user_id)
+
     return merged
 
 
