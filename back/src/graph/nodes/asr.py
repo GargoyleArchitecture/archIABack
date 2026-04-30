@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessage
 from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
+from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
@@ -138,7 +139,7 @@ Rules:
 {MARKDOWN_FORMAT_DIRECTIVE}
 """
 
-    result = llm.invoke(prompt)
+    result = llm.invoke(apply_mode_prompt(state, prompt))
     content_raw = getattr(result, "content", str(result))
     content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)

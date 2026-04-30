@@ -1,3 +1,5 @@
+import os
+import re as _re_mode
 from functools import lru_cache
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
@@ -5,6 +7,49 @@ from src.graph.index_resolver import resolve_quality_attribute
 from src.graph.qa_registry import normalize_qa, supported_qas
 
 llm = get_chat_model(temperature=0.0)
+
+
+# ===== F2-T4: Heuristica de auto-routing de modo =====
+# Triggers bilingues (ES/EN). Cada match suma 0.5 al score (cap 1.0).
+TUTOR_TRIGGERS = (
+    r"\bexpl[ií]came\b", r"\bense[ñn]ame\b", r"\bno\s+entiendo\b",
+    r"\bqu[eé]\s+es\b", r"\bqu[eé]\s+significa\b",
+    r"\bay[uú]dame\s+a\s+entender\b", r"\bduda\b", r"\bconcept[oa]\b",
+    r"\bexplain\b", r"\bteach\s+me\b", r"\bwhat\s+is\b",
+    r"\bdon'?t\s+understand\b", r"\bdoubt\b",
+)
+PROFESSIONAL_TRIGGERS = (
+    r"\bimplementa(?:me|lo)?\b", r"\bdame\s+(?:el\s+)?c[oó]digo\b",
+    r"\bmu[eé]strame\b", r"\bdiagrama\b", r"\bdise[ñn]a\b",
+    r"\boptimiza\b", r"\bbenchmark\b", r"\barquitectura\s+de\b",
+    r"\bimplement\b", r"\bgive\s+me\s+the\s+code\b", r"\bdesign\s+the\b",
+    r"\bbuild\b", r"\boptimize\b", r"\bcompare\s+latency\b",
+)
+
+_MODE_SUGGESTION_THRESHOLD = float(os.getenv("MODE_SUGGESTION_THRESHOLD", "0.7"))
+
+
+def _score_triggers(text: str, patterns: tuple) -> float:
+    """Confianza en [0,1]: 1 match = 0.8, 2+ saturan a 1.0.
+
+    Calibrado para que un unico verbo de intencion claro (ej. 'explicame',
+    'dame el codigo') ya supere el umbral default 0.7, y multiples matches
+    converjan rapido a 1.0.
+    """
+    matches = sum(1 for p in patterns if _re_mode.search(p, text or "", _re_mode.IGNORECASE))
+    return 0.0 if matches == 0 else min(1.0, 0.8 + 0.2 * (matches - 1))
+
+
+def suggest_mode(text: str, current_mode: str):
+    """Devuelve `tutor` / `professional` si la confianza supera el umbral
+    Y el modo sugerido difiere del actual. None si no aplica."""
+    tutor_conf = _score_triggers(text, TUTOR_TRIGGERS)
+    pro_conf = _score_triggers(text, PROFESSIONAL_TRIGGERS)
+    if tutor_conf >= _MODE_SUGGESTION_THRESHOLD and tutor_conf > pro_conf:
+        return "tutor" if current_mode != "tutor" else None
+    if pro_conf >= _MODE_SUGGESTION_THRESHOLD and pro_conf > tutor_conf:
+        return "professional" if current_mode != "professional" else None
+    return None
 
 FOLLOWUP_PATTERNS = [
     ("explain_tactics", r"\b(tactics?|tácticas?).*(explain|describe|detalla|explica)|explica.*tácticas"),
@@ -116,6 +161,11 @@ def classifier_node(state: GraphState) -> GraphState:
     else:
         quality_attribute = "general"
 
+    # F2-T4: heuristica de auto-routing de modo. Si el usuario muestra
+    # intencion de pedagogia/operatividad y el modo actual no coincide,
+    # exponemos `mode_suggestion` para que el Frontend ofrezca el cambio.
+    mode_suggestion = suggest_mode(msg, state.get("mode") or "professional")
+
     return {
         **state,
         "language": lang,
@@ -132,4 +182,5 @@ def classifier_node(state: GraphState) -> GraphState:
         "force_rag": bool(use_rag),
         "resolved_index": resolved_index,
         "quality_attribute": quality_attribute,
+        "mode_suggestion": mode_suggestion,
     }

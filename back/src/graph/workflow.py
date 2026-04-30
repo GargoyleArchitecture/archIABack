@@ -2,7 +2,7 @@
 from langgraph.graph import START, END
 
 from src.graph.state import GraphState
-from src.graph.resources import sqlite_saver, builder
+from src.graph.resources import builder
 
 from src.graph.nodes.context_loader import context_loader_node
 from src.graph.nodes.classifier import classifier_node
@@ -33,6 +33,8 @@ def boot_node(state: GraphState) -> GraphState:
     """Resetea banderas y buffers al inicio de cada turno (sin borrar last_asr)."""
     return {
         **state,
+        # F3-T2: incrementa contador para el Shadow Agent (cadencia).
+        "turn_count_since_eval": (state.get("turn_count_since_eval") or 0) + 1,
         "hasVisitedInvestigator": False,
         "hasVisitedEvaluator": False,
         "hasVisitedASR": False,
@@ -136,4 +138,12 @@ for node_name in sorted(_TACTICS_QA_NODE_NAMES):
 
 builder.add_edge("unifier", END)
 
-graph = builder.compile(checkpointer=sqlite_saver)
+
+def build_graph(checkpointer, store=None):
+    """Compila el grafo con el checkpointer (AsyncSqliteSaver) y el store
+    (InMemoryStore) inyectados desde el lifespan de FastAPI.
+
+    Llamar una sola vez al startup. La instancia resultante se publica via
+    set_graph() en src/graph/resources.py para que get_graph() la exponga.
+    """
+    return builder.compile(checkpointer=checkpointer, store=store)

@@ -59,7 +59,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 from langchain_core.messages import HumanMessage
-from src.graph import graph
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from src.graph import (
+    build_graph,
+    get_graph,
+    set_graph,
+    set_store,
+    make_inmemory_store,
+)
 from src.rag_agent import create_or_load_vectorstore
 from src.memory import (
     init as memory_init,
@@ -84,13 +91,21 @@ def detect_lang(q: str) -> str:
 # ===================== Lifespan ==========================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        create_or_load_vectorstore()
-        print("[startup] RAG listo")
-    except Exception as e:
-        print(f"[startup] RAG init omitido: {e}")
-    yield
-    print("[shutdown] Cerrando app...")
+    db_path = Path(__file__).resolve().parent.parent / "state_db" / "graph_checkpoints.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    async with AsyncSqliteSaver.from_conn_string(str(db_path)) as saver:
+        store = make_inmemory_store()
+        compiled = build_graph(saver, store=store)
+        set_graph(compiled)
+        set_store(store)
+        try:
+            create_or_load_vectorstore()
+            print("[startup] RAG listo")
+        except Exception as e:
+            print(f"[startup] RAG init omitido: {e}")
+        print(f"[startup] Checkpointer listo: {db_path}")
+        yield
+        print("[shutdown] Cerrando app...")
 
 # Una sola instancia de FastAPI
 app = FastAPI(title="ArquIA API", lifespan=lifespan)
@@ -534,6 +549,8 @@ async def message(
     request: Request,
     message: str = Form(...),
     session_id: str = Form(...),
+    mode: str = Form(None),
+    user_id: str = Form(None),
     image1: Optional[UploadFile] = File(None),
     image2: Optional[UploadFile] = File(None),
     project_id: Optional[str] = Form(None),
@@ -543,8 +560,17 @@ async def message(
     if not session_id:
         raise HTTPException(status_code=400, detail="No session ID provided")
 
-    # Identidad simple por sesión
-    user_id    = request.headers.get("X-User-Id") or session_id
+    # F2-T2: validacion de mode (default seguro: professional).
+    if mode is None or mode == "":
+        mode = "professional"
+    if mode not in ("tutor", "professional"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode: {mode!r}. Use 'tutor' or 'professional'.",
+        )
+
+    # F2-T2: user_id estable. Prioridad: Form > X-User-Id > session_id.
+    user_id = (user_id or request.headers.get("X-User-Id") or session_id).strip()
     authorization_header = (request.headers.get("Authorization") or "").strip()
     authorization_parts = authorization_header.split()
     api_token = (
@@ -683,7 +709,7 @@ async def message(
 
     # --- Limpieza parcial del estado (sin borrar historial persistente del grafo) ---
     try:
-        graph.update_state(config, {"values": {
+        get_graph().update_state(config, {"values": {
             "endMessage": "",
 
             "diagram": {},  # FIX: dict vacío, no None
@@ -702,6 +728,11 @@ async def message(
         "messages": turn_messages,
         "userQuestion": message,
         "localQuestion": "",
+        # F2-T1 / F2-T2: campos de modo y perfilado.
+        "mode": mode,
+        "mode_suggestion": None,  # lo rellena classifier en F2-T4
+        "user_id": user_id,
+        "user_profile": {},  # se hidratara en F3-T3 (boot_node)
         "hasVisitedInvestigator": False,
         "hasVisitedEvaluator": False,
         "hasVisitedASR": False,
@@ -759,7 +790,7 @@ async def message(
             # that node's return dict), with no intermediate token/sub-chain events.
             # This avoids the serialisation overhead of astream_events(version="v2")
             # which copies the full state on every LLM token.
-            async for chunk in graph.astream(input_state, config, stream_mode="updates"):
+            async for chunk in get_graph().astream(input_state, config, stream_mode="updates"):
                 for node_name, node_output in chunk.items():
                     if not isinstance(node_output, dict):
                         continue
@@ -802,6 +833,9 @@ async def message(
                             "message_id": _message_id,
                             "thread_id":  _thread_id,
                             "suggestions": node_output.get("suggestions", []),
+                            # F2-T4: modo activo y sugerencia de cambio.
+                            "mode":             node_output.get("mode", "professional"),
+                            "mode_suggestion":  node_output.get("mode_suggestion"),
                         })
                         yield _sse(payload)
 

@@ -6,8 +6,11 @@ from langgraph.prebuilt import create_react_agent
 from src.graph.state import GraphState
 from src.graph.resources import llm, _HAS_VERTEX
 from src.graph.consts import prompt_researcher
+from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.utils import _push_turn, _last_k_messages, _clip_text
 from src.graph.nodes.tools import local_RAG, LLM, LLMWithImages
+from src.graph.nodes.tools_tutor import lookup_glossary, cite_documentation
+from src.graph.nodes.tools_professional import python_repl_tool, local_rag_advanced
 
 def researcher_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
@@ -82,6 +85,7 @@ def researcher_node(state: GraphState) -> GraphState:
             f"específicos del atributo de calidad '{resolved_index}'."
         )
 
+    sys = apply_mode_prompt(state, sys)
     system_message = SystemMessage(content=sys)
     _push_turn(state, role="system", name="researcher_system", content=sys)
 
@@ -94,8 +98,18 @@ def researcher_node(state: GraphState) -> GraphState:
         SystemMessage(content=f"PROJECT CONTEXT:\n{ctx_for_prompt}") if ctx_for_prompt else None
     )
 
-    # Herramientas: sin RAG en DOC-ONLY
-    tools = ([LLM] + ([LLMWithImages] if _HAS_VERTEX else [])) if doc_only else ([local_RAG, LLM] + ([LLMWithImages] if _HAS_VERTEX else []))
+    # Herramientas base (sin RAG en DOC-ONLY).
+    base_tools = [LLM] + ([LLMWithImages] if _HAS_VERTEX else [])
+    if not doc_only:
+        base_tools = [local_RAG] + base_tools
+    # F2-T5 / F2-T6: gating por modo. Tutor obtiene glossary tools;
+    # Profesional obtiene REPL + RAG avanzado.
+    mode = state.get("mode") or "professional"
+    if mode == "tutor":
+        base_tools = base_tools + [lookup_glossary, cite_documentation]
+    elif mode == "professional":
+        base_tools = base_tools + [python_repl_tool, local_rag_advanced]
+    tools = base_tools
     agent = create_react_agent(llm, tools=tools)
 
     # HINT corto (solo si no estamos en DOC-ONLY)
