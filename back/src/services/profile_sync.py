@@ -102,6 +102,109 @@ def _to_business_payload(merged: dict) -> dict:
     }
 
 
+def _from_business_payload(data: dict) -> dict:
+    """Convierte la respuesta camelCase de Negocio al formato snake_case del Store.
+
+    Inverso de _to_business_payload. Usado por fetch_profile_from_negocio (F3-T6)
+    para hidratar el InMemoryStore tras un reinicio del proceso IA.
+
+    Conversiones:
+    - evaluatedConcepts -> evaluated_concepts  (mastery 0-100 -> 0-1)
+    - lastSeenAt        -> last_seen_at
+    - decayRate         -> decay_rate
+    - userId            -> user_id
+
+    Campos que Negocio no persiste (confidence, delta_from_previous) se
+    inicializan con valores neutros.
+    """
+    data = data or {}
+    concepts_out = []
+    for c in (data.get("evaluatedConcepts") or []):
+        if not isinstance(c, dict):
+            continue
+        item: dict = {"name": c.get("name", "")}
+        try:
+            item["mastery"] = round(float(c.get("mastery") or 0.0) / 100.0, 4)
+        except (TypeError, ValueError):
+            item["mastery"] = 0.0
+        if c.get("lastSeenAt"):
+            item["last_seen_at"] = c["lastSeenAt"]
+        if c.get("decayRate") is not None:
+            try:
+                item["decay_rate"] = float(c["decayRate"])
+            except (TypeError, ValueError):
+                pass
+        concepts_out.append(item)
+
+    return {
+        "user_id": data.get("userId", ""),
+        "strengths": list(data.get("strengths") or []),
+        "weaknesses": list(data.get("weaknesses") or []),
+        "evaluated_concepts": concepts_out,
+        # Negocio no persiste estos campos; se inicializan neutros.
+        "confidence": 0.0,
+        "delta_from_previous": {},
+        "updated_at": data.get("updatedAt") or "",
+    }
+
+
+async def fetch_profile_from_negocio(user_id: str) -> dict | None:
+    """GET del perfil desde el Backend Negocio para hidratacion inversa (F3-T6).
+
+    Llamado por boot_node cuando el InMemoryStore no tiene perfil para el
+    user_id (primer acceso tras un reinicio del proceso — Store ephemeral).
+
+    Ruta: GET <BUSINESS_API_BASE_URL><BUSINESS_API_PROFILE_PATH>
+    Auth: X-Internal-Token (mismo token que usa sync_profile para el PUT).
+
+    Devuelve el perfil en formato snake_case del Store, o None si:
+    - PROFILE_SYNC_ENABLED=false
+    - INTERNAL_API_TOKEN vacio
+    - user_id vacio
+    - Negocio devuelve 404 (perfil aun no existe) o cualquier error de red/timeout
+
+    NUNCA lanza al caller.
+    """
+    if not _env_enabled():
+        log.debug("fetch_profile skipped: PROFILE_SYNC_ENABLED=false")
+        return None
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return None
+    token = _env_token()
+    if not token:
+        log.warning("fetch_profile skipped: INTERNAL_API_TOKEN empty")
+        return None
+
+    url = _env_base_url() + _env_path_template().replace("{userId}", user_id)
+    timeout = _env_timeout()
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers={"X-Internal-Token": token})
+        if resp.status_code == 200:
+            profile = _from_business_payload(resp.json())
+            log.info(
+                "fetch_profile ok user_id=%s concepts=%d",
+                user_id,
+                len(profile.get("evaluated_concepts") or []),
+            )
+            return profile
+        if resp.status_code == 404:
+            log.debug(
+                "fetch_profile 404 user_id=%s (no profile in Negocio yet)", user_id
+            )
+            return None
+        log.warning(
+            "fetch_profile status=%d user_id=%s body=%s",
+            resp.status_code, user_id, (resp.text or "")[:200],
+        )
+        return None
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        log.warning("fetch_profile error user_id=%s: %s", user_id, exc)
+        return None
+
+
 async def sync_profile(user_id: str, merged_profile: dict, *, max_attempts: int = 3) -> bool:
     """PUT del perfil al Backend Negocio con retry exponencial.
 

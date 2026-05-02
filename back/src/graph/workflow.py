@@ -7,6 +7,7 @@ from langgraph.graph import START, END
 from src.graph.state import GraphState
 from src.graph.resources import builder, get_store
 from src.graph.services.decay import apply_decay_to_profile
+from src.services.profile_sync import fetch_profile_from_negocio
 
 from src.graph.nodes.context_loader import context_loader_node
 from src.graph.nodes.classifier import classifier_node
@@ -37,14 +38,15 @@ _boot_log = logging.getLogger("boot")
 
 
 async def boot_node(state: GraphState) -> GraphState:
-    """Reset banderas y buffers + hidratacion del perfil del usuario (F3-T3).
+    """Reset banderas y buffers + hidratacion del perfil del usuario (F3-T3 / F3-T6).
 
     - Incrementa `turn_count_since_eval` (cadencia del Shadow Agent F3-T2).
     - Hidrata `state.user_profile` desde el LangGraph Store (F1-T4) bajo el
       namespace `("user", user_id, "profile")`.
     - Aplica curva de olvido (F3-T4) a los conceptos evaluados en lectura.
-    - Si no existe perfil para `user_id`, escribe uno vacio valido para que
-      F3-T5 siempre tenga una fila que sincronizar al Backend Negocio.
+    - Si el Store no tiene perfil (Store ephemeral tras reinicio), intenta
+      hidratar desde el Backend Negocio via GET /internal/users/:id/profile
+      (F3-T6). Si Negocio tampoco tiene perfil, crea uno vacio valido.
     - Si la hidratacion falla, deja `user_profile = {}` y continua sin romper
       el turno.
     """
@@ -57,17 +59,31 @@ async def boot_node(state: GraphState) -> GraphState:
             ns = ("user", user_id, "profile")
             item = await store.aget(ns, key="profile")
             if item is None:
-                empty = {
-                    "user_id": user_id,
-                    "strengths": [],
-                    "weaknesses": [],
-                    "evaluated_concepts": [],
-                    "confidence": 0.0,
-                    "delta_from_previous": {},
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-                await store.aput(ns, key="profile", value=empty)
-                user_profile = empty
+                # F3-T6: Store miss → intentar hidratar desde Negocio (PostgreSQL).
+                # Esto ocurre tipicamente en el primer turno tras un reinicio del
+                # proceso IA (el Store es ephemeral; Negocio es durable).
+                remote = await fetch_profile_from_negocio(user_id)
+                if remote:
+                    await store.aput(ns, key="profile", value=remote)
+                    user_profile = apply_decay_to_profile(remote)
+                    _boot_log.info(
+                        "boot_node hydrated from Negocio user_id=%s concepts=%d",
+                        user_id,
+                        len(remote.get("evaluated_concepts") or []),
+                    )
+                else:
+                    # Negocio no tiene perfil aun (usuario nuevo o primer ciclo).
+                    empty = {
+                        "user_id": user_id,
+                        "strengths": [],
+                        "weaknesses": [],
+                        "evaluated_concepts": [],
+                        "confidence": 0.0,
+                        "delta_from_previous": {},
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await store.aput(ns, key="profile", value=empty)
+                    user_profile = empty
             else:
                 user_profile = apply_decay_to_profile(item.value or {})
         except Exception:
