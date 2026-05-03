@@ -1,9 +1,31 @@
 # -*- coding: utf-8 -*-
+import logging
 import re
+from datetime import datetime, timezone
 
 from src.graph.resources import llm
 from src.graph.state import GraphState
 from src.graph.nodes.intake_validators import INTAKE_SCRIPT, validate_field, reprompt_message
+from src.ledger.store import (
+    transition_phase,
+    append_decision,
+    load_ledger,
+    save_ledger,
+    LedgerValidationError,
+    LedgerConcurrencyError,
+)
+from src.ledger.types import Phase, PhaseTransition
+
+log = logging.getLogger(__name__)
+
+_HAS_ASRS_RE = re.compile(
+    r"\bsí\b|yes\b|tengo\b|ya defin[ií]\b|ya hay\b",
+    re.IGNORECASE,
+)
+_NO_ASRS_RE = re.compile(
+    r"\bno\b|ninguno\b|genera\b|prop[oó]n\b|propone\b|t[uú]\b|usted\b",
+    re.IGNORECASE,
+)
 
 _DIGRESSION_RE = re.compile(
     r"\b(asr|diagrama|diagram|t[aá]cticas|tactics|estilo|style|eval[uú]a|"
@@ -55,14 +77,109 @@ def intake_node(state: GraphState) -> GraphState:
 
     asr_question = _ASR_QUESTION_ES if lang == "es" else _ASR_QUESTION_EN
 
-    # Rama A: intake completo, esperando respuesta sobre ASRs (Phase 4 extenderá esto)
+    # Rama A: intake completo — procesar respuesta del arquitecto sobre ASRs
     if intake_complete:
+        _user_id    = (state.get("user_id_for_prefs") or "").strip()
+        _project_id = (state.get("project_id") or "").strip() or None
+        _ts = datetime.now(timezone.utc).isoformat()
+
+        if _HAS_ASRS_RE.search(uq):
+            # A1 — el arquitecto ya tiene ASRs propios
+            if _user_id:
+                try:
+                    append_decision(_user_id, _project_id, {
+                        "id": "",
+                        "kind": "constraint",
+                        "phase": Phase.INTAKE.value,
+                        "iteration": 0,
+                        "qa": "",
+                        "parents": [],
+                        "payload": {"existing_asrs": [uq], "source": "architect_provided"},
+                        "rationale": "",
+                        "sources": [],
+                        "status": "active",
+                        "parent_status": "ok",
+                        "superseded_by": None,
+                        "rejection_reason": None,
+                        "created_at": "",
+                        "created_by_node": "intake_node",
+                    })
+                    transition_phase(_user_id, _project_id, PhaseTransition(
+                        from_phase="INTAKE",
+                        to_phase="ASR",
+                        iteration=1,
+                        triggered_by="user_request",
+                        user_message=uq,
+                        skipped_phases=[],
+                        timestamp=_ts,
+                    ))
+                except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                    log.warning("intake_node: ledger error (nonfatal): %s", _exc)
+
+            _msg_es = (
+                "Perfecto, he registrado tus ASRs. Los analizaré y refinaré si es necesario.\n"
+                "Pasamos a la fase ASR."
+            )
+            _msg_en = (
+                "Got it, I've registered your ASRs. I'll analyze and refine them as needed.\n"
+                "Moving to the ASR phase."
+            )
+            return {
+                **state,
+                "intake_fields": intake_fields,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "endMessage": _msg_es if lang == "es" else _msg_en,
+                "nextNode": "unifier",
+                "intent": "intake",
+            }
+
+        if _NO_ASRS_RE.search(uq):
+            # A2 — ArchIA propone los ASRs
+            if _user_id:
+                try:
+                    _ledger = load_ledger(_user_id, _project_id)
+                    _ledger["project_context"]["intake_v1"] = intake_fields
+                    save_ledger(_user_id, _ledger, _project_id)
+                    transition_phase(_user_id, _project_id, PhaseTransition(
+                        from_phase="INTAKE",
+                        to_phase="ASR",
+                        iteration=1,
+                        triggered_by="user_request",
+                        user_message=uq,
+                        skipped_phases=[],
+                        timestamp=_ts,
+                    ))
+                except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                    log.warning("intake_node: ledger error (nonfatal): %s", _exc)
+
+            _msg_es = "Perfecto. Con el contexto que me has dado voy a proponerte los ASRs."
+            _msg_en = "Perfect. With the context you've provided I'll now propose the ASRs."
+            return {
+                **state,
+                "intake_fields": intake_fields,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "endMessage": _msg_es if lang == "es" else _msg_en,
+                "nextNode": "asr",
+                "intent": "intake",
+            }
+
+        # A3 — respuesta ambigua: repregunta con más claridad
+        _clarify_es = (
+            "No estoy seguro de entenderte. ¿Ya tienes ASRs definidos que quieras compartir, "
+            "o prefieres que yo los proponga basándome en el contexto que me diste?"
+        )
+        _clarify_en = (
+            "I'm not sure I understood. Do you already have ASRs defined that you'd like to share, "
+            "or would you prefer that I propose them based on the context you provided?"
+        )
         return {
             **state,
             "intake_fields": intake_fields,
-            "intake_current_field": current_index,
+            "intake_current_field": 8,
             "intake_complete": True,
-            "endMessage": asr_question,
+            "endMessage": _clarify_es if lang == "es" else _clarify_en,
             "nextNode": "unifier",
             "intent": "intake",
         }
