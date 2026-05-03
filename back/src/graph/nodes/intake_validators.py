@@ -118,8 +118,44 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
     return (True, "")
 
 
+_REPROMPT_ERRORS: dict[int, dict[str, str]] = {
+    0: {
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+    },
+    1: {
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+    },
+    2: {
+        "es": "No se identificó la fuente del estímulo. Indica si proviene de: usuario, sistema externo, evento interno, tiempo/timer o schedule.",
+        "en": "Stimulus source not identified. Indicate if it comes from: user, external system, internal event, time/timer or schedule.",
+    },
+    3: {
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+    },
+    4: {
+        "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        "en": "No concrete metric found. Include numbers, comparisons or units such as: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+    },
+    5: {
+        "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        "en": "No concrete metric found. Include numbers, comparisons or units such as: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+    },
+    6: {
+        "es": "La respuesta es demasiado corta. Describe las restricciones/decisiones previas, o escribe 'ninguna' / 'none' / 'n/a' si no aplica.",
+        "en": "Answer too short. Describe the constraints/prior decisions, or write 'none' / 'n/a' if not applicable.",
+    },
+    7: {
+        "es": "La respuesta es demasiado corta. Describe las restricciones/decisiones previas, o escribe 'ninguna' / 'none' / 'n/a' si no aplica.",
+        "en": "Answer too short. Describe the constraints/prior decisions, or write 'none' / 'n/a' if not applicable.",
+    },
+}
+
+
 def reprompt_message(index: int, lang: str) -> str:
-    _, error_msg = validate_field(index, "")
+    error_msg = _REPROMPT_ERRORS[index][lang if lang in ("es", "en") else "es"]
     key = "question_es" if lang == "es" else "question_en"
     question = INTAKE_SCRIPT[index][key]
     return f"{error_msg}\n\n{question}"

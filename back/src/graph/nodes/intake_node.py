@@ -370,3 +370,75 @@ if __name__ == "__main__":
         f"esperaba pregunta de ASRs, got: {r['endMessage'][:100]}"
 
     print("Phase 2 tests ✓")
+
+    # ── Smoke test — language="en" ─────────────────────────────────────────
+    # ST-1: invalid first input → welcome + field-0 question in English
+    r = intake_node(_base({}, 0, "hello", "en"))
+    assert r["intake_current_field"] == 0
+    assert "requirement" in r["endMessage"].lower() or "main requirement" in r["endMessage"].lower(), \
+        f"ST-1 expected English welcome, got: {r['endMessage'][:120]}"
+    assert "requerimiento" not in r["endMessage"].lower(), \
+        f"ST-1 Spanish text leaked into EN message: {r['endMessage'][:120]}"
+
+    # ST-2: valid field-0 → field-1 question in English
+    # Note: _TECHNICAL_TERMS includes 'api', 'request', 'endpoint', 'throughput' — use those in English inputs
+    r = intake_node(_base({}, 0, "the API gateway must process each request from external endpoints with throughput 500 rps under 200ms", "en"))
+    assert r["intake_current_field"] == 1, \
+        f"ST-2 expected advance to field 1, got {r['intake_current_field']}. msg: {r['endMessage'][:120]}"
+    assert "component" in r["endMessage"].lower(), \
+        f"ST-2 expected English field-1 question, got: {r['endMessage'][:120]}"
+
+    # ST-3: invalid field-4 (no metric) → reprompt error + question in English
+    fields_en = {INTAKE_SCRIPT[i]["field"]: "test value for field" for i in range(4)}
+    r = intake_node(_base(fields_en, 4, "the system works fine in production", "en"))
+    assert r["intake_current_field"] == 4
+    assert "metric" in r["endMessage"].lower(), \
+        f"ST-3 expected English reprompt with 'metric', got: {r['endMessage'][:120]}"
+    assert "métrica" not in r["endMessage"].lower(), \
+        f"ST-3 Spanish text leaked into EN reprompt: {r['endMessage'][:120]}"
+
+    # ST-4: field-7 valid → ASR question in English
+    fields_en_06 = {INTAKE_SCRIPT[i]["field"]: "sufficient value for the field here" for i in range(7)}
+    r = intake_node(_base(fields_en_06, 7, "no prior architectural constraints", "en"))
+    assert r["intake_complete"] is True
+    assert "asr" in r["endMessage"].lower() or "ASR" in r["endMessage"], \
+        f"ST-4 expected English ASR question, got: {r['endMessage'][:120]}"
+    assert "ya tienes" not in r["endMessage"].lower(), \
+        f"ST-4 Spanish text leaked into EN ASR question: {r['endMessage'][:120]}"
+
+    # ST-5: intake_complete=True, "no" answer → A2 branch in English
+    base_complete_en = {
+        **_base({}, 0, "no", "en"),
+        "intake_complete": True,
+        "intake_current_field": 8,
+    }
+    r = intake_node(base_complete_en)
+    assert "propose" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+        f"ST-5 expected English A2 message, got: {r['endMessage'][:120]}"
+    assert "propondré" not in r["endMessage"].lower() and "perfecto" not in r["endMessage"].lower(), \
+        f"ST-5 Spanish text leaked into EN A2 message: {r['endMessage'][:120]}"
+
+    # ST-6: intake_complete=True, "yes" answer → A1 branch in English
+    base_complete_yes_en = {
+        **_base({}, 0, "yes I already have ASRs", "en"),
+        "intake_complete": True,
+        "intake_current_field": 8,
+    }
+    r = intake_node(base_complete_yes_en)
+    assert "registered" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+        f"ST-6 expected English A1 message, got: {r['endMessage'][:120]}"
+    assert "registrado" not in r["endMessage"].lower(), \
+        f"ST-6 Spanish text leaked into EN A1 message: {r['endMessage'][:120]}"
+
+    # ── Smoke test — language="es" still works ────────────────────────────
+    # ST-7: invalid field-4 → reprompt in Spanish
+    r = intake_node(_base(fields_0_3, 4, "funciona bien en producción normalmente"))
+    assert "métrica" in r["endMessage"].lower() or "número" in r["endMessage"].lower(), \
+        f"ST-7 Spanish reprompt broken: {r['endMessage'][:120]}"
+
+    # ST-8: field-7 valid → ASR question in Spanish
+    r = intake_node(_base(fields_0_6, 7, "ninguna restricción previa de diseño arquitectónico"))
+    assert "ya tienes" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+        f"ST-8 Spanish ASR question broken: {r['endMessage'][:120]}"
+
+    print("Language smoke tests ✓")

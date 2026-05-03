@@ -1,8 +1,26 @@
+import re
 from functools import lru_cache
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
 from src.graph.index_resolver import resolve_quality_attribute
 from src.graph.qa_registry import detect_explicit_qa, normalize_qa, supported_qas
+
+# Fast regex-based language detector — used during INTAKE to skip the LLM call
+# while still updating language on every turn.
+_ES_MARKERS = re.compile(
+    r"[áéíóúüñ¿¡]"
+    r"|\b(hola|gracias|cómo|como|qué|que|está|tienes|puedes|"
+    r"necesito|quiero|tengo|los|las|con|para|sí|hay|bien|mal|"
+    r"mi|tu|su|una|ninguna|ningún|"
+    r"el|la|del|al|debe|deben|usuario|usuarios|sistema|"
+    r"por|pero|también|cuando|donde|quien|"
+    r"escalar|procesar|diseñar|implementar|manejar)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_lang_fast(msg: str) -> str:
+    return "es" if _ES_MARKERS.search(msg) else "en"
 
 llm = get_chat_model(temperature=0.0)
 
@@ -48,10 +66,12 @@ def classifier_node(state: GraphState) -> GraphState:
     "quality_attribute" para que supervisor/router puedan decidir nodos
     específicos por QA (p. ej. style_latency vs style_scalability).
     """
-    # During INTAKE the supervisor will redirect to intake_node regardless of intent.
-    # Skip the LLM call entirely to preserve intent="intake" and avoid spurious QA overrides.
+    # During INTAKE the supervisor routes to intake_node regardless of intent.
+    # Skip the LLM call to preserve intent="intake" and avoid spurious QA overrides,
+    # but still detect language so intake_node responds in the user's language.
     if (state.get("current_phase") or "") == "INTAKE":
-        return {**state}
+        msg = state.get("userQuestion", "") or ""
+        return {**state, "language": _detect_lang_fast(msg)}
 
     msg = state.get("userQuestion", "") or ""
     qa_ids = supported_qas()
