@@ -27,12 +27,40 @@ _NO_ASRS_RE = re.compile(
     re.IGNORECASE,
 )
 
-_DIGRESSION_RE = re.compile(
-    r"\b(asr|diagrama|diagram|t[aá]cticas|tactics|estilo|style|eval[uú]a|"
-    r"evaluate|analiza|analyze|genera\b|generate|patr[oó]n|pattern|"
-    r"arquitectura|architecture|dise[nñ]a|design)\b",
+# Digression detection: a message is a digression only when the *intent* is to
+# ask or request something off-topic from intake, NOT when architectural terms
+# appear incidentally inside a descriptive answer.
+# Rule: must have BOTH (a) a question or meta-imperative form AND (b) meta-terms.
+_DIGRESSION_TERMS_RE = re.compile(
+    r"\b(asr|diagrama|diagram|t[aá]cticas|tactics|estilo|style|"
+    r"patr[oó]n|patron|pattern|add\b|atam|togaf|"
+    r"eval[uú]a|evaluate|analiza|analyze|genera|generate|"
+    r"dise[nñ]a|disena|design|arquitectura|architecture)\b",
     re.IGNORECASE,
 )
+# Question form: contains "?" or starts with interrogative word
+_DIGRESSION_QUESTION_RE = re.compile(
+    r"[?¿]"
+    r"|^\s*[¿¡]"
+    r"|^\s*(qué|que|cómo|como|cuál|cual|por qué|para qué|"
+    r"what|how|which|why|explain|define|describe|tell me|"
+    r"cuéntame|cuentame|explícame|explicame)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Explicit meta-imperative at start of message (request for an off-topic action)
+_DIGRESSION_IMPERATIVE_RE = re.compile(
+    r"^\s*(muéstrame|muestrame|crea|genera|propón|propon|propone|"
+    r"diseña|disena|evalúa|evalua|analiza|show me|create|generate|"
+    r"propose|design|draw|build me|explain|describe)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_digression(uq: str) -> bool:
+    """True only when the message is a question or explicit meta-request, not a descriptive answer."""
+    if not _DIGRESSION_TERMS_RE.search(uq):
+        return False
+    return bool(_DIGRESSION_QUESTION_RE.search(uq)) or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
 
 _ASR_QUESTION_ES = (
     "Ya tengo toda la información necesaria. "
@@ -198,7 +226,7 @@ def intake_node(state: GraphState) -> GraphState:
 
     # Rama C: primer turno (sin campos previos) — validar o dar bienvenida
     if current_index == 0 and not intake_fields:
-        if _DIGRESSION_RE.search(uq):
+        if _is_digression(uq):
             brief = _llm_digression(uq, lang)
             re_question = INTAKE_SCRIPT[0][f"question_{lang}"]
             sep = "Para continuar necesito que respondas" if lang == "es" else "To continue I need you to answer"
@@ -240,7 +268,7 @@ def intake_node(state: GraphState) -> GraphState:
         }
 
     # Rama D: turno normal (campos 0-7 con respuesta del usuario a validar)
-    if _DIGRESSION_RE.search(uq):
+    if _is_digression(uq):
         brief = _llm_digression(uq, lang)
         re_question = INTAKE_SCRIPT[current_index][f"question_{lang}"]
         sep = "Para continuar necesito que respondas" if lang == "es" else "To continue I need you to answer"

@@ -48,6 +48,11 @@ def classifier_node(state: GraphState) -> GraphState:
     "quality_attribute" para que supervisor/router puedan decidir nodos
     específicos por QA (p. ej. style_latency vs style_scalability).
     """
+    # During INTAKE the supervisor will redirect to intake_node regardless of intent.
+    # Skip the LLM call entirely to preserve intent="intake" and avoid spurious QA overrides.
+    if (state.get("current_phase") or "") == "INTAKE":
+        return {**state}
+
     msg = state.get("userQuestion", "") or ""
     qa_ids = supported_qas()
     qa_opts = qa_ids + ["general"]

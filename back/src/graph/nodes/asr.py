@@ -248,6 +248,51 @@ def asr_node(state: GraphState) -> GraphState:
     ).strip()[:2000]
     proj_ctx = (state.get("project_context_text") or "").strip()
 
+    # ── Intake context injection ───────────────────────────────────────────
+    _intake_v1 = (state.get("ledger") or {}).get("project_context", {}).get("intake_v1") or {}
+    if _intake_v1:
+        _INTAKE_LABELS = {
+            "campo_0_requerimiento": ("Requerimiento principal",      "Main requirement"),
+            "campo_1_componentes":   ("Componentes del sistema",      "System components"),
+            "campo_2_fuente":        ("Fuente del estímulo",          "Stimulus source"),
+            "campo_3_estimulo":      ("Estímulo / trigger",           "Stimulus / trigger"),
+            "campo_4_ambientes":     ("Ambientes y métricas",         "Environments and metrics"),
+            "campo_5_prioridad_qa":  ("Prioridad de atributos QA",    "QA attribute priorities"),
+            "campo_6_restricciones": ("Restricciones técnicas",       "Technical constraints"),
+            "campo_7_decisiones":    ("Decisiones de diseño previas", "Prior design decisions"),
+        }
+        label_idx = 1 if lang == "en" else 0
+        lines = []
+        for key, labels in _INTAKE_LABELS.items():
+            val = _intake_v1.get(key, "").strip()
+            if val:
+                lines.append(f"- **{labels[label_idx]}:** {val}")
+        if lines:
+            if lang == "en":
+                intake_context_section = (
+                    f'\n{"=" * 60}\n'
+                    f'INTAKE CONTEXT — ARCHITECT-PROVIDED REQUIREMENTS:\n'
+                    + "\n".join(lines) + "\n"
+                    f'\nIMPORTANT: The ASR MUST be grounded in this context. Use the real\n'
+                    f'requirement, components, source, stimulus, environments and constraints\n'
+                    f'above. Do NOT invent a generic domain.\n'
+                    f'{"=" * 60}\n'
+                )
+            else:
+                intake_context_section = (
+                    f'\n{"=" * 60}\n'
+                    f'CONTEXTO DEL INTAKE — REQUERIMIENTOS PROVISTOS POR EL ARQUITECTO:\n'
+                    + "\n".join(lines) + "\n"
+                    f'\nIMPORTANTE: El ASR DEBE estar fundamentado en este contexto. Usa el\n'
+                    f'requerimiento, componentes, fuente, estímulo, ambientes y restricciones\n'
+                    f'reales de arriba. NO inventes un dominio genérico.\n'
+                    f'{"=" * 60}\n'
+                )
+        else:
+            intake_context_section = ""
+    else:
+        intake_context_section = ""
+
     # ── Dossier history injection (P3) ─────────────────────────────────────
     history_block = _extract_dossier_history(
         (state.get("design_dossier_md") or "").strip()
@@ -295,7 +340,7 @@ IMPORTANT: If a tech stack is listed above, the ASR's Artifact and Response MUST
 those specific technologies. If business rules are listed, the ASR scenario MUST be coherent
 with them. Do NOT use generic placeholders like "the system" when a real stack is provided.
 {"=" * 60}
-{prior_asr_section}
+{intake_context_section}{prior_asr_section}
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 

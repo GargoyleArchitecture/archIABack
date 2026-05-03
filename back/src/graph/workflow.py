@@ -32,6 +32,7 @@ _TACTICS_QA_NODE_NAMES = {tactics_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 
 def boot_node(state: GraphState) -> GraphState:
     """Resetea banderas y buffers al inicio de cada turno (sin borrar last_asr)."""
+    _idx = state.get("intake_current_field")
     return {
         **state,
         "hasVisitedInvestigator": False,
@@ -43,6 +44,10 @@ def boot_node(state: GraphState) -> GraphState:
         "requested_nodes": [],
         "pending_nodes": [],
         "completed_nodes": [],
+        # Intake defaults: initialize only when None (persists across turns otherwise)
+        "intake_fields":        state.get("intake_fields")   if state.get("intake_fields")   is not None else {},
+        "intake_current_field": _idx                         if _idx                         is not None else 0,
+        "intake_complete":      state.get("intake_complete") if state.get("intake_complete") is not None else False,
     }
 
 def router(state: GraphState) -> str:
