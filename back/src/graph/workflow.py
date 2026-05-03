@@ -15,6 +15,7 @@ from src.graph.nodes.asr import asr_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
 from src.graph.nodes.style_tactics_parallel import style_tactics_parallel_node
+from src.graph.nodes.intake_node import intake_node
 from src.graph.qa_registry import (
     normalize_qa,
     supported_qas,
@@ -47,6 +48,9 @@ def boot_node(state: GraphState) -> GraphState:
 def router(state: GraphState) -> str:
     if state["nextNode"] == "unifier":
         return "unifier"
+
+    if state["nextNode"] == "intake":
+        return "intake"
 
     if state["nextNode"] == "style_tactics_parallel":
         return "style_tactics_parallel"
@@ -113,6 +117,8 @@ for qa_id in _SUPPORTED_QAS:
 
 builder.add_node("boot", boot_node)
 builder.add_node("context_loader", context_loader_node)
+builder.add_node("intake", intake_node)
+builder.add_edge("intake", "unifier")
 builder.add_edge(START, "boot")
 builder.add_edge("boot", "context_loader")
 builder.add_edge("context_loader", "classifier")

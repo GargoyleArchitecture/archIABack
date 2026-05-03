@@ -127,6 +127,7 @@ class GraphState(TypedDict):
         "investigator", "evaluator", "diagram_agent",
         "tactics", "asr", "style", "unifier",
         "style_tactics_parallel",  # transient: emitido por supervisor, consumido por router
+        "intake",
     ]
 
     # planificación multi-intent por turno
@@ -157,7 +158,7 @@ class GraphState(TypedDict):
 
     # control de idioma/intención/forcing RAG
     language: Literal["en","es"]
-    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style"]
+    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style","intake"]
     force_rag: bool
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 
@@ -195,6 +196,11 @@ class GraphState(TypedDict):
     ledger_dossier_compact: str   # render_dossier_compact(ledger, lang); "" before load
     ledger_phase_prompt: str      # render_phase_prompt(ledger, lang); "" before load
     ledger_pending_advance: dict  # mirror of ledger["pending_advance"]; {} when None
+
+    # ── Intake phase ─────────────────────────────────────────────────────────
+    intake_fields: dict          # campos recolectados del guión de 8 preguntas
+    intake_current_field: int    # índice activo 0–8 (8 = esperando respuesta de ASRs)
+    intake_complete: bool        # True cuando los 8 campos han sido validados
 
 class AgentState(TypedDict):
     messages: list

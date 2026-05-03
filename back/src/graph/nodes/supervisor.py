@@ -167,6 +167,9 @@ Outputs: ['investigator','diagram_agent','evaluator','asr','unifier'].
 def supervisor_node(state: GraphState):
     uq = (state.get("userQuestion") or "")
 
+    if (state.get("current_phase") or "") == "INTAKE":
+        return {**state, "nextNode": "intake", "localQuestion": ""}
+
     # si ya hay un SVG listo en este turno, vamos directo al unifier
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
