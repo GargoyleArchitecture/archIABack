@@ -123,7 +123,13 @@ for qa_id in _SUPPORTED_QAS:
 builder.add_node("boot", boot_node)
 builder.add_node("context_loader", context_loader_node)
 builder.add_node("intake", intake_node)
-builder.add_edge("intake", "unifier")
+
+def _intake_next(state: GraphState) -> str:
+    # A2 sets nextNode="asr": route through supervisor so asr_node runs this turn.
+    # All other branches (B, C, D, A1, A3) use nextNode="unifier" → direct to unifier.
+    return "supervisor" if state.get("nextNode") == "asr" else "unifier"
+
+builder.add_conditional_edges("intake", _intake_next, {"supervisor": "supervisor", "unifier": "unifier"})
 builder.add_edge(START, "boot")
 builder.add_edge("boot", "context_loader")
 builder.add_edge("context_loader", "classifier")

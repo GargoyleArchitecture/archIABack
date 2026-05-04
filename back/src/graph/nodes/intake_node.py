@@ -168,7 +168,10 @@ async def intake_node(state: GraphState) -> GraphState:
             }
 
         if _NO_ASRS_RE.search(uq):
-            # A2 — ArchIA propone los ASRs
+            # A2 — ArchIA propone los ASRs.
+            # Persists intake_v1 in the ledger, mirrors current_phase="ASR" in state,
+            # and routes to asr_node in this same turn via the conditional intake edge.
+            _updated_ledger = None
             if _user_id:
                 try:
                     _ledger = load_ledger(_user_id, _project_id)
@@ -183,20 +186,25 @@ async def intake_node(state: GraphState) -> GraphState:
                         skipped_phases=[],
                         timestamp=_ts,
                     ))
+                    _updated_ledger = _ledger
                 except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
                     log.warning("intake_node: ledger error (nonfatal): %s", _exc)
 
-            _msg_es = "Perfecto. Con el contexto que me has dado voy a proponerte los ASRs."
-            _msg_en = "Perfect. With the context you've provided I'll now propose the ASRs."
-            return {
+            _a2: dict = {
                 **state,
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
-                "endMessage": _msg_es if lang == "es" else _msg_en,
+                "current_phase": "ASR",  # mirror ledger transition so supervisor skips INTAKE gate
+                "endMessage": "",         # asr_node will set the real response
                 "nextNode": "asr",
-                "intent": "intake",
+                "intent": "asr",
             }
+            if _updated_ledger is not None:
+                # Provide asr_node with intake_v1 in state so intake context is injected
+                # into the ASR prompt without waiting for the next context_loader reload.
+                _a2["ledger"] = _updated_ledger
+            return _a2
 
         # A3 — respuesta ambigua: repregunta con más claridad
         _clarify_es = (

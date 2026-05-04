@@ -71,7 +71,13 @@ def classifier_node(state: GraphState) -> GraphState:
     # but still detect language so intake_node responds in the user's language.
     if (state.get("current_phase") or "") == "INTAKE":
         msg = state.get("userQuestion", "") or ""
-        return {**state, "language": _detect_lang_fast(msg)}
+        prior_lang = state.get("language") or "es"
+        detected = _detect_lang_fast(msg)
+        # Only switch to "en" when there is positive English evidence (message long
+        # enough to carry signal). Short/ambiguous messages like "no", "ok", "genera"
+        # must not flip the language the user established earlier in the session.
+        lang = detected if (detected == "es" or len(msg.split()) > 2) else prior_lang
+        return {**state, "language": lang}
 
     msg = state.get("userQuestion", "") or ""
     qa_ids = supported_qas()
