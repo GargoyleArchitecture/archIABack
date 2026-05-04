@@ -169,7 +169,10 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = tips
         return {**state, "endMessage": end_text, "intent": "diagram"}
 
-    # ðŸ”´ Caso especial para ESTILOS
+    if intent == "intake":
+        return {**state, "endMessage": state.get("endMessage") or ""}
+
+    # 🔴 Caso especial para ESTILOS
     if intent == "style":
         style_txt = (
             _last_ai_by(state, "style_recommender")
@@ -225,7 +228,7 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial para ASR
+    # ðŸ"´ Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (
             _last_ai_by(state, "asr_recommender")
@@ -259,7 +262,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = followups
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial: saludo / smalltalk
+    # ðŸ"´ Caso especial: saludo / smalltalk
     if intent in ("greeting", "smalltalk"):
         if lang == "es":
             hello = "## Bienvenido a ArchIA\n\n¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"

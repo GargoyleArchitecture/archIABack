@@ -15,6 +15,7 @@ from src.graph.nodes.asr import asr_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
 from src.graph.nodes.style_tactics_parallel import style_tactics_parallel_node
+from src.graph.nodes.intake_node import intake_node
 from src.graph.qa_registry import (
     normalize_qa,
     supported_qas,
@@ -31,6 +32,7 @@ _TACTICS_QA_NODE_NAMES = {tactics_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 
 def boot_node(state: GraphState) -> GraphState:
     """Resetea banderas y buffers al inicio de cada turno (sin borrar last_asr)."""
+    _idx = state.get("intake_current_field")
     return {
         **state,
         "hasVisitedInvestigator": False,
@@ -42,11 +44,18 @@ def boot_node(state: GraphState) -> GraphState:
         "requested_nodes": [],
         "pending_nodes": [],
         "completed_nodes": [],
+        # Intake defaults: initialize only when None (persists across turns otherwise)
+        "intake_fields":        state.get("intake_fields")   if state.get("intake_fields")   is not None else {},
+        "intake_current_field": _idx                         if _idx                         is not None else 0,
+        "intake_complete":      state.get("intake_complete") if state.get("intake_complete") is not None else False,
     }
 
 def router(state: GraphState) -> str:
     if state["nextNode"] == "unifier":
         return "unifier"
+
+    if state["nextNode"] == "intake":
+        return "intake"
 
     if state["nextNode"] == "style_tactics_parallel":
         return "style_tactics_parallel"
@@ -113,6 +122,14 @@ for qa_id in _SUPPORTED_QAS:
 
 builder.add_node("boot", boot_node)
 builder.add_node("context_loader", context_loader_node)
+builder.add_node("intake", intake_node)
+
+def _intake_next(state: GraphState) -> str:
+    # A2 sets nextNode="asr": route through supervisor so asr_node runs this turn.
+    # All other branches (B, C, D, A1, A3) use nextNode="unifier" → direct to unifier.
+    return "supervisor" if state.get("nextNode") == "asr" else "unifier"
+
+builder.add_conditional_edges("intake", _intake_next, {"supervisor": "supervisor", "unifier": "unifier"})
 builder.add_edge(START, "boot")
 builder.add_edge("boot", "context_loader")
 builder.add_edge("context_loader", "classifier")
