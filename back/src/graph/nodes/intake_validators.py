@@ -1,5 +1,8 @@
+import logging
 import re
-from typing import Tuple
+from typing import Tuple, TypedDict
+
+log = logging.getLogger(__name__)
 
 _TECHNICAL_TERMS = re.compile(
     r"\b(módulo|servicio|api|componente|sistema|request|evento|endpoint|"
@@ -201,6 +204,77 @@ def reprompt_message(index: int, lang: str, value: str = "") -> str:
     return f"{error_msg}\n\n{question}"
 
 
+# ── Semantic validation (LLM second layer) ───────────────────────────────────
+
+class _SemanticOut(TypedDict):
+    valid: bool
+    reason: str
+
+
+_FIELD_SEMANTIC_DESCRIPTIONS: dict[int, str] = {
+    0: "main system requirement: objective, involved components, and quality expectations",
+    1: "main system components: services, modules, APIs, databases, or other relevant elements",
+    2: "stimulus source: who or what triggers the system (user, external system, internal event, timer/schedule)",
+    3: "stimulus or trigger: the specific event that activates system behavior",
+    4: "operating environments with concrete metrics: normal load, overload, maintenance (e.g., p95<200ms, 500rps)",
+    5: "quality attribute priorities with concrete numeric values: availability %, latency ms, throughput rps",
+    6: "technical constraints: programming language, infrastructure, budget, regulations — or explicit negation",
+    7: "prior design decisions: patterns, technologies, existing integrations — or explicit negation",
+}
+
+# v1 — fixed prompt; bump version string before changing wording
+_SEMANTIC_PROMPT_V1 = """\
+You are a strict validator for an architecture intake interview.
+Decide only whether the answer below contains real, specific information about the user's own system.
+Do NOT evaluate grammar, writing style, or technical accuracy.
+
+Field {index} — {field_description}
+
+User's answer: "{value}"
+
+Reject (valid=false) if ANY of the following apply:
+- The answer is a copy or near-paraphrase of the question with no original content about the user's system.
+- The answer is entirely generic and could apply to any system (no concrete specifics about THIS system).
+- The answer only names the expected category without any detail (e.g., just "usuario" for a stimulus-source field).
+
+Accept (valid=true) if:
+- The answer contains at least one concrete detail specific to the user's actual system.
+
+When rejecting, write reason as a single short sentence in {lang}. When accepting, set reason to empty string.\
+"""
+
+
+async def validate_field_semantic(index: int, value: str, lang: str) -> Tuple[bool, str]:
+    """LLM-based semantic validation. Call only after validate_field() returns True.
+
+    Fail-open: returns (True, "") if the LLM call fails so infra errors never block the user.
+    """
+    from src.graph.resources import llm  # lazy import — avoids circular deps at module load
+
+    _lang = lang if lang in ("es", "en") else "es"
+    field_desc = _FIELD_SEMANTIC_DESCRIPTIONS.get(index, f"field {index}")
+    prompt = _SEMANTIC_PROMPT_V1.format(
+        index=index,
+        field_description=field_desc,
+        value=value[:500],
+        lang=_lang,
+    )
+    try:
+        out = await llm.with_structured_output(_SemanticOut).ainvoke(prompt)
+        valid = bool(out.get("valid", True))
+        reason = str(out.get("reason") or "").strip()
+        if not valid and not reason:
+            reason = (
+                "La respuesta no contiene información específica sobre tu sistema."
+                if _lang == "es"
+                else "The answer does not contain specific information about your system."
+            )
+        return (valid, reason)
+    except Exception as exc:
+        log.warning("validate_field_semantic: LLM call failed (fail-open): %s", exc)
+        return (True, "")
+
+
 if __name__ == "__main__":
     # Caso 1 — campo 4 válido (métricas concretas)
     assert validate_field(4, "normal: p95<200ms; sobrecarga: 500rps; mantenimiento: 2h los domingos") == (True, "")
@@ -242,3 +316,22 @@ if __name__ == "__main__":
     assert "métrica" in msg.lower(), f"esperaba mensaje genérico de métrica, got: {msg[:100]}"
 
     print("Todos los casos pasaron ✓")
+
+    # ── Semantic validation (integration — requires LLM) ─────────────────────
+    import asyncio
+
+    # Caso 10 — campo 4 con métricas reales → pasa semántica
+    sem_ok, sem_reason = asyncio.run(
+        validate_field_semantic(
+            4, "normal: 300rps p95<200ms, sobrecarga: 1500rps, mantenimiento domingos 2am", "es"
+        )
+    )
+    assert sem_ok is True, f"campo 4 con métricas reales debería pasar semántica, got reason: {sem_reason}"
+
+    # Caso 11 — campo 2 con "usuario" solo pasa determinista pero falla semántica
+    # (la categoría está presente pero no describe nada del sistema real)
+    sem_ok, sem_reason = asyncio.run(validate_field_semantic(2, "usuario", "es"))
+    assert sem_ok is False, f"'usuario' solo debería fallar semántica, got sem_ok={sem_ok}"
+    assert sem_reason, "esperaba razón de rechazo en español"
+
+    print("Semantic validation tests ✓")

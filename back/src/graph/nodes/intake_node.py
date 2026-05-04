@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 from src.graph.resources import llm
 from src.graph.state import GraphState
-from src.graph.nodes.intake_validators import INTAKE_SCRIPT, validate_field, reprompt_message
+from src.graph.nodes.intake_validators import (
+    INTAKE_SCRIPT,
+    validate_field,
+    reprompt_message,
+    validate_field_semantic,
+)
 from src.ledger.store import (
     transition_phase,
     append_decision,
@@ -96,7 +101,7 @@ def _llm_digression(uq: str, lang: str) -> str:
     return str(response.content).strip()
 
 
-def intake_node(state: GraphState) -> GraphState:
+async def intake_node(state: GraphState) -> GraphState:
     uq = (state.get("userQuestion") or "").strip()
     lang = state.get("language") or "es"
     intake_fields = dict(state.get("intake_fields") or {})
@@ -243,6 +248,18 @@ def intake_node(state: GraphState) -> GraphState:
 
         valid, _ = validate_field(0, uq)
         if valid:
+            sem_ok, sem_reason = await validate_field_semantic(0, uq, lang)
+            if not sem_ok:
+                end_msg = f"{sem_reason}\n\n{INTAKE_SCRIPT[0][f'question_{lang}']}"
+                return {
+                    **state,
+                    "intake_fields": intake_fields,
+                    "intake_current_field": 0,
+                    "intake_complete": False,
+                    "endMessage": end_msg,
+                    "nextNode": "unifier",
+                    "intent": "intake",
+                }
             intake_fields[INTAKE_SCRIPT[0]["field"]] = uq
             end_msg = INTAKE_SCRIPT[1][f"question_{lang}"]
             return {
@@ -296,6 +313,19 @@ def intake_node(state: GraphState) -> GraphState:
             "intent": "intake",
         }
 
+    sem_ok, sem_reason = await validate_field_semantic(current_index, uq, lang)
+    if not sem_ok:
+        end_msg = f"{sem_reason}\n\n{INTAKE_SCRIPT[current_index][f'question_{lang}']}"
+        return {
+            **state,
+            "intake_fields": intake_fields,
+            "intake_current_field": current_index,
+            "intake_complete": False,
+            "endMessage": end_msg,
+            "nextNode": "unifier",
+            "intent": "intake",
+        }
+
     # Válido: guardar y avanzar
     intake_fields[INTAKE_SCRIPT[current_index]["field"]] = uq
     new_index = current_index + 1
@@ -324,6 +354,8 @@ def intake_node(state: GraphState) -> GraphState:
 
 
 if __name__ == "__main__":
+    import asyncio
+
     def _base(intake_fields, idx, uq, lang="es"):
         return {
             "userQuestion": uq,
@@ -338,107 +370,110 @@ if __name__ == "__main__":
             "turn_messages": [],
         }
 
-    # Test 1 — turno inicial con saludo → bienvenida + campo 0, no avanza
-    r = intake_node(_base({}, 0, "hola"))
-    assert r["intake_current_field"] == 0, f"esperaba 0, got {r['intake_current_field']}"
-    assert "requerimiento" in r["endMessage"].lower(), "esperaba 'requerimiento' en endMessage"
+    async def _run_tests():
+        # Test 1 — turno inicial con saludo → bienvenida + campo 0, no avanza
+        r = await intake_node(_base({}, 0, "hola"))
+        assert r["intake_current_field"] == 0, f"esperaba 0, got {r['intake_current_field']}"
+        assert "requerimiento" in r["endMessage"].lower(), "esperaba 'requerimiento' en endMessage"
 
-    # Test 2 — campo 0 válido → avanza a campo 1
-    r = intake_node(_base({}, 0, "el microservicio de pagos debe procesar 1000 transacciones/s con latencia <200ms"))
-    assert r["intake_current_field"] == 1, f"esperaba 1, got {r['intake_current_field']}"
-    assert "campo_0_requerimiento" in r["intake_fields"], "campo_0_requerimiento no guardado"
+        # Test 2 — campo 0 válido → avanza a campo 1
+        r = await intake_node(_base({}, 0, "el microservicio de pagos debe procesar 1000 transacciones/s con latencia <200ms"))
+        assert r["intake_current_field"] == 1, f"esperaba 1, got {r['intake_current_field']}"
+        assert "campo_0_requerimiento" in r["intake_fields"], "campo_0_requerimiento no guardado"
 
-    # Test 3 — campo 4 inválido → reprompt sin avanzar
-    fields_0_3 = {INTAKE_SCRIPT[i]["field"]: "valor de prueba" for i in range(4)}
-    r = intake_node(_base(fields_0_3, 4, "funciona bien en producción normalmente"))
-    assert r["intake_current_field"] == 4, f"esperaba 4, got {r['intake_current_field']}"
-    assert any(w in r["endMessage"].lower() for w in ["métrica", "número", "concreto", "rps", "ms"]), \
-        f"esperaba mensaje de métrica, got: {r['endMessage'][:100]}"
+        # Test 3 — campo 4 inválido → reprompt sin avanzar
+        fields_0_3 = {INTAKE_SCRIPT[i]["field"]: "valor de prueba" for i in range(4)}
+        r = await intake_node(_base(fields_0_3, 4, "funciona bien en producción normalmente"))
+        assert r["intake_current_field"] == 4, f"esperaba 4, got {r['intake_current_field']}"
+        assert any(w in r["endMessage"].lower() for w in ["métrica", "número", "concreto", "rps", "ms"]), \
+            f"esperaba mensaje de métrica, got: {r['endMessage'][:100]}"
 
-    # Test 4 — digresión → re-pregunta campo actual (no avanza)
-    r = intake_node(_base({"campo_0_requerimiento": "descripcion"}, 1, "¿qué es el patrón CQRS?"))
-    assert r["intake_current_field"] == 1, f"esperaba 1, got {r['intake_current_field']}"
-    assert "Para continuar" in r["endMessage"] or "To continue" in r["endMessage"], \
-        f"esperaba separador, got: {r['endMessage'][:100]}"
+        # Test 4 — digresión → re-pregunta campo actual (no avanza)
+        r = await intake_node(_base({"campo_0_requerimiento": "descripcion"}, 1, "¿qué es el patrón CQRS?"))
+        assert r["intake_current_field"] == 1, f"esperaba 1, got {r['intake_current_field']}"
+        assert "Para continuar" in r["endMessage"] or "To continue" in r["endMessage"], \
+            f"esperaba separador, got: {r['endMessage'][:100]}"
 
-    # Test 5 — campo 7 válido → intake_complete=True, pregunta de ASRs
-    fields_0_6 = {INTAKE_SCRIPT[i]["field"]: "valor suficientemente largo" for i in range(7)}
-    r = intake_node(_base(fields_0_6, 7, "ninguna restricción previa de diseño arquitectónico"))
-    assert r["intake_complete"] is True, "esperaba intake_complete=True"
-    assert r["intake_current_field"] == 8, f"esperaba 8, got {r['intake_current_field']}"
-    assert "asr" in r["endMessage"].lower() or "ASR" in r["endMessage"], \
-        f"esperaba pregunta de ASRs, got: {r['endMessage'][:100]}"
+        # Test 5 — campo 7 válido → intake_complete=True, pregunta de ASRs
+        fields_0_6 = {INTAKE_SCRIPT[i]["field"]: "valor suficientemente largo" for i in range(7)}
+        r = await intake_node(_base(fields_0_6, 7, "ninguna restricción previa de diseño arquitectónico"))
+        assert r["intake_complete"] is True, "esperaba intake_complete=True"
+        assert r["intake_current_field"] == 8, f"esperaba 8, got {r['intake_current_field']}"
+        assert "asr" in r["endMessage"].lower() or "ASR" in r["endMessage"], \
+            f"esperaba pregunta de ASRs, got: {r['endMessage'][:100]}"
 
-    print("Phase 2 tests ✓")
+        print("Phase 2 tests ✓")
 
-    # ── Smoke test — language="en" ─────────────────────────────────────────
-    # ST-1: invalid first input → welcome + field-0 question in English
-    r = intake_node(_base({}, 0, "hello", "en"))
-    assert r["intake_current_field"] == 0
-    assert "requirement" in r["endMessage"].lower() or "main requirement" in r["endMessage"].lower(), \
-        f"ST-1 expected English welcome, got: {r['endMessage'][:120]}"
-    assert "requerimiento" not in r["endMessage"].lower(), \
-        f"ST-1 Spanish text leaked into EN message: {r['endMessage'][:120]}"
+        # ── Smoke test — language="en" ─────────────────────────────────────────
+        # ST-1: invalid first input → welcome + field-0 question in English
+        r = await intake_node(_base({}, 0, "hello", "en"))
+        assert r["intake_current_field"] == 0
+        assert "requirement" in r["endMessage"].lower() or "main requirement" in r["endMessage"].lower(), \
+            f"ST-1 expected English welcome, got: {r['endMessage'][:120]}"
+        assert "requerimiento" not in r["endMessage"].lower(), \
+            f"ST-1 Spanish text leaked into EN message: {r['endMessage'][:120]}"
 
-    # ST-2: valid field-0 → field-1 question in English
-    # Note: _TECHNICAL_TERMS includes 'api', 'request', 'endpoint', 'throughput' — use those in English inputs
-    r = intake_node(_base({}, 0, "the API gateway must process each request from external endpoints with throughput 500 rps under 200ms", "en"))
-    assert r["intake_current_field"] == 1, \
-        f"ST-2 expected advance to field 1, got {r['intake_current_field']}. msg: {r['endMessage'][:120]}"
-    assert "component" in r["endMessage"].lower(), \
-        f"ST-2 expected English field-1 question, got: {r['endMessage'][:120]}"
+        # ST-2: valid field-0 → field-1 question in English
+        # Note: _TECHNICAL_TERMS includes 'api', 'request', 'endpoint', 'throughput' — use those in English inputs
+        r = await intake_node(_base({}, 0, "the API gateway must process each request from external endpoints with throughput 500 rps under 200ms", "en"))
+        assert r["intake_current_field"] == 1, \
+            f"ST-2 expected advance to field 1, got {r['intake_current_field']}. msg: {r['endMessage'][:120]}"
+        assert "component" in r["endMessage"].lower(), \
+            f"ST-2 expected English field-1 question, got: {r['endMessage'][:120]}"
 
-    # ST-3: invalid field-4 (no metric) → reprompt error + question in English
-    fields_en = {INTAKE_SCRIPT[i]["field"]: "test value for field" for i in range(4)}
-    r = intake_node(_base(fields_en, 4, "the system works fine in production", "en"))
-    assert r["intake_current_field"] == 4
-    assert "metric" in r["endMessage"].lower(), \
-        f"ST-3 expected English reprompt with 'metric', got: {r['endMessage'][:120]}"
-    assert "métrica" not in r["endMessage"].lower(), \
-        f"ST-3 Spanish text leaked into EN reprompt: {r['endMessage'][:120]}"
+        # ST-3: invalid field-4 (no metric) → reprompt error + question in English
+        fields_en = {INTAKE_SCRIPT[i]["field"]: "test value for field" for i in range(4)}
+        r = await intake_node(_base(fields_en, 4, "the system works fine in production", "en"))
+        assert r["intake_current_field"] == 4
+        assert "metric" in r["endMessage"].lower(), \
+            f"ST-3 expected English reprompt with 'metric', got: {r['endMessage'][:120]}"
+        assert "métrica" not in r["endMessage"].lower(), \
+            f"ST-3 Spanish text leaked into EN reprompt: {r['endMessage'][:120]}"
 
-    # ST-4: field-7 valid → ASR question in English
-    fields_en_06 = {INTAKE_SCRIPT[i]["field"]: "sufficient value for the field here" for i in range(7)}
-    r = intake_node(_base(fields_en_06, 7, "no prior architectural constraints", "en"))
-    assert r["intake_complete"] is True
-    assert "asr" in r["endMessage"].lower() or "ASR" in r["endMessage"], \
-        f"ST-4 expected English ASR question, got: {r['endMessage'][:120]}"
-    assert "ya tienes" not in r["endMessage"].lower(), \
-        f"ST-4 Spanish text leaked into EN ASR question: {r['endMessage'][:120]}"
+        # ST-4: field-7 valid → ASR question in English
+        fields_en_06 = {INTAKE_SCRIPT[i]["field"]: "sufficient value for the field here" for i in range(7)}
+        r = await intake_node(_base(fields_en_06, 7, "no prior architectural constraints", "en"))
+        assert r["intake_complete"] is True
+        assert "asr" in r["endMessage"].lower() or "ASR" in r["endMessage"], \
+            f"ST-4 expected English ASR question, got: {r['endMessage'][:120]}"
+        assert "ya tienes" not in r["endMessage"].lower(), \
+            f"ST-4 Spanish text leaked into EN ASR question: {r['endMessage'][:120]}"
 
-    # ST-5: intake_complete=True, "no" answer → A2 branch in English
-    base_complete_en = {
-        **_base({}, 0, "no", "en"),
-        "intake_complete": True,
-        "intake_current_field": 8,
-    }
-    r = intake_node(base_complete_en)
-    assert "propose" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
-        f"ST-5 expected English A2 message, got: {r['endMessage'][:120]}"
-    assert "propondré" not in r["endMessage"].lower() and "perfecto" not in r["endMessage"].lower(), \
-        f"ST-5 Spanish text leaked into EN A2 message: {r['endMessage'][:120]}"
+        # ST-5: intake_complete=True, "no" answer → A2 branch in English
+        base_complete_en = {
+            **_base({}, 0, "no", "en"),
+            "intake_complete": True,
+            "intake_current_field": 8,
+        }
+        r = await intake_node(base_complete_en)
+        assert "propose" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+            f"ST-5 expected English A2 message, got: {r['endMessage'][:120]}"
+        assert "propondré" not in r["endMessage"].lower() and "perfecto" not in r["endMessage"].lower(), \
+            f"ST-5 Spanish text leaked into EN A2 message: {r['endMessage'][:120]}"
 
-    # ST-6: intake_complete=True, "yes" answer → A1 branch in English
-    base_complete_yes_en = {
-        **_base({}, 0, "yes I already have ASRs", "en"),
-        "intake_complete": True,
-        "intake_current_field": 8,
-    }
-    r = intake_node(base_complete_yes_en)
-    assert "registered" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
-        f"ST-6 expected English A1 message, got: {r['endMessage'][:120]}"
-    assert "registrado" not in r["endMessage"].lower(), \
-        f"ST-6 Spanish text leaked into EN A1 message: {r['endMessage'][:120]}"
+        # ST-6: intake_complete=True, "yes" answer → A1 branch in English
+        base_complete_yes_en = {
+            **_base({}, 0, "yes I already have ASRs", "en"),
+            "intake_complete": True,
+            "intake_current_field": 8,
+        }
+        r = await intake_node(base_complete_yes_en)
+        assert "registered" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+            f"ST-6 expected English A1 message, got: {r['endMessage'][:120]}"
+        assert "registrado" not in r["endMessage"].lower(), \
+            f"ST-6 Spanish text leaked into EN A1 message: {r['endMessage'][:120]}"
 
-    # ── Smoke test — language="es" still works ────────────────────────────
-    # ST-7: invalid field-4 → reprompt in Spanish
-    r = intake_node(_base(fields_0_3, 4, "funciona bien en producción normalmente"))
-    assert "métrica" in r["endMessage"].lower() or "número" in r["endMessage"].lower(), \
-        f"ST-7 Spanish reprompt broken: {r['endMessage'][:120]}"
+        # ── Smoke test — language="es" still works ────────────────────────────
+        # ST-7: invalid field-4 → reprompt in Spanish
+        r = await intake_node(_base(fields_0_3, 4, "funciona bien en producción normalmente"))
+        assert "métrica" in r["endMessage"].lower() or "número" in r["endMessage"].lower(), \
+            f"ST-7 Spanish reprompt broken: {r['endMessage'][:120]}"
 
-    # ST-8: field-7 valid → ASR question in Spanish
-    r = intake_node(_base(fields_0_6, 7, "ninguna restricción previa de diseño arquitectónico"))
-    assert "ya tienes" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
-        f"ST-8 Spanish ASR question broken: {r['endMessage'][:120]}"
+        # ST-8: field-7 valid → ASR question in Spanish
+        r = await intake_node(_base(fields_0_6, 7, "ninguna restricción previa de diseño arquitectónico"))
+        assert "ya tienes" in r["endMessage"].lower() or "asr" in r["endMessage"].lower(), \
+            f"ST-8 Spanish ASR question broken: {r['endMessage'][:120]}"
 
-    print("Language smoke tests ✓")
+        print("Language smoke tests ✓")
+
+    asyncio.run(_run_tests())
