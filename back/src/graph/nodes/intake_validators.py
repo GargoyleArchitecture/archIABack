@@ -24,6 +24,32 @@ _NEGATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_ALPHA_RE = re.compile(r'\b[a-záéíóúüñ]{3,}\b', re.IGNORECASE)
+
+
+def _content_tokens(text: str) -> set:
+    return {t.lower() for t in _ALPHA_RE.findall(text)}
+
+
+def _is_copy_paste(index: int, value: str) -> bool:
+    """True when >60 % of the question's content tokens appear in value.
+
+    Uses the question as reference so that valid answers containing question
+    vocabulary (e.g. 'sobrecarga', 'mantenimiento') are not falsely flagged.
+    """
+    value_tokens = _content_tokens(value)
+    if len(value_tokens) < 4:
+        return False
+    for lang in ("es", "en"):
+        q_tokens = _content_tokens(INTAKE_SCRIPT[index][f"question_{lang}"])
+        if not q_tokens:
+            continue
+        common = value_tokens & q_tokens
+        if len(common) / len(q_tokens) > 0.60:
+            return True
+    return False
+
+
 INTAKE_SCRIPT = [
     {
         "field": "campo_0_requerimiento",
@@ -76,7 +102,17 @@ INTAKE_SCRIPT = [
 ]
 
 
+_COPY_PASTE_ERRORS: dict[str, str] = {
+    "es": "Parece que pegaste la pregunta como respuesta. Por favor describe tu sistema con tu información específica.",
+    "en": "It looks like you copied the question as your answer. Please describe your system with your specific information.",
+}
+
+
 def validate_field(index: int, value: str) -> Tuple[bool, str]:
+    # Pre-check: reject copy-pasted question text before any other rule.
+    if _is_copy_paste(index, value):
+        return (False, "copy_paste")
+
     if index in (0, 1, 3):
         tokens = value.split()
         if len(tokens) < 8:
@@ -154,9 +190,13 @@ _REPROMPT_ERRORS: dict[int, dict[str, str]] = {
 }
 
 
-def reprompt_message(index: int, lang: str) -> str:
-    error_msg = _REPROMPT_ERRORS[index][lang if lang in ("es", "en") else "es"]
-    key = "question_es" if lang == "es" else "question_en"
+def reprompt_message(index: int, lang: str, value: str = "") -> str:
+    _lang = lang if lang in ("es", "en") else "es"
+    if value and _is_copy_paste(index, value):
+        error_msg = _COPY_PASTE_ERRORS[_lang]
+    else:
+        error_msg = _REPROMPT_ERRORS[index][_lang]
+    key = "question_es" if _lang == "es" else "question_en"
     question = INTAKE_SCRIPT[index][key]
     return f"{error_msg}\n\n{question}"
 
@@ -179,5 +219,26 @@ if __name__ == "__main__":
 
     # Caso 5 — campo 0 con vocabulario técnico suficiente
     assert validate_field(0, "el microservicio de pagos debe procesar transacciones en menos de 300ms") == (True, "")
+
+    # Caso 6 — campo 4: pregunta pegada como respuesta → rechazado
+    ok, reason = validate_field(
+        4,
+        "¿En qué ambientes o escenarios debe operar el sistema? "
+        "Incluye métricas concretas: carga normal, sobrecarga, mantenimiento (ej: p95<200ms, 500rps).",
+    )
+    assert ok is False, "campo 4 copy-paste debería ser rechazado"
+    assert reason == "copy_paste", f"esperaba reason='copy_paste', got '{reason}'"
+
+    # Caso 7 — campo 4 válido con vocabulario de la pregunta (no es copy-paste)
+    assert validate_field(4, "carga normal: p95<200ms; sobrecarga: 500rps; mantenimiento: 2h domingos") == (True, ""), \
+        "respuesta válida con términos de la pregunta fue rechazada incorrectamente"
+
+    # Caso 8 — reprompt_message con copy-paste muestra mensaje específico (es)
+    msg = reprompt_message(4, "es", "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas: carga normal, sobrecarga, mantenimiento (ej: p95<200ms, 500rps).")
+    assert "pegaste" in msg.lower(), f"esperaba mensaje de copy-paste en es, got: {msg[:100]}"
+
+    # Caso 9 — reprompt_message sin copy-paste muestra mensaje genérico
+    msg = reprompt_message(4, "es", "el sistema funciona bien en producción")
+    assert "métrica" in msg.lower(), f"esperaba mensaje genérico de métrica, got: {msg[:100]}"
 
     print("Todos los casos pasaron ✓")

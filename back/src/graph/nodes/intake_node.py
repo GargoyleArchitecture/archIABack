@@ -285,7 +285,7 @@ def intake_node(state: GraphState) -> GraphState:
 
     valid, _ = validate_field(current_index, uq)
     if not valid:
-        end_msg = reprompt_message(current_index, lang)
+        end_msg = reprompt_message(current_index, lang, uq)
         return {
             **state,
             "intake_fields": intake_fields,
