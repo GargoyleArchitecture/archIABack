@@ -10,6 +10,7 @@ from src.graph.nodes.intake_validators import (
     validate_field,
     reprompt_message,
     extract_and_validate_fields,
+    build_repair_prompt,
 )
 from src.ledger.store import (
     transition_phase,
@@ -114,7 +115,7 @@ def _llm_digression(uq: str, lang: str) -> str:
 
 def _build_feedback(
     saved: list[int],
-    failed: list[tuple[int, str]],
+    failed: list[dict],
     next_index: int,
     lang: str,
 ) -> str:
@@ -127,14 +128,38 @@ def _build_feedback(
             else f"Saved: {', '.join(labels)}."
         )
 
-    for (i, reason) in failed:
-        parts.append(f"→ {_FIELD_LABELS[i][lang]}: {reason}")
-
-    if next_index < 8:
+    if failed:
+        failed_sorted = sorted(failed, key=lambda item: int(item["index"]))
+        priority = failed_sorted[0]
+        i = int(priority["index"])
+        reason = str(priority.get("reason") or "").strip()
+        repair_prompt = str(priority.get("repair_prompt") or "").strip()
+        if reason:
+            parts.append(f"→ {_FIELD_LABELS[i][lang]}: {reason}")
+        parts.append(repair_prompt or build_repair_prompt(i, lang, reason))
+    elif next_index < 8:
         q_key = "question_es" if lang == "es" else "question_en"
         parts.append(INTAKE_SCRIPT[next_index][q_key])
 
     return "\n\n".join(parts)
+
+
+def _semantic_default_reason(lang: str) -> str:
+    return (
+        "La respuesta no contiene información específica sobre tu sistema."
+        if lang == "es"
+        else "The answer does not contain specific information about your system."
+    )
+
+
+def _failed_entry(index: int, lang: str, reason: str, repair_prompt: str = "") -> dict:
+    clean_reason = (reason or "").strip() or _semantic_default_reason(lang)
+    clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang, clean_reason)
+    return {
+        "index": index,
+        "reason": clean_reason,
+        "repair_prompt": clean_repair,
+    }
 
 
 async def _process_intake_turn(
@@ -143,10 +168,10 @@ async def _process_intake_turn(
     current_index: int,
     project_context_text: str,
     lang: str,
-) -> tuple[dict, list[int], list[tuple[int, str]]]:
+ ) -> tuple[dict, list[int], list[dict]]:
     """Extracción + validación multi-campo para un turno.
 
-    Returns: (updated_intake_fields, saved_indices, failed_list[(index, reason)])
+    Returns: (updated_intake_fields, saved_indices, failed_list[dict])
     Fail-open: si LLM falla, intenta determinista solo en current_index.
     """
     pending_indices = [
@@ -158,7 +183,7 @@ async def _process_intake_turn(
     )
 
     saved: list[int] = []
-    failed: list[tuple[int, str]] = []
+    failed: list[dict] = []
 
     if result is None:
         # Fail-open: determinista únicamente, campo activo únicamente
@@ -172,27 +197,35 @@ async def _process_intake_turn(
 
     for i in pending_indices:
         field_name = INTAKE_SCRIPT[i]["field"]
-        extracted = result.extracted_fields.get(field_name)
-        if not extracted or not extracted.strip():
+        assessment = result.fields.get(field_name)
+        if assessment is None or assessment.status == "not_addressed":
+            continue
+
+        extracted = (assessment.extracted_text or "").strip()
+        if not extracted and assessment.status == "answered_invalid":
+            failed.append(
+                _failed_entry(i, lang, assessment.reason, assessment.repair_prompt)
+            )
+            continue
+        if not extracted:
             continue
 
         # Primera línea: determinista
         det_ok, det_reason = validate_field(i, extracted)
         if not det_ok:
-            # Fallo determinista solo se reporta si el usuario respondía este campo
-            if i == current_index:
-                failed.append((i, det_reason))
+            failed.append(_failed_entry(i, lang, det_reason))
             continue
 
         # Segunda línea: semántica ADD 3.0 (ya computada en el LLM call)
-        sem = result.validation.get(field_name)
-        if sem is not None and not sem.valid:
-            reason = sem.reason or (
-                "La respuesta no contiene información específica sobre tu sistema."
-                if lang == "es"
-                else "The answer does not contain specific information about your system."
+        if assessment.status == "answered_invalid":
+            failed.append(
+                _failed_entry(
+                    i,
+                    lang,
+                    assessment.reason or _semantic_default_reason(lang),
+                    assessment.repair_prompt,
+                )
             )
-            failed.append((i, reason))
             continue
 
         intake_fields = dict(intake_fields)
@@ -365,6 +398,7 @@ async def intake_node(state: GraphState) -> GraphState:
         new_index = next(
             (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
         )
+        target_index = min((int(item["index"]) for item in failed), default=new_index)
 
         if not saved and not failed:
             # Nada extraído (saludo, etc.) → bienvenida suave
@@ -381,12 +415,12 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
         else:
-            end_msg = _build_feedback(saved, failed, new_index if saved else 0, lang)
+            end_msg = _build_feedback(saved, failed, target_index if saved or failed else 0, lang)
 
         return {
             **state,
             "intake_fields": intake_fields,
-            "intake_current_field": new_index if saved else 0,
+            "intake_current_field": target_index if saved or failed else 0,
             "intake_complete": False,
             "endMessage": end_msg,
             "nextNode": "unifier",
@@ -415,6 +449,7 @@ async def intake_node(state: GraphState) -> GraphState:
     new_index = next(
         (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
     )
+    target_index = min((int(item["index"]) for item in failed), default=new_index)
 
     if not saved and not failed:
         # Fail-open + determinista falló: reprompt campo activo
@@ -441,11 +476,11 @@ async def intake_node(state: GraphState) -> GraphState:
             "intent": "intake",
         }
 
-    end_msg = _build_feedback(saved, failed, new_index, lang)
+    end_msg = _build_feedback(saved, failed, target_index, lang)
     return {
         **state,
         "intake_fields": intake_fields,
-        "intake_current_field": new_index,
+        "intake_current_field": target_index,
         "intake_complete": False,
         "endMessage": end_msg,
         "nextNode": "unifier",
