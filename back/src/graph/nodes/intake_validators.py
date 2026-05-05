@@ -1,8 +1,8 @@
 from __future__ import annotations
 import logging
 import re
-from typing import Tuple
-from pydantic import BaseModel
+from typing import Literal, Tuple
+from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
@@ -218,6 +218,18 @@ class MultiFieldExtractionResult(BaseModel):
     validation: dict[str, FieldValidation]    # campo_X -> resultado de validación
 
 
+class FieldAssessment(BaseModel):
+    status: Literal["answered_valid", "answered_invalid", "not_addressed"]
+    extracted_text: str | None = None
+    reason: str = ""
+    missing_details: list[str] = Field(default_factory=list)
+    repair_prompt: str = ""
+
+
+class MultiFieldAssessmentResult(BaseModel):
+    fields: dict[str, FieldAssessment]
+
+
 _ADD3_CRITERIA: dict[int, str] = {
     0: "Must describe a concrete system requirement — not generic. Needs objective, quality expectation, or involved components. 'A system that handles requests' is NOT sufficient.",
     1: "Must name specific system components with at least one characteristic each. 'Frontend and backend' is NOT sufficient. Needs actual services, APIs, modules, or databases.",
@@ -229,9 +241,9 @@ _ADD3_CRITERIA: dict[int, str] = {
     7: "Must describe concrete prior architectural decisions or explicit negation. Generic statements like 'we follow best practices' are NOT sufficient.",
 }
 
-# v1 — fixed prompt; bump version string before changing wording
-_UNIFIED_PROMPT_V1 = """\
-# Architecture Intake Validator — ADD 3.0 / v1
+# v2 — adaptive repair guidance + explicit answer status
+_UNIFIED_PROMPT_V2 = """\
+# Architecture Intake Validator — ADD 3.0 / v2
 
 ## PROJECT CONTEXT
 {project_context_text}
@@ -246,20 +258,23 @@ _UNIFIED_PROMPT_V1 = """\
 "{user_message}"
 
 ## TASK
-1. For each pending field, extract the portion of the user message that specifically answers it. Set to null if not addressed.
-2. For each non-null extraction, validate it against the ADD 3.0 criterion AND the project context.
-3. Write rejection reasons in {lang}. Reasons must name what is specifically missing (not "provide more detail").
-4. Accept if the answer contains at least one concrete detail specific to the user's actual system AND meets the criterion.
+1. For each pending field, decide if the message: fully answers it, attempts it but is insufficient, or does not address it.
+2. Use exactly one of these statuses per field: answered_valid, answered_invalid, not_addressed.
+3. If answered_valid or answered_invalid, extract only the portion of the user message that answers that field.
+4. Validate each attempted answer against the ADD 3.0 criterion AND the project context.
+5. If answered_invalid, explain exactly what is missing in {lang}, list the missing details, and write a short repair prompt telling the user how to rewrite the answer.
+6. If not_addressed, set extracted_text to null and leave reason / repair_prompt empty.
+7. Accept only if the answer contains concrete details specific to the user's actual system and meets the criterion.
 
 Respond ONLY with valid JSON:
 {{
-  "extracted_fields": {{
-    "campo_X": "extracted text or null"
-  }},
-  "validation": {{
+  "fields": {{
     "campo_X": {{
-      "valid": true,
-      "reason": ""
+      "status": "answered_valid",
+      "extracted_text": "extracted text or null",
+      "reason": "",
+      "missing_details": [],
+      "repair_prompt": ""
     }}
   }}
 }}
@@ -271,7 +286,7 @@ async def extract_and_validate_fields(
     pending_indices: list[int],
     project_context_text: str,
     lang: str,
-) -> MultiFieldExtractionResult | None:
+) -> MultiFieldAssessmentResult | None:
     """Single LLM call: extrae respuestas para todos los campos pendientes + valida ADD 3.0.
 
     Retorna None en cualquier fallo (fail-open — el caller maneja el fallback).
@@ -280,7 +295,7 @@ async def extract_and_validate_fields(
     from src.graph.resources import llm  # lazy import — evita circular deps
 
     if not pending_indices:
-        return MultiFieldExtractionResult(extracted_fields={}, validation={})
+        return MultiFieldAssessmentResult(fields={})
 
     _lang = lang if lang in ("es", "en") else "es"
     q_key = "question_es" if _lang == "es" else "question_en"
@@ -295,7 +310,7 @@ async def extract_and_validate_fields(
     )
     context_snippet = (project_context_text or "").strip()[:800] or "(no project context provided)"
 
-    prompt = _UNIFIED_PROMPT_V1.format(
+    prompt = _UNIFIED_PROMPT_V2.format(
         project_context_text=context_snippet,
         pending_fields_spec=pending_fields_spec,
         criteria_spec=criteria_spec,
@@ -304,11 +319,73 @@ async def extract_and_validate_fields(
     )
 
     try:
-        result = await llm.with_structured_output(MultiFieldExtractionResult).ainvoke(prompt)
+        result = await llm.with_structured_output(
+            MultiFieldAssessmentResult, method="function_calling"
+        ).ainvoke(prompt)
         return result
     except Exception as exc:
         log.warning("extract_and_validate_fields: LLM call failed (fail-open): %s", exc)
         return None
+
+
+def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
+    _lang = lang if lang in ("es", "en") else "es"
+    question = INTAKE_SCRIPT[index]["question_es" if _lang == "es" else "question_en"]
+
+    if _lang == "es":
+        templates = {
+            0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
+            1: "Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas.",
+            2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
+            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento y con qué componente interactúa.",
+            4: "Reescribe tu respuesta cubriendo carga normal, sobrecarga y mantenimiento, e incluye métricas numéricas en cada caso, por ejemplo ms, rps o porcentajes.",
+            5: "Reescribe tu respuesta listando los atributos de calidad prioritarios con valores concretos, por ejemplo disponibilidad 99.9%, latencia <100ms o throughput 1000rps.",
+            6: "Reescribe tu respuesta indicando restricciones técnicas concretas, o escribe 'ninguna' si realmente no aplica.",
+            7: "Reescribe tu respuesta indicando decisiones de diseño previas concretas que deban respetarse, o escribe 'ninguna' si no existe ninguna.",
+        }
+    else:
+        templates = {
+            0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
+            1: "Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues.",
+            2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
+            3: "Rewrite your answer describing the specific event that triggers the behavior and which component it interacts with.",
+            4: "Rewrite your answer covering normal load, overload, and maintenance, and include numeric metrics for each case, such as ms, rps, or percentages.",
+            5: "Rewrite your answer listing the priority quality attributes with concrete values, for example availability 99.9%, latency <100ms, or throughput 1000rps.",
+            6: "Rewrite your answer stating concrete technical constraints, or write 'none' if there are truly none.",
+            7: "Rewrite your answer stating concrete prior design decisions that must be respected, or write 'none' if there are none.",
+        }
+
+    prompt = templates[index]
+    if reason:
+        return f"{reason}\n\n{prompt}\n\n{question}"
+    return f"{prompt}\n\n{question}"
+
+
+async def extract_and_validate_fields_legacy(
+    user_message: str,
+    pending_indices: list[int],
+    project_context_text: str,
+    lang: str,
+) -> MultiFieldExtractionResult | None:
+    """Backward-compatible adapter for old callers/tests."""
+    result = await extract_and_validate_fields(
+        user_message=user_message,
+        pending_indices=pending_indices,
+        project_context_text=project_context_text,
+        lang=lang,
+    )
+    if result is None:
+        return None
+
+    extracted_fields: dict[str, str | None] = {}
+    validation: dict[str, FieldValidation] = {}
+    for field_name, assessment in result.fields.items():
+        extracted_fields[field_name] = assessment.extracted_text
+        validation[field_name] = FieldValidation(
+            valid=assessment.status == "answered_valid",
+            reason=assessment.reason,
+        )
+    return MultiFieldExtractionResult(extracted_fields=extracted_fields, validation=validation)
 
 
 if __name__ == "__main__":
