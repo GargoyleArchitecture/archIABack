@@ -1,6 +1,8 @@
+from __future__ import annotations
 import logging
 import re
-from typing import Tuple, TypedDict
+from typing import Tuple
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
@@ -204,75 +206,109 @@ def reprompt_message(index: int, lang: str, value: str = "") -> str:
     return f"{error_msg}\n\n{question}"
 
 
-# ── Semantic validation (LLM second layer) ───────────────────────────────────
+# ── Unified extraction + validation (LLM second layer) ───────────────────────
 
-class _SemanticOut(TypedDict):
+class FieldValidation(BaseModel):
     valid: bool
-    reason: str
+    reason: str  # vacío si válido; razón concreta en idioma del usuario si no
 
 
-_FIELD_SEMANTIC_DESCRIPTIONS: dict[int, str] = {
-    0: "main system requirement: objective, involved components, and quality expectations",
-    1: "main system components: services, modules, APIs, databases, or other relevant elements",
-    2: "stimulus source: who or what triggers the system (user, external system, internal event, timer/schedule)",
-    3: "stimulus or trigger: the specific event that activates system behavior",
-    4: "operating environments with concrete metrics: normal load, overload, maintenance (e.g., p95<200ms, 500rps)",
-    5: "quality attribute priorities with concrete numeric values: availability %, latency ms, throughput rps",
-    6: "technical constraints: programming language, infrastructure, budget, regulations — or explicit negation",
-    7: "prior design decisions: patterns, technologies, existing integrations — or explicit negation",
+class MultiFieldExtractionResult(BaseModel):
+    extracted_fields: dict[str, str | None]   # campo_X -> texto extraído o None
+    validation: dict[str, FieldValidation]    # campo_X -> resultado de validación
+
+
+_ADD3_CRITERIA: dict[int, str] = {
+    0: "Must describe a concrete system requirement — not generic. Needs objective, quality expectation, or involved components. 'A system that handles requests' is NOT sufficient.",
+    1: "Must name specific system components with at least one characteristic each. 'Frontend and backend' is NOT sufficient. Needs actual services, APIs, modules, or databases.",
+    2: "Must explicitly identify the source category (user / external system / internal event / time/timer) AND contextualize it to the actual system. Just 'usuario' with no context is NOT sufficient.",
+    3: "Must describe the specific triggering event AND mention which components from campo_1 it interacts with. Generic responses like 'when user sends a request' are NOT sufficient.",
+    4: "Must cover ALL THREE operational conditions: normal, overload, AND maintenance. Each needs numeric metrics (rps, ms, %, intervals). Covering only normal operation is NOT sufficient.",
+    5: "Must list quality attributes with concrete numeric values. 'High availability' without a percentage is NOT sufficient. Needs availability %, latency ms, throughput rps, or similar.",
+    6: "Must list concrete technical constraints or explicit negation (ninguna/none/n/a). Vague mention of constraints is NOT sufficient.",
+    7: "Must describe concrete prior architectural decisions or explicit negation. Generic statements like 'we follow best practices' are NOT sufficient.",
 }
 
 # v1 — fixed prompt; bump version string before changing wording
-_SEMANTIC_PROMPT_V1 = """\
-You are a strict validator for an architecture intake interview.
-Decide only whether the answer below contains real, specific information about the user's own system.
-Do NOT evaluate grammar, writing style, or technical accuracy.
+_UNIFIED_PROMPT_V1 = """\
+# Architecture Intake Validator — ADD 3.0 / v1
 
-Field {index} — {field_description}
+## PROJECT CONTEXT
+{project_context_text}
 
-User's answer: "{value}"
+## PENDING FIELDS (you must attempt to extract these)
+{pending_fields_spec}
 
-Reject (valid=false) if ANY of the following apply:
-- The answer is a copy or near-paraphrase of the question with no original content about the user's system.
-- The answer is entirely generic and could apply to any system (no concrete specifics about THIS system).
-- The answer only names the expected category without any detail (e.g., just "usuario" for a stimulus-source field).
+## ADD 3.0 SUFFICIENCY CRITERIA
+{criteria_spec}
 
-Accept (valid=true) if:
-- The answer contains at least one concrete detail specific to the user's actual system.
+## USER MESSAGE
+"{user_message}"
 
-When rejecting, write reason as a single short sentence in {lang}. When accepting, set reason to empty string.\
+## TASK
+1. For each pending field, extract the portion of the user message that specifically answers it. Set to null if not addressed.
+2. For each non-null extraction, validate it against the ADD 3.0 criterion AND the project context.
+3. Write rejection reasons in {lang}. Reasons must name what is specifically missing (not "provide more detail").
+4. Accept if the answer contains at least one concrete detail specific to the user's actual system AND meets the criterion.
+
+Respond ONLY with valid JSON:
+{{
+  "extracted_fields": {{
+    "campo_X": "extracted text or null"
+  }},
+  "validation": {{
+    "campo_X": {{
+      "valid": true,
+      "reason": ""
+    }}
+  }}
+}}
 """
 
 
-async def validate_field_semantic(index: int, value: str, lang: str) -> Tuple[bool, str]:
-    """LLM-based semantic validation. Call only after validate_field() returns True.
+async def extract_and_validate_fields(
+    user_message: str,
+    pending_indices: list[int],
+    project_context_text: str,
+    lang: str,
+) -> MultiFieldExtractionResult | None:
+    """Single LLM call: extrae respuestas para todos los campos pendientes + valida ADD 3.0.
 
-    Fail-open: returns (True, "") if the LLM call fails so infra errors never block the user.
+    Retorna None en cualquier fallo (fail-open — el caller maneja el fallback).
+    Nunca lanza excepción.
     """
-    from src.graph.resources import llm  # lazy import — avoids circular deps at module load
+    from src.graph.resources import llm  # lazy import — evita circular deps
+
+    if not pending_indices:
+        return MultiFieldExtractionResult(extracted_fields={}, validation={})
 
     _lang = lang if lang in ("es", "en") else "es"
-    field_desc = _FIELD_SEMANTIC_DESCRIPTIONS.get(index, f"field {index}")
-    prompt = _SEMANTIC_PROMPT_V1.format(
-        index=index,
-        field_description=field_desc,
-        value=value[:500],
+    q_key = "question_es" if _lang == "es" else "question_en"
+
+    pending_fields_spec = "\n".join(
+        f"- {INTAKE_SCRIPT[i]['field']}: {INTAKE_SCRIPT[i][q_key]}"
+        for i in pending_indices
+    )
+    criteria_spec = "\n".join(
+        f"- {INTAKE_SCRIPT[i]['field']}: {_ADD3_CRITERIA[i]}"
+        for i in pending_indices
+    )
+    context_snippet = (project_context_text or "").strip()[:800] or "(no project context provided)"
+
+    prompt = _UNIFIED_PROMPT_V1.format(
+        project_context_text=context_snippet,
+        pending_fields_spec=pending_fields_spec,
+        criteria_spec=criteria_spec,
+        user_message=user_message[:600],
         lang=_lang,
     )
+
     try:
-        out = await llm.with_structured_output(_SemanticOut).ainvoke(prompt)
-        valid = bool(out.get("valid", True))
-        reason = str(out.get("reason") or "").strip()
-        if not valid and not reason:
-            reason = (
-                "La respuesta no contiene información específica sobre tu sistema."
-                if _lang == "es"
-                else "The answer does not contain specific information about your system."
-            )
-        return (valid, reason)
+        result = await llm.with_structured_output(MultiFieldExtractionResult).ainvoke(prompt)
+        return result
     except Exception as exc:
-        log.warning("validate_field_semantic: LLM call failed (fail-open): %s", exc)
-        return (True, "")
+        log.warning("extract_and_validate_fields: LLM call failed (fail-open): %s", exc)
+        return None
 
 
 if __name__ == "__main__":
@@ -317,21 +353,23 @@ if __name__ == "__main__":
 
     print("Todos los casos pasaron ✓")
 
-    # ── Semantic validation (integration — requires LLM) ─────────────────────
+    # ── Unified extraction + validation (integration — requires LLM) ──────────
     import asyncio
 
-    # Caso 10 — campo 4 con métricas reales → pasa semántica
-    sem_ok, sem_reason = asyncio.run(
-        validate_field_semantic(
-            4, "normal: 300rps p95<200ms, sobrecarga: 1500rps, mantenimiento domingos 2am", "es"
-        )
-    )
-    assert sem_ok is True, f"campo 4 con métricas reales debería pasar semántica, got reason: {sem_reason}"
+    # Caso 10 — campo 4 con métricas de las tres condiciones → válido
+    result = asyncio.run(extract_and_validate_fields(
+        "normal: 300rps p95<200ms, sobrecarga: 1500rps, mantenimiento domingos 2am",
+        [4], "", "es",
+    ))
+    assert result is not None
+    fv = result.validation.get("campo_4_ambientes")
+    assert fv is not None and fv.valid is True, f"expected valid, got: {fv}"
 
-    # Caso 11 — campo 2 con "usuario" solo pasa determinista pero falla semántica
-    # (la categoría está presente pero no describe nada del sistema real)
-    sem_ok, sem_reason = asyncio.run(validate_field_semantic(2, "usuario", "es"))
-    assert sem_ok is False, f"'usuario' solo debería fallar semántica, got sem_ok={sem_ok}"
-    assert sem_reason, "esperaba razón de rechazo en español"
+    # Caso 11 — "usuario" solo → semánticamente inválido
+    result = asyncio.run(extract_and_validate_fields("usuario", [2], "", "es"))
+    assert result is not None
+    fv = result.validation.get("campo_2_fuente")
+    assert fv is not None and fv.valid is False and fv.reason, \
+        f"expected invalid with reason, got: {fv}"
 
     print("Semantic validation tests ✓")
