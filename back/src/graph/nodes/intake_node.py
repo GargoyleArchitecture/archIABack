@@ -9,7 +9,7 @@ from src.graph.nodes.intake_validators import (
     INTAKE_SCRIPT,
     validate_field,
     reprompt_message,
-    validate_field_semantic,
+    extract_and_validate_fields,
 )
 from src.ledger.store import (
     transition_phase,
@@ -76,6 +76,17 @@ _ASR_QUESTION_EN = (
     "Would you like me to propose the ASRs, or do you already have some defined?"
 )
 
+_FIELD_LABELS: dict[int, dict[str, str]] = {
+    0: {"es": "requerimiento",        "en": "requirement"},
+    1: {"es": "componentes",          "en": "components"},
+    2: {"es": "fuente del estímulo",  "en": "stimulus source"},
+    3: {"es": "estímulo",             "en": "stimulus"},
+    4: {"es": "ambientes",            "en": "environments"},
+    5: {"es": "prioridad QA",         "en": "QA priority"},
+    6: {"es": "restricciones",        "en": "constraints"},
+    7: {"es": "decisiones previas",   "en": "prior decisions"},
+}
+
 _WELCOME_ES = (
     "¡Hola! Soy ArchIA. Antes de generar los Atributos de Calidad y Escenarios de Calidad (ASRs) "
     "necesito conocer bien tu proyecto. Te haré 8 preguntas cortas sobre el contexto del sistema.\n\n"
@@ -101,11 +112,105 @@ def _llm_digression(uq: str, lang: str) -> str:
     return str(response.content).strip()
 
 
+def _build_feedback(
+    saved: list[int],
+    failed: list[tuple[int, str]],
+    next_index: int,
+    lang: str,
+) -> str:
+    parts: list[str] = []
+
+    if saved:
+        labels = [_FIELD_LABELS[i][lang] for i in saved]
+        parts.append(
+            f"Guardé: {', '.join(labels)}." if lang == "es"
+            else f"Saved: {', '.join(labels)}."
+        )
+
+    for (i, reason) in failed:
+        parts.append(f"→ {_FIELD_LABELS[i][lang]}: {reason}")
+
+    if next_index < 8:
+        q_key = "question_es" if lang == "es" else "question_en"
+        parts.append(INTAKE_SCRIPT[next_index][q_key])
+
+    return "\n\n".join(parts)
+
+
+async def _process_intake_turn(
+    uq: str,
+    intake_fields: dict,
+    current_index: int,
+    project_context_text: str,
+    lang: str,
+) -> tuple[dict, list[int], list[tuple[int, str]]]:
+    """Extracción + validación multi-campo para un turno.
+
+    Returns: (updated_intake_fields, saved_indices, failed_list[(index, reason)])
+    Fail-open: si LLM falla, intenta determinista solo en current_index.
+    """
+    pending_indices = [
+        i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields
+    ]
+
+    result = await extract_and_validate_fields(
+        uq, pending_indices, project_context_text, lang
+    )
+
+    saved: list[int] = []
+    failed: list[tuple[int, str]] = []
+
+    if result is None:
+        # Fail-open: determinista únicamente, campo activo únicamente
+        det_ok, _ = validate_field(current_index, uq)
+        if det_ok:
+            intake_fields = dict(intake_fields)
+            intake_fields[INTAKE_SCRIPT[current_index]["field"]] = uq
+            saved.append(current_index)
+        # Si det falla → saved=[], failed=[] → caller usa reprompt_message
+        return intake_fields, saved, failed
+
+    for i in pending_indices:
+        field_name = INTAKE_SCRIPT[i]["field"]
+        extracted = result.extracted_fields.get(field_name)
+        if not extracted or not extracted.strip():
+            continue
+
+        # Primera línea: determinista
+        det_ok, det_reason = validate_field(i, extracted)
+        if not det_ok:
+            # Fallo determinista solo se reporta si el usuario respondía este campo
+            if i == current_index:
+                failed.append((i, det_reason))
+            continue
+
+        # Segunda línea: semántica ADD 3.0 (ya computada en el LLM call)
+        sem = result.validation.get(field_name)
+        if sem is not None and not sem.valid:
+            reason = sem.reason or (
+                "La respuesta no contiene información específica sobre tu sistema."
+                if lang == "es"
+                else "The answer does not contain specific information about your system."
+            )
+            failed.append((i, reason))
+            continue
+
+        intake_fields = dict(intake_fields)
+        intake_fields[field_name] = extracted
+        saved.append(i)
+
+    return intake_fields, saved, failed
+
+
 async def intake_node(state: GraphState) -> GraphState:
     uq = (state.get("userQuestion") or "").strip()
     lang = state.get("language") or "es"
     intake_fields = dict(state.get("intake_fields") or {})
-    current_index = state.get("intake_current_field") or 0
+    current_index = next(
+        (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields),
+        8,
+    )
+    project_context_text = state.get("project_context_text") or ""
     intake_complete = state.get("intake_complete") or False
 
     asr_question = _ASR_QUESTION_ES if lang == "es" else _ASR_QUESTION_EN
@@ -254,45 +359,41 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
 
-        valid, _ = validate_field(0, uq)
-        if valid:
-            sem_ok, sem_reason = await validate_field_semantic(0, uq, lang)
-            if not sem_ok:
-                end_msg = f"{sem_reason}\n\n{INTAKE_SCRIPT[0][f'question_{lang}']}"
-                return {
-                    **state,
-                    "intake_fields": intake_fields,
-                    "intake_current_field": 0,
-                    "intake_complete": False,
-                    "endMessage": end_msg,
-                    "nextNode": "unifier",
-                    "intent": "intake",
-                }
-            intake_fields[INTAKE_SCRIPT[0]["field"]] = uq
-            end_msg = INTAKE_SCRIPT[1][f"question_{lang}"]
+        intake_fields, saved, failed = await _process_intake_turn(
+            uq, intake_fields, 0, project_context_text, lang
+        )
+        new_index = next(
+            (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
+        )
+
+        if not saved and not failed:
+            # Nada extraído (saludo, etc.) → bienvenida suave
+            end_msg = f"{_welcome_message(lang)}\n\n{INTAKE_SCRIPT[0][f'question_{lang}']}"
+        elif saved and new_index >= 8:
+            # Todo respondido en el primer mensaje
             return {
                 **state,
                 "intake_fields": intake_fields,
-                "intake_current_field": 1,
-                "intake_complete": False,
-                "endMessage": end_msg,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "endMessage": _build_feedback(saved, failed, 8, lang) + f"\n\n{asr_question}",
                 "nextNode": "unifier",
                 "intent": "intake",
             }
+        else:
+            end_msg = _build_feedback(saved, failed, new_index if saved else 0, lang)
 
-        # Inválido en primer turno → bienvenida suave, sin mensaje de error
-        end_msg = f"{_welcome_message(lang)}\n\n{INTAKE_SCRIPT[0][f'question_{lang}']}"
         return {
             **state,
             "intake_fields": intake_fields,
-            "intake_current_field": 0,
+            "intake_current_field": new_index if saved else 0,
             "intake_complete": False,
             "endMessage": end_msg,
             "nextNode": "unifier",
             "intent": "intake",
         }
 
-    # Rama D: turno normal (campos 0-7 con respuesta del usuario a validar)
+    # Rama D: turno normal (campos en progreso)
     if _is_digression(uq):
         brief = _llm_digression(uq, lang)
         re_question = INTAKE_SCRIPT[current_index][f"question_{lang}"]
@@ -308,8 +409,15 @@ async def intake_node(state: GraphState) -> GraphState:
             "intent": "intake",
         }
 
-    valid, _ = validate_field(current_index, uq)
-    if not valid:
+    intake_fields, saved, failed = await _process_intake_turn(
+        uq, intake_fields, current_index, project_context_text, lang
+    )
+    new_index = next(
+        (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
+    )
+
+    if not saved and not failed:
+        # Fail-open + determinista falló: reprompt campo activo
         end_msg = reprompt_message(current_index, lang, uq)
         return {
             **state,
@@ -321,35 +429,19 @@ async def intake_node(state: GraphState) -> GraphState:
             "intent": "intake",
         }
 
-    sem_ok, sem_reason = await validate_field_semantic(current_index, uq, lang)
-    if not sem_ok:
-        end_msg = f"{sem_reason}\n\n{INTAKE_SCRIPT[current_index][f'question_{lang}']}"
-        return {
-            **state,
-            "intake_fields": intake_fields,
-            "intake_current_field": current_index,
-            "intake_complete": False,
-            "endMessage": end_msg,
-            "nextNode": "unifier",
-            "intent": "intake",
-        }
-
-    # Válido: guardar y avanzar
-    intake_fields[INTAKE_SCRIPT[current_index]["field"]] = uq
-    new_index = current_index + 1
-
     if new_index >= 8:
+        summary = _build_feedback(saved, failed, 8, lang)
         return {
             **state,
             "intake_fields": intake_fields,
             "intake_current_field": 8,
             "intake_complete": True,
-            "endMessage": asr_question,
+            "endMessage": f"{summary}\n\n{asr_question}" if summary else asr_question,
             "nextNode": "unifier",
             "intent": "intake",
         }
 
-    end_msg = INTAKE_SCRIPT[new_index][f"question_{lang}"]
+    end_msg = _build_feedback(saved, failed, new_index, lang)
     return {
         **state,
         "intake_fields": intake_fields,
