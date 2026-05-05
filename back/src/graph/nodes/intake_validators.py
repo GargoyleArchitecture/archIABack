@@ -50,7 +50,7 @@ def _is_copy_paste(index: int, value: str) -> bool:
         if not q_tokens:
             continue
         common = value_tokens & q_tokens
-        if len(common) / len(q_tokens) > 0.60:
+        if len(common) / len(q_tokens) > 0.80:
             return True
     return False
 
