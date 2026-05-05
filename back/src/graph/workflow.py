@@ -1,8 +1,13 @@
 
+import logging
+from datetime import datetime, timezone
+
 from langgraph.graph import START, END
 
 from src.graph.state import GraphState
-from src.graph.resources import sqlite_saver, builder
+from src.graph.resources import builder, get_store
+from src.graph.services.decay import apply_decay_to_profile
+from src.services.profile_sync import fetch_profile_from_negocio
 
 from src.graph.nodes.context_loader import context_loader_node
 from src.graph.nodes.classifier import classifier_node
@@ -30,11 +35,55 @@ _SUPPORTED_QAS = supported_qas()
 _STYLE_QA_NODE_NAMES = {style_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 _TACTICS_QA_NODE_NAMES = {tactics_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 
-def boot_node(state: GraphState) -> GraphState:
-    """Resetea banderas y buffers al inicio de cada turno (sin borrar last_asr)."""
+_boot_log = logging.getLogger("boot")
+
+
+async def boot_node(state: GraphState) -> GraphState:
+    """Reset banderas y buffers + hidratacion del perfil del usuario (F3-T3 / F3-T6)."""
     _idx = state.get("intake_current_field")
+    user_id = (state.get("user_id") or "").strip()
+    user_profile: dict = {}
+
+    if user_id:
+        try:
+            store = get_store()
+            ns = ("user", user_id, "profile")
+            item = await store.aget(ns, key="profile")
+            if item is None:
+                remote = await fetch_profile_from_negocio(user_id)
+                if remote:
+                    await store.aput(ns, key="profile", value=remote)
+                    user_profile = apply_decay_to_profile(remote)
+                    _boot_log.info(
+                        "boot_node hydrated from Negocio user_id=%s concepts=%d",
+                        user_id,
+                        len(remote.get("evaluated_concepts") or []),
+                    )
+                else:
+                    empty = {
+                        "user_id": user_id,
+                        "strengths": [],
+                        "weaknesses": [],
+                        "evaluated_concepts": [],
+                        "confidence": 0.0,
+                        "delta_from_previous": {},
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await store.aput(ns, key="profile", value=empty)
+                    user_profile = empty
+            else:
+                user_profile = apply_decay_to_profile(item.value or {})
+        except Exception:
+            _boot_log.exception(
+                "boot_node profile hydration failed for user_id=%s", user_id
+            )
+            user_profile = {}
+
     return {
         **state,
+        "user_profile": user_profile,
+        # F3-T2: incrementa contador para el Shadow Agent (cadencia).
+        "turn_count_since_eval": (state.get("turn_count_since_eval") or 0) + 1,
         "hasVisitedInvestigator": False,
         "hasVisitedEvaluator": False,
         "hasVisitedASR": False,
@@ -153,4 +202,12 @@ for node_name in sorted(_TACTICS_QA_NODE_NAMES):
 
 builder.add_edge("unifier", END)
 
-graph = builder.compile(checkpointer=sqlite_saver)
+
+def build_graph(checkpointer, store=None):
+    """Compila el grafo con el checkpointer (AsyncSqliteSaver) y el store
+    (InMemoryStore) inyectados desde el lifespan de FastAPI.
+
+    Llamar una sola vez al startup. La instancia resultante se publica via
+    set_graph() en src/graph/resources.py para que get_graph() la exponga.
+    """
+    return builder.compile(checkpointer=checkpointer, store=store)

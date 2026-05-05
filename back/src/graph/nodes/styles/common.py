@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.qa_registry import normalize_qa
+from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.rag_agent import get_indexed_retriever
 from src.graph.utils import _dedupe_snippets
 from src.ledger import (
@@ -294,7 +295,7 @@ Do NOT add comments or any text outside of this JSON object.
 All string values in the JSON (name, impact, rationale) MUST be written in {"English" if lang == "en" else "español"}.
 """
 
-    result = llm.invoke(prompt)
+    result = llm.invoke(apply_mode_prompt(state, prompt))
     raw = getattr(result, "content", str(result))
 
     try:

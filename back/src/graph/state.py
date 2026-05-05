@@ -1,5 +1,5 @@
 
-from typing import Annotated, Literal, List, Dict, Any
+from typing import Annotated, Literal, List, Dict, Any, Optional
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage
@@ -116,7 +116,25 @@ class GraphState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     userQuestion: str
     localQuestion: str
-    
+
+    # ===== Modo de interaccion (F2-T1) =====
+    # Modo activo del turno: "tutor" (pedagogico, socratico) o "professional"
+    # (consultor senior, soluciones directas). Default: "professional".
+    mode: Literal["tutor", "professional"]
+    # Sugerencia de modo emitida por classifier_node (F2-T4) cuando la intencion
+    # del usuario coincide con un modo distinto al actual. None si no aplica.
+    mode_suggestion: Optional[Literal["tutor", "professional"]]
+    # Identidad estable del usuario (no confundir con user_id_for_prefs, que
+    # solo se usa para cargar UserPreference). Este user_id se propaga al
+    # Store cross-thread (F1-T4) y al Shadow Agent (F3-T2).
+    user_id: str
+    # Perfil tecnico hidratado al inicio del turno (F3-T3). Forma libre,
+    # compatible con UserProfileSchema en src/graph/schemas/profile.py.
+    user_profile: dict
+    # F3-T2: contador de turnos desde el ultimo Shadow Agent eval.
+    # Se incrementa en boot_node y se resetea a 0 en unifier al disparar.
+    turn_count_since_eval: int
+
     # Flags de visita
     hasVisitedInvestigator: bool
     hasVisitedEvaluator: bool

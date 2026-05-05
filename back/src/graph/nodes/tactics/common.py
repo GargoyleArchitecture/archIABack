@@ -22,6 +22,7 @@ from src.graph.utils import (
     _json_only_repair_pass,
 )
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
+from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.qa_registry import normalize_qa
 from src.ledger import (
     append_decision,
@@ -430,7 +431,7 @@ Example shape (values are illustrative — adjust to your tactics):
 
 {"RECORDATORIO FINAL: toda tu respuesta (secciones de texto y valores JSON) debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response (text sections and JSON string values) must be in English."}
 """
-    resp = llm.invoke(prompt)
+    resp = llm.invoke(apply_mode_prompt(state, prompt))
     raw = getattr(resp, "content", str(resp)).strip()
 
     log.debug("tactics raw (first 400): %s", raw[:400].replace("\n", " "))

@@ -6,7 +6,19 @@ from langchain_core.messages import AIMessage
 from src.graph.state import GraphState
 from src.graph.resources import llm
 from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
+from src.graph.prompts.mode_prompts import apply_mode_prompt
+from src.graph.nodes.profile_shadow import fire_shadow_eval, should_trigger
 from src.graph.utils import _push_turn, _strip_tactics_sections
+
+
+def _finalize_turn(state: GraphState, final_text: str) -> GraphState:
+    """F3-T2: dispara shadow eval (fire-and-forget) si la cadencia se cumple
+    y resetea `turn_count_since_eval`. Devuelve el state actualizado para
+    que el caller lo incluya en el dict de retorno."""
+    if should_trigger(state.get("turn_count_since_eval", 0) or 0):
+        fire_shadow_eval(state, final_text=final_text)
+        return {**state, "turn_count_since_eval": 0}
+    return state
 
 def _last_ai_by(state: GraphState, name: str) -> str:
     for m in reversed(state["messages"]):
@@ -68,7 +80,7 @@ def _ensure_section(title: str, body: str) -> str:
         return body
     return f"{title}\n\n{body}"
 
-def unifier_node(state: GraphState) -> GraphState:
+async def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
     style_hint = (state.get("user_style_hint") or "").strip()
@@ -136,6 +148,7 @@ def unifier_node(state: GraphState) -> GraphState:
             state["turn_messages"] = state.get("turn_messages", []) + [
                 {"role": "assistant", "name": "unifier", "content": end_text}
             ]
+            state = _finalize_turn(state, end_text)
             return {**state, "endMessage": end_text, "intent": ("diagram" if "diagram_agent" in requested_set else intent)}
 
     # 0) Show rendered diagram if available
@@ -167,9 +180,11 @@ def unifier_node(state: GraphState) -> GraphState:
 {footer}
 """
         state["suggestions"] = tips
+        state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text, "intent": "diagram"}
 
     if intent == "intake":
+        state = _finalize_turn(state, state.get("endMessage") or "")
         return {**state, "endMessage": state.get("endMessage") or ""}
 
     # 🔴 Caso especial para ESTILOS
@@ -195,6 +210,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["turn_messages"] = state.get("turn_messages", []) + [
             {"role": "assistant", "name": "unifier", "content": style_txt}
         ]
+        state = _finalize_turn(state, style_txt)
         return {**state, "endMessage": style_txt}
 
     # ðŸ"´ Caso especial para TÁCTICAS
@@ -226,6 +242,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["turn_messages"] = state.get("turn_messages", []) + [
             {"role": "assistant", "name": "unifier", "content": end_text}
         ]
+        state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
     # ðŸ"´ Caso especial para ASR
@@ -260,6 +277,7 @@ def unifier_node(state: GraphState) -> GraphState:
             {"role": "assistant", "name": "unifier", "content": end_text}
         ]
         state["suggestions"] = followups
+        state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
     # ðŸ"´ Caso especial: saludo / smalltalk
@@ -287,6 +305,7 @@ def unifier_node(state: GraphState) -> GraphState:
 
         end_text = hello + "\n\n" + footer
         state["suggestions"] = nexts
+        state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
     # ðŸ"µ Caso por defecto: síntesis de investigador / evaluador / etc.
@@ -360,7 +379,7 @@ SOURCE:
 {"RECORDATORIO FINAL: toda tu respuesta debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response must be in English."}
 """
 
-    resp = llm.invoke(prompt)
+    resp = await llm.ainvoke(apply_mode_prompt(state, prompt))
     final_text = getattr(resp, "content", str(resp))
     final_text = _strip_mermaid_artifacts(final_text)
 
@@ -376,5 +395,6 @@ SOURCE:
     _push_turn(state, role="system", name="unifier_system", content=prompt)
     _push_turn(state, role="assistant", name="unifier", content=final_text)
 
+    state = _finalize_turn(state, final_text)
     return {**state, "endMessage": final_text}
 

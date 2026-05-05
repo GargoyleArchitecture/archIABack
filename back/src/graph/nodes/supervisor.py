@@ -172,7 +172,7 @@ def supervisor_node(state: GraphState):
         state.get("current_phase"), state.get("intent"), state.get("nextNode"),
     )
 
-    if (state.get("current_phase") or "") == "INTAKE":
+    if (state.get("current_phase") or "") == "INTAKE" and (state.get("mode") or "professional") != "tutor":
         return {**state, "nextNode": "intake", "localQuestion": ""}
 
     # si ya hay un SVG listo en este turno, vamos directo al unifier
