@@ -26,7 +26,7 @@ except Exception:
 
 # LangGraph builder + checkpointer
 from langgraph.graph import StateGraph
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.store.memory import InMemoryStore
 from src.graph.state import GraphState
 
 # Setup Logging
@@ -112,9 +112,54 @@ class _LazyRetriever:
 
 retriever = _LazyRetriever()
 
-# State-graph builder & checkpointer
-sqlite_saver = MemorySaver()
+# State-graph builder. Checkpointer (AsyncSqliteSaver) y store (InMemoryStore)
+# se inyectan via build_graph() desde el lifespan de FastAPI (ver src/main.py).
 builder = StateGraph(GraphState)
+
+# Holders de la instancia compilada y el store. Se fijan al inicio del lifespan
+# y se consumen via get_graph()/get_store() desde los call-sites.
+_graph_holder: dict = {"instance": None}
+_store_holder: dict = {"instance": None}
+
+
+def set_graph(graph_instance) -> None:
+    """Fija la instancia del grafo compilado. Llamar desde el lifespan."""
+    _graph_holder["instance"] = graph_instance
+
+
+def get_graph():
+    """Devuelve la instancia del grafo compilado. Lanza si lifespan no corrió."""
+    g = _graph_holder["instance"]
+    if g is None:
+        raise RuntimeError(
+            "Graph not initialized. The FastAPI lifespan must run first."
+        )
+    return g
+
+
+def set_store(store_instance) -> None:
+    """Fija la instancia del Store cross-thread. Llamar desde el lifespan."""
+    _store_holder["instance"] = store_instance
+
+
+def get_store():
+    """Devuelve el Store cross-thread. Lanza si lifespan no corrio."""
+    s = _store_holder["instance"]
+    if s is None:
+        raise RuntimeError(
+            "Store not initialized. The FastAPI lifespan must run first."
+        )
+    return s
+
+
+def make_inmemory_store() -> InMemoryStore:
+    """Factory del Store cross-thread.
+
+    InMemoryStore es ephemeral por proceso. Cuando LangGraph publique un
+    backend SQLite oficial para Store (o se decida adoptar
+    `langgraph-checkpoint-postgres` tambien para Store), reemplazar aqui.
+    """
+    return InMemoryStore()
 
 # Sesión HTTP con retries y timeouts
 def _make_http() -> requests.Session:

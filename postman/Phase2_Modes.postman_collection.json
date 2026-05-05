@@ -1,0 +1,379 @@
+{
+  "info": {
+    "name": "ArchIA - Phase 2 Modes & Auto-Routing",
+    "description": "Coleccion para validar Fase 2 (modos Tutor/Profesional + auto-routing).\n\nPRECONDICIONES:\n- Backend IA corriendo: `python -m uvicorn src.main:app --port 8000` desde `archIABack/back/`.\n- Variable de coleccion `baseUrl` apuntando al puerto correcto.\n- En Postman > Settings > General, activa `Allow streaming responses for chunked responses` para ver los eventos SSE en tiempo real.\n\nCada request a /message espera respuesta SSE con varios eventos `data: {...}`. El evento final tiene `\"type\":\"complete\"` y trae los campos `mode` y `mode_suggestion`. Los tests de cada request validan los puntos clave del contrato.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "phase2-smoke-{{$timestamp}}",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "smoke-user-1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Sanity check: backend levantado y lifespan completo (AsyncSqliteSaver + InMemoryStore listos)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Modo default (sin mode -> professional)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Dame un resumen de microservicios", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-default", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Sin enviar `mode`, el handler debe defaultear a `professional`. El evento SSE `complete` debe traer `\"mode\":\"professional\"`."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Default mode is professional', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"professional\"');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Modo Tutor explicito",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Quiero entender que es un patron de circuit breaker", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-tutor", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "tutor", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Modo Tutor explicito. El sistema prompt debe inyectar TUTOR_SYSTEM_PROMPT (preguntas socraticas, analogias). El evento `complete` trae `\"mode\":\"tutor\"`."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Mode echoed as tutor', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"tutor\"');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Modo Professional explicito",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Define un ASR de latencia para un checkout de e-commerce", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-pro", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "professional", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Modo Profesional explicito. Inyecta PROFESSIONAL_SYSTEM_PROMPT (consultor senior L4+, solucion concreta primero). Tools `python_repl_tool` y `local_rag_advanced` quedan disponibles en el investigador (sin pedir glossary/cite)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Mode echoed as professional', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"professional\"');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Mode invalido (400)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "hola", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-bad", "type": "text" },
+            { "key": "mode", "value": "ninja", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "El handler debe rechazar valores fuera de `tutor`/`professional` con HTTP 400."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+              "pm.test('Detail mentions Invalid mode', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.detail).to.match(/Invalid mode/i);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Auto-routing: en Tutor con intencion profesional",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Dame el codigo para implementar un circuit breaker en Java con Resilience4j", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-route-pro", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "tutor", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Usuario en Tutor pero pide solucion concreta (`dame el codigo`, `implementa`). El classifier debe emitir `mode_suggestion=professional` SIN cambiar el modo activo. El evento `complete` trae `mode=tutor` y `mode_suggestion=professional`."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Active mode stays tutor (no auto-switch)', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"tutor\"');",
+              "});",
+              "pm.test('Suggestion is professional', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode_suggestion\":\"professional\"');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Auto-routing: en Profesional con intencion tutor",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Explicame que significa exactamente la latencia p95 con una analogia", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-route-tut", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "professional", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Usuario en Profesional pero pide pedagogia (`explicame`, `que significa`). El classifier emite `mode_suggestion=tutor`."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Active mode stays professional', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"professional\"');",
+              "});",
+              "pm.test('Suggestion is tutor', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode_suggestion\":\"tutor\"');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Auto-routing supresion: ya en Tutor con intencion tutor",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Explicame que es un saga pattern, no entiendo el concepto", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-route-noop", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "tutor", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Usuario en Tutor con mensaje pedagogico. La sugerencia se suprime (mode_suggestion=null) para no spammear el Snackbar de F7-T2. `mode_suggestion` debe ser null en el JSON."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('Active mode is tutor', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode\":\"tutor\"');",
+              "});",
+              "pm.test('Suggestion is null (suppressed)', () => {",
+              "  pm.expect(pm.response.text()).to.include('\"mode_suggestion\":null');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8a. Persistencia thread_id - PRIMER turno",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Mi sistema es un e-commerce con flash sales. Recordalo.", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-thread-persist", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "professional", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Primer turno bajo un session_id especifico. El AsyncSqliteSaver persiste el checkpoint. Tras correr este request, verifica manualmente que `back/state_db/graph_checkpoints.db` crece de tamanio."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('thread_id echoed', () => {",
+              "  pm.expect(pm.response.text()).to.include('thread_id');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8b. Persistencia thread_id - SEGUNDO turno (mismo session_id)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "message", "value": "Que fue lo ultimo que te dije sobre mi sistema?", "type": "text" },
+            { "key": "session_id", "value": "{{session_id}}-thread-persist", "type": "text" },
+            { "key": "user_id", "value": "{{user_id}}", "type": "text" },
+            { "key": "mode", "value": "professional", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["message"]
+        },
+        "description": "Segundo turno con el MISMO session_id. El checkpointer rehidrata el thread y el agente debe poder referenciar el contexto del turno anterior (e-commerce con flash sales). Prueba indirecta de F1-T3."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

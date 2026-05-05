@@ -330,7 +330,8 @@ def export_workflow(*, fmt: str = "dot") -> str | bytes:
     """
     # Lazy import to avoid pulling LangGraph at module-import time,
     # which is important for testing with mocks.
-    from src.graph import graph as compiled_graph  # noqa: E402
+    from src.graph import get_graph  # noqa: E402
+    compiled_graph = get_graph()
 
     model = extract_from_langgraph(compiled_graph)
     dot = render_dot(model)
