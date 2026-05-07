@@ -97,6 +97,15 @@ async def boot_node(state: GraphState) -> GraphState:
         "intake_fields":        state.get("intake_fields")   if state.get("intake_fields")   is not None else {},
         "intake_current_field": _idx                         if _idx                         is not None else 0,
         "intake_complete":      state.get("intake_complete") if state.get("intake_complete") is not None else False,
+        # ADD 3.0 candidates and selections: same pattern — preserve across turns.
+        "normal_operation_baseline": state.get("normal_operation_baseline") if state.get("normal_operation_baseline") is not None else {},
+        "asr_candidates":            state.get("asr_candidates")            if state.get("asr_candidates")            is not None else [],
+        "selected_asrs":             state.get("selected_asrs")             if state.get("selected_asrs")             is not None else [],
+        "style_candidates":          state.get("style_candidates")          if state.get("style_candidates")          is not None else [],
+        "selected_tactics":          state.get("selected_tactics")          if state.get("selected_tactics")          is not None else [],
+        "tactics_candidates":        state.get("tactics_candidates")        if state.get("tactics_candidates")        is not None else [],
+        "tech_candidates":           state.get("tech_candidates")           if state.get("tech_candidates")           is not None else [],
+        "add_assumptions":           state.get("add_assumptions")           if state.get("add_assumptions")           is not None else [],
     }
 
 def router(state: GraphState) -> str:

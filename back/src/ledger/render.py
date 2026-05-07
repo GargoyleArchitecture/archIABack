@@ -352,24 +352,28 @@ def render_dossier_compact(ledger: DesignLedger, *, lang: str = "es") -> str:
 
 def render_phase_prompt(ledger: DesignLedger, *, lang: str = "es") -> str:
     """Next-step guidance footer the unifier appends at end-of-phase."""
-    phase = ledger.get("current_phase", Phase.INTAKE.value)
+    phase = ledger.get("current_phase", Phase.INTRO.value)
 
     _MSGS: dict[str, dict[str, str]] = {
         "es": {
-            Phase.INTAKE.value:   "**Próximo paso:** Define el ASR — el requisito arquitectónicamente significativo que guiará el diseño.",
-            Phase.ASR.value:      "**Próximo paso:** Elige un estilo arquitectónico que satisfaga el atributo de calidad del ASR.",
-            Phase.STYLE.value:    "**Próximo paso:** Define tácticas que realicen el estilo con trazabilidad al ASR.",
-            Phase.TACTICS.value:  "**Próximo paso:** Genera el diagrama de arquitectura basado en el estilo y las tácticas.",
-            Phase.DIAGRAM.value:  "**Próximo paso:** Evalúa el diseño — identifica fortalezas, debilidades y sugerencias.",
-            Phase.ANALYSIS.value: "**Próximo paso:** Revisa el análisis y confirma si el diseño está listo.",
+            Phase.INTRO.value:          "**Próximo paso:** Inicia el diagnóstico — recolectaré información de contexto del proyecto.",
+            Phase.DIAGNOSIS.value:      "**Próximo paso:** Identifica los ASRs — requisitos arquitectónicamente significativos que guiarán el diseño.",
+            Phase.ASR_TABLE.value:      "**Próximo paso:** Elige un estilo arquitectónico que satisfaga el atributo de calidad del ASR.",
+            Phase.STYLE_TABLE.value:    "**Próximo paso:** Define tácticas que realicen el estilo con trazabilidad al ASR.",
+            Phase.TACTICS_TABLE.value:  "**Próximo paso:** Propón tecnologías que implementen las tácticas seleccionadas.",
+            Phase.TECH_PROPOSALS.value: "**Próximo paso:** Genera el diagrama de arquitectura basado en el estilo y las tácticas.",
+            Phase.DIAGRAM.value:        "**Próximo paso:** Evalúa el diseño — identifica fortalezas, debilidades y sugerencias.",
+            Phase.ANALYSIS.value:       "**Próximo paso:** Revisa el análisis y confirma si el diseño está listo.",
         },
         "en": {
-            Phase.INTAKE.value:   "**Next step:** Define the ASR — the architecturally significant requirement that will guide the design.",
-            Phase.ASR.value:      "**Next step:** Choose an architectural style that satisfies the ASR's quality attribute.",
-            Phase.STYLE.value:    "**Next step:** Define tactics that realize the style and trace back to the ASR.",
-            Phase.TACTICS.value:  "**Next step:** Generate the architecture diagram based on the chosen style and tactics.",
-            Phase.DIAGRAM.value:  "**Next step:** Evaluate the design — identify strengths, weaknesses, and improvement suggestions.",
-            Phase.ANALYSIS.value: "**Next step:** Review the analysis and confirm if the design is ready.",
+            Phase.INTRO.value:          "**Next step:** Begin the diagnosis — I will gather project context.",
+            Phase.DIAGNOSIS.value:      "**Next step:** Identify the ASRs — architecturally significant requirements that will guide the design.",
+            Phase.ASR_TABLE.value:      "**Next step:** Choose an architectural style that satisfies the ASR's quality attribute.",
+            Phase.STYLE_TABLE.value:    "**Next step:** Define tactics that realize the style and trace back to the ASR.",
+            Phase.TACTICS_TABLE.value:  "**Next step:** Propose technologies that implement the selected tactics.",
+            Phase.TECH_PROPOSALS.value: "**Next step:** Generate the architecture diagram based on the chosen style and tactics.",
+            Phase.DIAGRAM.value:        "**Next step:** Evaluate the design — identify strengths, weaknesses, and improvement suggestions.",
+            Phase.ANALYSIS.value:       "**Next step:** Review the analysis and confirm if the design is ready.",
         },
     }
 

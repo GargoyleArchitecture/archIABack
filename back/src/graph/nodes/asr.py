@@ -159,7 +159,7 @@ def _refresh_ledger_state(
         state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
         state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
         state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
         state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
         log.debug("asr_node: ledger state refreshed phase=%s", state["current_phase"])
     except Exception as exc:
@@ -433,7 +433,6 @@ Rules:
 
     # Metadatos
     state["quality_attribute"] = qa_pipeline
-    state["arch_stage"] = "ASR"
     state["current_asr"] = content
 
     # ── Ledger write-back (P3) ────────────────────────────────────────────
@@ -445,7 +444,7 @@ Rules:
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "asr",
-                "phase":            Phase.ASR.value,
+                "phase":            Phase.ASR_TABLE.value,
                 "iteration":        0,
                 "qa":               qa_pipeline,
                 "parents":          [],

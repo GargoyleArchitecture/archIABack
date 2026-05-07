@@ -85,7 +85,7 @@ def _write_analysis_to_ledger(state: GraphState, eval_text: str) -> None:
         append_decision(_user_id, _project_id, {
             "id": "",
             "kind": "analysis",
-            "phase": state.get("current_phase") or Phase.ANALYSIS,
+            "phase": state.get("current_phase") or Phase.ANALYSIS.value,
             "iteration": 0,
             "qa": _qa,
             "parents": _parent_refs,

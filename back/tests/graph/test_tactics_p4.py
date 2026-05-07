@@ -101,7 +101,7 @@ def _base_state(**kw):
         "design_dossier_md": "",
         "ledger_dossier_compact": "",
         "ledger_phase_prompt": "",
-        "current_phase": "STYLE",
+        "current_phase": "style_table",
         "ledger_pending_advance": {},
         "memory_text": "",
         "turn_messages": [],
@@ -206,7 +206,7 @@ def _run_tactics(state, append_side_effect=None, saved=None):
         patch(_PATCH_LLM, _mock_llm()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_saved) as mock_append,
-        patch(_PATCH_LOAD, return_value={"decisions": [_saved], "current_phase": "TACTICS", "pending_advance": {}}),
+        patch(_PATCH_LOAD, return_value={"decisions": [_saved], "current_phase": "tactics_table", "pending_advance": {}}),
         patch(_PATCH_RENDER, return_value="dossier"),
         patch(_PATCH_RENDER_C, return_value="compact"),
         patch(_PATCH_PHASE_P, return_value="phase"),
@@ -222,7 +222,6 @@ def test_scalar_writes_always_set():
     result, _ = _run_tactics(state)
     assert result["tactics_struct"] is not None
     assert isinstance(result["tactics_list"], list)
-    assert result["arch_stage"] == "TACTICS"
     assert result["endMessage"] is not None
     assert result["nextNode"] == "unifier"
 
@@ -242,7 +241,7 @@ def test_no_binding_block_when_ledger_empty():
         patch(_PATCH_LLM, CaptureLLM()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_SAVED_TACTIC),
-        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "TACTICS", "pending_advance": {}}),
+        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "tactics_table", "pending_advance": {}}),
         patch(_PATCH_RENDER, return_value=""),
         patch(_PATCH_RENDER_C, return_value=""),
         patch(_PATCH_PHASE_P, return_value=""),
@@ -271,7 +270,7 @@ def test_binding_block_injected_when_full_pipeline(mock_ledger_with_style):
         patch(_PATCH_LLM, CaptureLLM()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_SAVED_TACTIC),
-        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "TACTICS", "pending_advance": {}}),
+        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "tactics_table", "pending_advance": {}}),
         patch(_PATCH_RENDER, return_value=""),
         patch(_PATCH_RENDER_C, return_value=""),
         patch(_PATCH_PHASE_P, return_value=""),
@@ -322,7 +321,7 @@ def test_state_ledger_fields_refreshed_after_success():
     }
     fresh_ledger = {
         "decisions": [saved],
-        "current_phase": "TACTICS",
+        "current_phase": "tactics_table",
         "pending_advance": {},
     }
     state = _base_state()
@@ -337,7 +336,7 @@ def test_state_ledger_fields_refreshed_after_success():
     ):
         result = tactics_node_impl(state)
 
-    assert result["current_phase"] == "TACTICS"
+    assert result["current_phase"] == "tactics_table"
     assert result["design_dossier_md"] == "dossier"
 
 
@@ -370,7 +369,7 @@ def test_tactic_rejected_when_parent_style_is_rejected(tmp_db):
     ledger = empty_ledger("proj-test", "user-test")
     save_ledger("user-test", ledger, "proj-test")
     asr_dec = _append("user-test", "proj-test", {
-        "id": "", "kind": "asr", "phase": "ASR", "iteration": 0,
+        "id": "", "kind": "asr", "phase": "asr_table", "iteration": 0,
         "qa": "latencia", "parents": [],
         "payload": {
             "summary": "p95<200ms", "source": "", "stimulus": "",
@@ -382,7 +381,7 @@ def test_tactic_rejected_when_parent_style_is_rejected(tmp_db):
         "created_at": "", "created_by_node": "asr_node",
     })
     style_dec = _append("user-test", "proj-test", {
-        "id": "", "kind": "style", "phase": "STYLE", "iteration": 0,
+        "id": "", "kind": "style", "phase": "style_table", "iteration": 0,
         "qa": "latencia",
         "parents": [{"id": asr_dec["id"], "kind": "asr", "iteration": asr_dec["iteration"]}],
         "payload": {"name": "Layered", "candidates": [], "chosen": "Layered", "tradeoffs": "test"},

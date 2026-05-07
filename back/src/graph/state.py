@@ -4,6 +4,8 @@ from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage
 
+from src.ledger.types import PhaseLiteral
+
 # ========== Schemas
 
 class supervisorResponse(TypedDict):
@@ -180,8 +182,6 @@ class GraphState(TypedDict):
     force_rag: bool
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 
-    # etapa actual del pipeline ASR -> estilos -> tacticas -> despliegue
-    arch_stage: str
     quality_attribute: str
     add_context: str
     tactics_list: list
@@ -210,7 +210,7 @@ class GraphState(TypedDict):
     ledger: dict                  # full DesignLedger blob; {} before first successful load
     ledger_active: dict           # output of compute_active_view(ledger); {} when empty
     design_dossier_md: str        # render_dossier(ledger, lang=language); "" before load
-    current_phase: str            # mirror of ledger["current_phase"]; "" before load
+    current_phase: PhaseLiteral   # ADD 3.0 phase, single source of truth (mirror of ledger["current_phase"])
     ledger_dossier_compact: str   # render_dossier_compact(ledger, lang); "" before load
     ledger_phase_prompt: str      # render_phase_prompt(ledger, lang); "" before load
     ledger_pending_advance: dict  # mirror of ledger["pending_advance"]; {} when None
@@ -219,6 +219,17 @@ class GraphState(TypedDict):
     intake_fields: dict          # campos recolectados del guión de 8 preguntas
     intake_current_field: int    # índice activo 0–8 (8 = esperando respuesta de ASRs)
     intake_complete: bool        # True cuando los 8 campos han sido validados
+
+    # ── ADD 3.0 candidates and selections ────────────────────────────────────
+    # Persisted across turns by boot_node; populated by ADD 3.0 phase nodes.
+    normal_operation_baseline: dict      # baseline metrics captured during diagnosis
+    asr_candidates: list[dict]           # ASRs proposed in asr_table phase
+    selected_asrs: list[str]             # IDs of ASRs confirmed by the user
+    style_candidates: list[dict]         # styles proposed for selected ASRs
+    selected_tactics: list[str]          # IDs of tactics confirmed by the user
+    tactics_candidates: list[dict]       # tactics proposed for the chosen style
+    tech_candidates: list[dict]          # technologies proposed in tech_proposals phase
+    add_assumptions: list[str]           # assumptions logged when input was incomplete (ADD Step 1)
 
 class AgentState(TypedDict):
     messages: list

@@ -99,7 +99,7 @@ def test_get_ledger_unknown_session_returns_empty(client):
     r = client.get("/sessions/totally-new-session-abc/ledger")
     assert r.status_code == 200
     data = r.json()
-    assert data["current_phase"] == "INTAKE"
+    assert data["current_phase"] == "intro"
     assert data["decisions"] == []
 
 
@@ -116,11 +116,10 @@ def test_get_phase_returns_completion_flags(client, seeded_session):
     assert "pending_advance" in data
     assert "completion" in data
     completion = data["completion"]
-    # Expect keys for all non-INTAKE phases
-    assert set(completion.keys()) == {"asr", "style", "tactics", "diagram", "analysis"}
+    assert set(completion.keys()) == {"diagnosis", "asr_table", "style_table", "tactics_table", "tech_proposals", "diagram", "analysis"}
     # Our seeded ledger has an active ASR
-    assert completion["asr"] is True
-    assert completion["style"] is False
+    assert completion["asr_table"] is True
+    assert completion["style_table"] is False
 
 
 def test_get_phase_correct_json_types(client, seeded_session):

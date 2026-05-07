@@ -522,22 +522,19 @@ def _stream_post_process(
             "asr_context",
             arch_flow.get("add_context", "")
         )
-        arch_flow["stage"] = "ASR"
 
     style_text = (
         result.get("style")
         or result.get("selected_style")
         or result.get("last_style")
     )
-    if style_text and result.get("arch_stage") == "STYLE":
+    if style_text and result.get("current_phase") == "style_table":
         arch_flow["style"] = style_text
-        arch_flow["stage"] = "STYLE"
 
     tactics_json = result.get("tactics_struct") or None
     tactics_md   = result.get("tactics_md") or ""
     if user_intent == "tactics" and (tactics_json or tactics_md):
         arch_flow["tactics"] = tactics_json or []
-        arch_flow["stage"] = "TACTICS"
 
     diagram_obj = result.get("diagram") or {}
     if diagram_obj.get("ok") and diagram_obj.get("dot"):
@@ -796,7 +793,6 @@ async def message(
         "style": arch_flow.get("style", ""),
         "selected_style": arch_flow.get("style", ""),
         "last_style": arch_flow.get("style", ""),
-        "arch_stage": arch_flow.get("stage", ""),
         "quality_attribute": arch_flow.get("quality_attribute", "") or topic_hint or last_topic,
         "add_context": arch_flow.get("add_context", ""),
         "tactics_list": arch_flow.get("tactics", []),
@@ -807,6 +803,15 @@ async def message(
         "user_style_hint":        arch_flow.get("user_style_hint", ""),
         "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
         "user_style_loaded":      bool(arch_flow.get("user_style_hint", "")),
+        # ADD 3.0 candidates and selections (M2 — initialized empty; populated by phase nodes)
+        "normal_operation_baseline": {},
+        "asr_candidates":            [],
+        "selected_asrs":             [],
+        "style_candidates":          [],
+        "selected_tactics":          [],
+        "tactics_candidates":        [],
+        "tech_candidates":           [],
+        "add_assumptions":           [],
     }
 
     # Capture variables needed by the generator closure
@@ -997,9 +1002,10 @@ def get_session_phase(
         "current_iteration": ledger["current_iteration"],
         "pending_advance":   ledger["pending_advance"],
         "completion": {
-            p.value.lower(): _is_phase_complete(ledger, p)
+            p.value: _is_phase_complete(ledger, p)
             for p in [
-                _LedgerPhase.ASR, _LedgerPhase.STYLE, _LedgerPhase.TACTICS,
+                _LedgerPhase.DIAGNOSIS, _LedgerPhase.ASR_TABLE, _LedgerPhase.STYLE_TABLE,
+                _LedgerPhase.TACTICS_TABLE, _LedgerPhase.TECH_PROPOSALS,
                 _LedgerPhase.DIAGRAM, _LedgerPhase.ANALYSIS,
             ]
         },

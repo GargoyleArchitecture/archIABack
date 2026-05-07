@@ -260,7 +260,7 @@ def _refresh_ledger_state(
         state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
         state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
         state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
         state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
         _tac_log.debug("tactics_node: ledger state refreshed phase=%s", state["current_phase"])
     except Exception as exc:
@@ -502,7 +502,6 @@ Example shape (values are illustrative — adjust to your tactics):
     state["tactics_md"] = md_only
     state["tactics_struct"] = struct if isinstance(struct, list) else []
     state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
-    state["arch_stage"] = "TACTICS"
     state["quality_attribute"] = qa
     if asr_text:
         state["current_asr"] = asr_text
@@ -522,7 +521,7 @@ Example shape (values are illustrative — adjust to your tactics):
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "tactic",
-                "phase":            Phase.TACTICS.value,
+                "phase":            Phase.TACTICS_TABLE.value,
                 "iteration":        0,
                 "qa":               _qa,
                 "parents":          _parents,

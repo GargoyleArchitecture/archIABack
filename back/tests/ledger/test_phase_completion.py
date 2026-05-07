@@ -23,7 +23,7 @@ def _d(id, kind, qa="latencia", parents=None, status="active", payload=None):
         "constraint": {"tech_stack": [], "business_rules": []},
     }
     return {
-        "id": id, "kind": kind, "phase": "ASR", "iteration": 1,
+        "id": id, "kind": kind, "phase": "asr_table", "iteration": 1,
         "qa": qa, "parents": parents or [],
         "payload": payload or _default_payloads.get(kind, {}),
         "rationale": "", "sources": [], "status": status,
@@ -32,47 +32,47 @@ def _d(id, kind, qa="latencia", parents=None, status="active", payload=None):
     }
 
 
-# INTAKE
+# DIAGNOSIS
 
-def test_intake_incomplete_without_constraint():
+def test_diagnosis_incomplete_without_constraint():
     L = _build_ledger()
-    assert is_phase_complete(L, Phase.INTAKE) is False
+    assert is_phase_complete(L, Phase.DIAGNOSIS) is False
 
 
-def test_intake_complete_with_constraint():
+def test_diagnosis_complete_with_constraint():
     L = _build_ledger(_d("c1", "constraint"))
-    assert is_phase_complete(L, Phase.INTAKE) is True
+    assert is_phase_complete(L, Phase.DIAGNOSIS) is True
 
 
-# ASR
+# ASR_TABLE
 
 def test_asr_incomplete_without_asr():
     L = _build_ledger()
-    assert is_phase_complete(L, Phase.ASR) is False
+    assert is_phase_complete(L, Phase.ASR_TABLE) is False
 
 
 def test_asr_complete_with_active_asr():
     L = _build_ledger(_d("a1", "asr"))
-    assert is_phase_complete(L, Phase.ASR) is True
+    assert is_phase_complete(L, Phase.ASR_TABLE) is True
 
 
 def test_asr_incomplete_with_rejected_asr():
     L = _build_ledger(_d("a1", "asr", status="rejected"))
-    assert is_phase_complete(L, Phase.ASR) is False
+    assert is_phase_complete(L, Phase.ASR_TABLE) is False
 
 
-# STYLE
+# STYLE_TABLE
 
 def test_style_incomplete_without_style():
     L = _build_ledger(_d("a1", "asr"))
-    assert is_phase_complete(L, Phase.STYLE) is False
+    assert is_phase_complete(L, Phase.STYLE_TABLE) is False
 
 
 def test_style_complete_with_matching_parent():
     asr   = _d("a1", "asr")
     style = _d("s1", "style", parents=[{"id": "a1", "kind": "asr", "iteration": 1}])
     L     = _build_ledger(asr, style)
-    assert is_phase_complete(L, Phase.STYLE) is True
+    assert is_phase_complete(L, Phase.STYLE_TABLE) is True
 
 
 def test_style_incomplete_if_parent_asr_not_active():
@@ -80,10 +80,10 @@ def test_style_incomplete_if_parent_asr_not_active():
     style = _d("s1", "style", parents=[{"id": "a1", "kind": "asr", "iteration": 1}])
     L     = _build_ledger(asr, style)
     # active_view won't include superseded asr
-    assert is_phase_complete(L, Phase.STYLE) is False
+    assert is_phase_complete(L, Phase.STYLE_TABLE) is False
 
 
-# TACTICS
+# TACTICS_TABLE
 
 def test_tactics_complete_with_full_parents():
     asr    = _d("a1", "asr")
@@ -93,14 +93,14 @@ def test_tactics_complete_with_full_parents():
         {"id": "s1", "kind": "style", "iteration": 1},
     ])
     L = _build_ledger(asr, style, tactic)
-    assert is_phase_complete(L, Phase.TACTICS) is True
+    assert is_phase_complete(L, Phase.TACTICS_TABLE) is True
 
 
 def test_tactics_incomplete_missing_style_parent():
     asr    = _d("a1", "asr")
     tactic = _d("t1", "tactic", parents=[{"id": "a1", "kind": "asr", "iteration": 1}])
     L      = _build_ledger(asr, tactic)
-    assert is_phase_complete(L, Phase.TACTICS) is False
+    assert is_phase_complete(L, Phase.TACTICS_TABLE) is False
 
 
 # DIAGRAM

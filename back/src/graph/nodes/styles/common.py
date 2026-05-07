@@ -161,7 +161,7 @@ def _refresh_ledger_state(
         state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
         state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
         state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
         state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
         log.debug("style_node: ledger state refreshed phase=%s", state["current_phase"])
     except Exception as exc:
@@ -306,7 +306,6 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
         state["style"] = fallback_style
         state["selected_style"] = fallback_style
         state["last_style"] = fallback_style
-        state["arch_stage"] = "STYLE"
         state["quality_attribute"] = qa
         state["endMessage"] = raw
         state["nextNode"] = "unifier"
@@ -327,7 +326,6 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
     state["style"] = chosen_name
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
-    state["arch_stage"] = "STYLE"
     state["quality_attribute"] = qa
 
     # ── Ledger write-back (P4) ───────────────────────────────────────────────
@@ -341,7 +339,7 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "style",
-                "phase":            Phase.STYLE.value,
+                "phase":            Phase.STYLE_TABLE.value,
                 "iteration":        0,
                 "qa":               qa,
                 "parents":          _parents,

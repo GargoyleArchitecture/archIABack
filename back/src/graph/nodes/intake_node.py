@@ -261,7 +261,7 @@ async def intake_node(state: GraphState) -> GraphState:
                     append_decision(_user_id, _project_id, {
                         "id": "",
                         "kind": "constraint",
-                        "phase": Phase.INTAKE.value,
+                        "phase": Phase.DIAGNOSIS.value,
                         "iteration": 0,
                         "qa": "",
                         "parents": [],
@@ -276,8 +276,8 @@ async def intake_node(state: GraphState) -> GraphState:
                         "created_by_node": "intake_node",
                     })
                     transition_phase(_user_id, _project_id, PhaseTransition(
-                        from_phase="INTAKE",
-                        to_phase="ASR",
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
                         iteration=1,
                         triggered_by="user_request",
                         user_message=uq,
@@ -307,7 +307,7 @@ async def intake_node(state: GraphState) -> GraphState:
 
         if _NO_ASRS_RE.search(uq):
             # A2 — ArchIA propone los ASRs.
-            # Persists intake_v1 in the ledger, mirrors current_phase="ASR" in state,
+            # Persists intake_v1 in the ledger, mirrors current_phase="asr_table" in state,
             # and routes to asr_node in this same turn via the conditional intake edge.
             _updated_ledger = None
             if _user_id:
@@ -316,8 +316,8 @@ async def intake_node(state: GraphState) -> GraphState:
                     _ledger["project_context"]["intake_v1"] = intake_fields
                     save_ledger(_user_id, _ledger, _project_id)
                     transition_phase(_user_id, _project_id, PhaseTransition(
-                        from_phase="INTAKE",
-                        to_phase="ASR",
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
                         iteration=1,
                         triggered_by="user_request",
                         user_message=uq,
@@ -333,7 +333,7 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
-                "current_phase": "ASR",  # mirror ledger transition so supervisor skips INTAKE gate
+                "current_phase": "asr_table",  # mirror ledger transition so supervisor skips diagnosis gate
                 "endMessage": "",         # asr_node will set the real response
                 "nextNode": "asr",
                 "intent": "asr",

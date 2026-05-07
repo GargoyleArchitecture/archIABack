@@ -54,7 +54,7 @@ def _base_state(**kw):
         "design_dossier_md": "",
         "ledger_dossier_compact": "",
         "ledger_phase_prompt": "",
-        "current_phase": "ASR",
+        "current_phase": "asr_table",
         "ledger_pending_advance": {},
         "memory_text": "",
         "turn_messages": [],
@@ -138,7 +138,7 @@ def _run_style(state, append_side_effect=None, saved=None):
         patch(_PATCH_LLM, _mock_llm()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_saved) as mock_append,
-        patch(_PATCH_LOAD, return_value={"decisions": [_saved], "current_phase": "STYLE", "pending_advance": {}}) as mock_load,
+        patch(_PATCH_LOAD, return_value={"decisions": [_saved], "current_phase": "style_table", "pending_advance": {}}) as mock_load,
         patch(_PATCH_RENDER, return_value="dossier") as mock_render,
         patch(_PATCH_RENDER_C, return_value="compact") as mock_render_c,
         patch(_PATCH_PHASE_P, return_value="phase") as mock_phase_p,
@@ -155,7 +155,6 @@ def test_scalar_writes_always_set():
     assert result["style"] == "Event-Driven"
     assert result["selected_style"] == "Event-Driven"
     assert result["last_style"] == "Event-Driven"
-    assert result["arch_stage"] == "STYLE"
     assert result["quality_attribute"] == "latencia"
     assert result["endMessage"]
     assert result["nextNode"] == "unifier"
@@ -176,7 +175,7 @@ def test_no_binding_block_when_ledger_empty():
         patch(_PATCH_LLM, CaptureLLM()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_SAVED_STYLE),
-        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "STYLE", "pending_advance": {}}),
+        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "style_table", "pending_advance": {}}),
         patch(_PATCH_RENDER, return_value=""),
         patch(_PATCH_RENDER_C, return_value=""),
         patch(_PATCH_PHASE_P, return_value=""),
@@ -204,7 +203,7 @@ def test_binding_block_injected_when_active_asr(mock_ledger_with_asr):
         patch(_PATCH_LLM, CaptureLLM()),
         patch(_PATCH_RETRIEVER, _mock_retriever()),
         patch(_PATCH_APPEND, return_value=_SAVED_STYLE),
-        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "STYLE", "pending_advance": {}}),
+        patch(_PATCH_LOAD, return_value={"decisions": [], "current_phase": "style_table", "pending_advance": {}}),
         patch(_PATCH_RENDER, return_value=""),
         patch(_PATCH_RENDER_C, return_value=""),
         patch(_PATCH_PHASE_P, return_value=""),
@@ -279,7 +278,7 @@ def test_state_ledger_fields_refreshed_after_success():
     }
     fresh_ledger = {
         "decisions": [saved],
-        "current_phase": "STYLE",
+        "current_phase": "style_table",
         "pending_advance": {},
     }
     state = _base_state()
@@ -294,7 +293,7 @@ def test_state_ledger_fields_refreshed_after_success():
     ):
         result = style_node_impl(state)
 
-    assert result["current_phase"] == "STYLE"
+    assert result["current_phase"] == "style_table"
     assert result["design_dossier_md"] == "dossier"
 
 
@@ -332,7 +331,7 @@ def test_second_style_supersedes_first(tmp_db):
     ledger = empty_ledger("proj-test", "user-test")
     save_ledger("user-test", ledger, "proj-test")
     asr_dec = _append("user-test", "proj-test", {
-        "id": "", "kind": "asr", "phase": "ASR", "iteration": 0,
+        "id": "", "kind": "asr", "phase": "asr_table", "iteration": 0,
         "qa": "latencia", "parents": [],
         "payload": {
             "summary": "p95<200ms", "source": "", "stimulus": "",
@@ -358,7 +357,7 @@ def test_second_style_supersedes_first(tmp_db):
         "design_dossier_md": "",
         "ledger_dossier_compact": "",
         "ledger_phase_prompt": "",
-        "current_phase": "ASR",
+        "current_phase": "asr_table",
         "ledger_pending_advance": {},
         "memory_text": "",
         "turn_messages": [],

@@ -97,7 +97,7 @@ def test_render_phase_prompt_returns_next_step():
 def test_render_phase_prompt_returns_empty_for_done():
     import json
     ledger = _load("empty")
-    ledger["current_phase"] = "DONE"
+    ledger["current_phase"] = "done"
     out = render_phase_prompt(ledger, lang="es")
     assert out == ""
 
@@ -112,13 +112,13 @@ def test_render_dossier_idempotent_all_fixtures():
 def test_render_compact_contains_phase():
     ledger = _load("asr_style_tactic")
     out = render_dossier_compact(ledger)
-    assert "TACTICS" in out
+    assert "tactics_table" in out
 
 
 def test_render_compact_pending_advance():
     ledger = _load("empty")
     ledger["pending_advance"] = {
-        "from_phase": "INTAKE", "to_phase": "ASR", "iteration": 1,
+        "from_phase": "intro", "to_phase": "diagnosis", "iteration": 1,
         "triggered_by": "agent_suggestion_accepted", "user_message": "",
         "skipped_phases": [], "timestamp": "2024-01-01T00:00:00Z",
     }

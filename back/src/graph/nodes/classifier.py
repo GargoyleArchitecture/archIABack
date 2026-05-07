@@ -110,11 +110,11 @@ def classifier_node(state: GraphState) -> GraphState:
     "quality_attribute" para que supervisor/router puedan decidir nodos
     específicos por QA (p. ej. style_latency vs style_scalability).
     """
-    # During INTAKE the supervisor routes to intake_node regardless of intent.
+    # During DIAGNOSIS the supervisor routes to intake_node regardless of intent.
     # Skip the LLM call to preserve intent="intake" and avoid spurious QA overrides,
     # but still detect language so intake_node responds in the user's language.
-    # Gate: intake phase only applies in professional mode.
-    if (state.get("current_phase") or "") == "INTAKE" and (state.get("mode") or "professional") != "tutor":
+    # Gate: diagnosis phase only applies in professional mode.
+    if (state.get("current_phase") or "") == "diagnosis" and (state.get("mode") or "professional") != "tutor":
         msg = state.get("userQuestion", "") or ""
         prior_lang = state.get("language") or "es"
         detected = _detect_lang_fast(msg)

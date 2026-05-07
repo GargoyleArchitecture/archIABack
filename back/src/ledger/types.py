@@ -5,18 +5,26 @@ from typing import Any, Literal, Optional, TypedDict
 
 
 class Phase(str, Enum):
-    INTAKE   = "INTAKE"
-    ASR      = "ASR"
-    STYLE    = "STYLE"
-    TACTICS  = "TACTICS"
-    DIAGRAM  = "DIAGRAM"
-    ANALYSIS = "ANALYSIS"
-    DONE     = "DONE"
+    INTRO          = "intro"
+    DIAGNOSIS      = "diagnosis"
+    ASR_TABLE      = "asr_table"
+    STYLE_TABLE    = "style_table"
+    TACTICS_TABLE  = "tactics_table"
+    TECH_PROPOSALS = "tech_proposals"
+    DIAGRAM        = "diagram"
+    ANALYSIS       = "analysis"
+    DONE           = "done"
 
 
 PHASE_ORDER: list[Phase] = [
-    Phase.INTAKE, Phase.ASR, Phase.STYLE, Phase.TACTICS,
-    Phase.DIAGRAM, Phase.ANALYSIS, Phase.DONE,
+    Phase.INTRO, Phase.DIAGNOSIS, Phase.ASR_TABLE, Phase.STYLE_TABLE,
+    Phase.TACTICS_TABLE, Phase.TECH_PROPOSALS, Phase.DIAGRAM,
+    Phase.ANALYSIS, Phase.DONE,
+]
+
+PhaseLiteral = Literal[
+    "intro", "diagnosis", "asr_table", "style_table",
+    "tactics_table", "tech_proposals", "diagram", "analysis", "done",
 ]
 
 LEDGER_SCHEMA_VERSION = 1
@@ -43,7 +51,7 @@ class DecisionRef(TypedDict):
 class Decision(TypedDict):
     id: str
     kind: str
-    phase: str
+    phase: PhaseLiteral
     iteration: int
     qa: str
     parents: list[DecisionRef]
@@ -59,8 +67,8 @@ class Decision(TypedDict):
 
 
 class PhaseTransition(TypedDict):
-    from_phase: str
-    to_phase: str
+    from_phase: PhaseLiteral
+    to_phase: PhaseLiteral
     iteration: int
     triggered_by: str
     user_message: str
@@ -72,7 +80,7 @@ class DesignLedger(TypedDict):
     version: int
     project_id: str
     user_id: str
-    current_phase: str
+    current_phase: PhaseLiteral
     current_iteration: int
     phase_history: list[PhaseTransition]
     pending_advance: Optional[PhaseTransition]
@@ -86,7 +94,7 @@ def empty_ledger(project_id: str, user_id: str) -> DesignLedger:
         version=LEDGER_SCHEMA_VERSION,
         project_id=project_id,
         user_id=user_id,
-        current_phase=Phase.INTAKE.value,
+        current_phase=Phase.INTRO.value,
         current_iteration=0,
         phase_history=[],
         pending_advance=None,

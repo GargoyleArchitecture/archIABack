@@ -112,7 +112,7 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             updates["ledger"]                 = ledger
             updates["ledger_active"]          = active
             updates["design_dossier_md"]      = render_dossier(ledger, lang=lang)
-            updates["current_phase"]          = ledger.get("current_phase", "INTAKE")
+            updates["current_phase"]          = ledger.get("current_phase") or "intro"
             updates["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
             updates["ledger_phase_prompt"]    = render_phase_prompt(ledger, lang=lang)
             updates["ledger_pending_advance"] = ledger.get("pending_advance") or {}
