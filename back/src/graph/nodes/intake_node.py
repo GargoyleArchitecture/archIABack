@@ -248,6 +248,24 @@ async def intake_node(state: GraphState) -> GraphState:
 
     asr_question = _ASR_QUESTION_ES if lang == "es" else _ASR_QUESTION_EN
 
+    # Advance ledger from "intro" to "diagnosis" on first entry (M6 has not been implemented yet).
+    if (state.get("current_phase") or "") == "intro":
+        _uid = (state.get("user_id_for_prefs") or "").strip()
+        _pid = (state.get("project_id") or "").strip() or None
+        if _uid:
+            try:
+                transition_phase(_uid, _pid, PhaseTransition(
+                    from_phase="intro",
+                    to_phase="diagnosis",
+                    iteration=1,
+                    triggered_by="user_request",
+                    user_message=uq,
+                    skipped_phases=[],
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ))
+            except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                log.warning("intake_node: intro→diagnosis transition failed (nonfatal): %s", _exc)
+
     # Rama A: intake completo — procesar respuesta del arquitecto sobre ASRs
     if intake_complete:
         _user_id    = (state.get("user_id_for_prefs") or "").strip()

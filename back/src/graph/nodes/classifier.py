@@ -114,7 +114,7 @@ def classifier_node(state: GraphState) -> GraphState:
     # Skip the LLM call to preserve intent="intake" and avoid spurious QA overrides,
     # but still detect language so intake_node responds in the user's language.
     # Gate: diagnosis phase only applies in professional mode.
-    if (state.get("current_phase") or "") == "diagnosis" and (state.get("mode") or "professional") != "tutor":
+    if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         msg = state.get("userQuestion", "") or ""
         prior_lang = state.get("language") or "es"
         detected = _detect_lang_fast(msg)
