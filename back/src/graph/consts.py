@@ -42,6 +42,33 @@ TACTICS_JSON_EXAMPLE = """[
   }
 ]"""
 
+TECH_JSON_EXAMPLE = """[
+  {
+    "id": "TECH-1",
+    "name": "Redis Cluster",
+    "tactic": "Maintain Multiple Copies",
+    "asr_id": "ASR-2",
+    "rationale": "In-memory data store enabling sub-millisecond reads for the caching tactic.",
+    "rag_backed": true
+  },
+  {
+    "id": "TECH-2",
+    "name": "Apache Kafka",
+    "tactic": "Introduce Concurrency",
+    "asr_id": "ASR-1",
+    "rationale": "Distributed event streaming platform for async message processing.",
+    "rag_backed": false
+  },
+  {
+    "id": "TECH-3",
+    "name": "Kubernetes HPA",
+    "tactic": "Increase Resources",
+    "asr_id": "ASR-1",
+    "rationale": "Horizontal Pod Autoscaler adjusts replicas based on load metrics.",
+    "rag_backed": true
+  }
+]"""
+
 DOT_SYSTEM = """
 You are an expert software architect and Graphviz DOT author.
 

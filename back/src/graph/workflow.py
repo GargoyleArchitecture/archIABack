@@ -19,6 +19,7 @@ from src.graph.nodes.unifier import unifier_node
 from src.graph.nodes.asr import asr_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
+from src.graph.nodes.tech import tech_node, make_tech_qa_node
 from src.graph.nodes.style_tactics_parallel import style_tactics_parallel_node
 from src.graph.nodes.intake_node import intake_node
 from src.graph.qa_registry import (
@@ -26,6 +27,7 @@ from src.graph.qa_registry import (
     supported_qas,
     style_node_name_for_qa,
     tactics_node_name_for_qa,
+    tech_node_name_for_qa,
 )
 
 
@@ -34,6 +36,7 @@ from src.graph.qa_registry import (
 _SUPPORTED_QAS = supported_qas()
 _STYLE_QA_NODE_NAMES = {style_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 _TACTICS_QA_NODE_NAMES = {tactics_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
+_TECH_QA_NODE_NAMES = {tech_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 
 _boot_log = logging.getLogger("boot")
 
@@ -88,6 +91,7 @@ async def boot_node(state: GraphState) -> GraphState:
         "hasVisitedEvaluator": False,
         "hasVisitedASR": False,
         "hasVisitedDiagram": False,
+        "hasVisitedTech": False,
         "diagram": {},
         "endMessage": "",
         "requested_nodes": [],
@@ -143,6 +147,11 @@ def router(state: GraphState) -> str:
         if tactics_target in _TACTICS_QA_NODE_NAMES:
             return tactics_target
         return "tactics"
+    elif state["nextNode"] == "tech":
+        tech_target = tech_node_name_for_qa(qa)
+        if tech_target in _TECH_QA_NODE_NAMES:
+            return tech_target
+        return "tech"
     elif state["nextNode"] == "investigator" and not state["hasVisitedInvestigator"]:
         return "investigator"
     elif state["nextNode"] == "diagram_agent" and not state.get("hasVisitedDiagram", False):
@@ -163,6 +172,7 @@ builder.add_node("unifier", unifier_node)
 builder.add_node("asr", asr_node)
 builder.add_node("style", style_node)
 builder.add_node("tactics", tactics_node)
+builder.add_node("tech", tech_node)
 builder.add_node("style_tactics_parallel", style_tactics_parallel_node)
 
 # Registro dinámico de nodos style/tactics por QA.
@@ -171,11 +181,14 @@ builder.add_node("style_tactics_parallel", style_tactics_parallel_node)
 for qa_id in _SUPPORTED_QAS:
     style_name = style_node_name_for_qa(qa_id)
     tactics_name = tactics_node_name_for_qa(qa_id)
+    tech_name = tech_node_name_for_qa(qa_id)
 
     if style_name != "style":
         builder.add_node(style_name, make_style_qa_node(qa_id))
     if tactics_name != "tactics":
         builder.add_node(tactics_name, make_tactics_qa_node(qa_id))
+    if tech_name != "tech":
+        builder.add_node(tech_name, make_tech_qa_node(qa_id))
 
 
 builder.add_node("boot", boot_node)
@@ -199,6 +212,7 @@ builder.add_edge("evaluator", "supervisor")
 builder.add_edge("asr", "supervisor")
 builder.add_edge("style", "supervisor")
 builder.add_edge("tactics", "supervisor")
+builder.add_edge("tech", "supervisor")
 builder.add_edge("style_tactics_parallel", "supervisor")
 
 # Edges de retorno de nodos QA-específicos.
@@ -207,6 +221,9 @@ for node_name in sorted(_STYLE_QA_NODE_NAMES):
         builder.add_edge(node_name, "supervisor")
 for node_name in sorted(_TACTICS_QA_NODE_NAMES):
     if node_name != "tactics":
+        builder.add_edge(node_name, "supervisor")
+for node_name in sorted(_TECH_QA_NODE_NAMES):
+    if node_name != "tech":
         builder.add_edge(node_name, "supervisor")
 
 builder.add_edge("unifier", END)

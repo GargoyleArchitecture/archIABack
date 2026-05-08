@@ -29,7 +29,7 @@ PhaseLiteral = Literal[
 
 LEDGER_SCHEMA_VERSION = 1
 
-DecisionKind = Literal["asr", "style", "tactic", "diagram", "analysis", "constraint"]
+DecisionKind = Literal["asr", "style", "tactic", "tech", "diagram", "analysis", "constraint"]
 DecisionStatus = Literal["active", "superseded", "rejected", "orphaned"]
 ParentStatus = Literal["ok", "parent_rejected", "parent_superseded"]
 

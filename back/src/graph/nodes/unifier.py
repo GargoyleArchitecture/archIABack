@@ -112,6 +112,12 @@ async def unifier_node(state: GraphState) -> GraphState:
             or ""
         ).strip()
 
+        tech_txt = (
+            _last_ai_by(state, "tech_advisor")
+            or _last_turn_by(state, "tech_advisor")
+            or ""
+        ).strip()
+
         has_diagram = bool((state.get("diagram") or {}).get("ok"))
 
         blocks = []
@@ -122,6 +128,8 @@ async def unifier_node(state: GraphState) -> GraphState:
                 blocks.append(_ensure_section("## Estilos Arquitectónicos", style_txt))
             if tactics_txt and "tactics" in requested_set:
                 blocks.append(_ensure_section("## Tácticas", tactics_txt))
+            if tech_txt and "tech" in requested_set:
+                blocks.append(_ensure_section("## Tecnologías", tech_txt))
             if has_diagram and "diagram_agent" in requested_set:
                 blocks.append("## Diagrama\n\nRenderizado listo en esta misma respuesta.")
             followups = [
@@ -135,6 +143,8 @@ async def unifier_node(state: GraphState) -> GraphState:
                 blocks.append(_ensure_section("## Architecture Styles", style_txt))
             if tactics_txt and "tactics" in requested_set:
                 blocks.append(_ensure_section("## Tactics", tactics_txt))
+            if tech_txt and "tech" in requested_set:
+                blocks.append(_ensure_section("## Technologies", tech_txt))
             if has_diagram and "diagram_agent" in requested_set:
                 blocks.append("## Diagram\n\nRendered output is included in this same response.")
             followups = [
@@ -245,7 +255,39 @@ async def unifier_node(state: GraphState) -> GraphState:
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
-    # ðŸ"´ Caso especial para ASR
+    # 🔴 Caso especial para TECNOLOGÍAS
+    if intent == "tech":
+        tech_md = (
+            _last_ai_by(state, "tech_advisor")
+            or state.get("endMessage")
+            or "No technology content."
+        )
+        src_txt = _last_ai_by(state, "tech_sources")
+        refs_block = _extract_rag_sources_from(src_txt) if src_txt else "None"
+
+        if lang == "es":
+            followups = [
+                "Genera un diagrama de componentes con estas tecnologías.",
+                "Genera un diagrama de despliegue alineado con estas tecnologías.",
+            ]
+            refs_label = "### Referencias"
+        else:
+            followups = [
+                "Generate a component diagram with these technologies.",
+                "Generate a deployment diagram aligned with these technologies.",
+            ]
+            refs_label = "### References"
+
+        end_text = f"{tech_md}\n\n---\n\n{refs_label}\n\n{refs_block}"
+
+        state["suggestions"] = followups
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
+    # 🔴 Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (
             _last_ai_by(state, "asr_recommender")

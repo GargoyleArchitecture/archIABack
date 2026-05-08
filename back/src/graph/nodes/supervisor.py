@@ -70,6 +70,8 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         _append_unique(out, "style")
     if "tactics_advisor" in turn_names:
         _append_unique(out, "tactics")
+    if state.get("hasVisitedTech") or "tech_advisor" in turn_names:
+        _append_unique(out, "tech")
     if state.get("hasVisitedDiagram"):
         _append_unique(out, "diagram_agent")
     return out
@@ -106,13 +108,23 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
     if forced == "diagram" and has_diagram_terms:
         wants_diagram = True
 
+    tech_terms = [
+        "tecnología", "tecnologias", "tecnologías", "technology", "tech stack",
+        "framework", "library", "librería", "herramienta", "tool", "tools",
+        "implementación", "implementacion", "implementation",
+        "qué usar", "que usar", "what to use", "which library", "which framework",
+        "propón tecnologías", "propón tecnologias", "propose technologies",
+        "stack tecnológico", "stack tecnologico",
+    ]
+    wants_tech = any(t in low for t in tech_terms) or forced == "tech"
+
     wants_asr = (
         explicit_asr_request
         or fu_intent == "make_asr"
         or (forced == "asr" and not has_existing_asr)
     )
 
-    explicit_chain = wants_asr or wants_style or wants_tactics or wants_diagram
+    explicit_chain = wants_asr or wants_style or wants_tactics or wants_tech or wants_diagram
     if not explicit_chain:
         return []
 
@@ -130,6 +142,11 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         if (not has_existing_asr) and ("asr" not in plan):
             _append_unique(plan, "asr")
         _append_unique(plan, "tactics")
+
+    if wants_tech:
+        if (not has_existing_asr) and ("asr" not in plan):
+            _append_unique(plan, "asr")
+        _append_unique(plan, "tech")
 
     if wants_diagram:
         _append_unique(plan, "diagram_agent")
@@ -229,7 +246,7 @@ def supervisor_node(state: GraphState):
     else:
         next_node = "investigator"
 
-    if next_node in ("asr", "style", "tactics", "diagram_agent", "style_tactics_parallel"):
+    if next_node in ("asr", "style", "tactics", "tech", "diagram_agent", "style_tactics_parallel"):
         if next_node == "diagram_agent":
             intent_val = "diagram"
         elif next_node == "style_tactics_parallel":
@@ -260,6 +277,12 @@ def supervisor_node(state: GraphState):
             if state_lang == "es"
             else "Select the architecture style and propose tactics for the current ASR."
         )
+    elif next_node == "tech":
+        local_q = (
+            "Propón tecnologías concretas para implementar las tácticas confirmadas."
+            if state_lang == "es"
+            else "Propose concrete technologies to implement the confirmed tactics."
+        )
     else:
         local_q = uq
 
@@ -270,7 +293,7 @@ def supervisor_node(state: GraphState):
             resp = llm.with_structured_output(supervisorSchema).invoke(sys_messages)
             next_node = resp.get("nextNode", "investigator")
             local_q = resp.get("localQuestion", uq)
-            if next_node in ("asr", "style", "tactics", "diagram_agent"):
+            if next_node in ("asr", "style", "tactics", "tech", "diagram_agent"):
                 intent_val = "diagram" if next_node == "diagram_agent" else next_node
             elif next_node == "evaluator":
                 intent_val = "architecture"
@@ -281,7 +304,8 @@ def supervisor_node(state: GraphState):
     if next_node == "unifier" and not (
         state.get("hasVisitedInvestigator") or
         state.get("hasVisitedEvaluator") or state.get("hasVisitedASR") or
-        state.get("hasVisitedDiagram") or completed_nodes
+        state.get("hasVisitedDiagram") or state.get("hasVisitedTech") or
+        completed_nodes
     ):
         next_node = "investigator"
         intent_val = "architecture"

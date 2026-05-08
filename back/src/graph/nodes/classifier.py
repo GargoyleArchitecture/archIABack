@@ -84,9 +84,10 @@ def _classify_cached(msg: str, qa_opts_str: str) -> tuple:
     prompt = f"""
 Classify the user's last message. Return JSON with:
 - language: "en" or "es"
-- intent: one of ["greeting","smalltalk","architecture","diagram","asr","tactics","style","other"]
+- intent: one of ["greeting","smalltalk","architecture","diagram","asr","tactics","style","tech","other"]
+  Use "tech" when the user asks about concrete technologies, frameworks, libraries, tools, or tech stack to implement the architecture.
 - use_rag: true if this is a software-architecture question (ADD, tactics, latency, scalability,
-  quality attributes, views, styles, diagrams, ASR), else false.
+  quality attributes, views, styles, diagrams, ASR, technologies, frameworks), else false.
 - quality_attribute: one of [{qa_opts_str}].
   Use "general" only if no clear quality attribute is requested.
 
@@ -147,7 +148,18 @@ def classifier_node(state: GraphState) -> GraphState:
     ]
     if any(k in low for k in tactics_triggers):
         intent = "tactics"
-    
+
+    tech_triggers = [
+        "tecnología", "tecnologias", "tecnologías", "technology", "tech stack",
+        "framework", "library", "librería", "herramienta", "tool", "tools",
+        "implementación", "implementacion", "implementation",
+        "qué usar", "que usar", "what to use", "which library", "which framework",
+        "propón tecnologías", "propón tecnologias", "propose technologies",
+        "stack tecnológico", "stack tecnologico",
+    ]
+    if any(k in low for k in tech_triggers) and intent not in ("asr", "style", "tactics"):
+        intent = "tech"
+
     diagram_keywords = [
         "component diagram", "diagram", "diagrama", "diagrama de componentes",
         "diagrama de despliegue", "deployment diagram",
@@ -219,6 +231,7 @@ def classifier_node(state: GraphState) -> GraphState:
         "asr",
         "tactics",
         "style",
+        "tech",
     ] else "general",
 
         "force_rag": bool(use_rag),

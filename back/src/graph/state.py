@@ -17,6 +17,7 @@ class supervisorResponse(TypedDict):
         "tactics",
         "asr",
         "style",
+        "tech",
         "unifier",
     ]
 
@@ -39,7 +40,8 @@ supervisorSchema = {
                 "asr",
                 "diagram_agent",
                 "tactics",
-                "style"
+                "style",
+                "tech"
             ]
         }
     },
@@ -82,7 +84,7 @@ investigatorSchema = {
 
 class ClassifyOut(TypedDict):
     language: Literal["en","es"]
-    intent: Literal["greeting","smalltalk","architecture","diagram","asr","tactics","style","other"]
+    intent: Literal["greeting","smalltalk","architecture","diagram","asr","tactics","style","tech","other"]
     use_rag: bool
     quality_attribute: str
 
@@ -142,12 +144,14 @@ class GraphState(TypedDict):
     hasVisitedEvaluator: bool
     hasVisitedASR: bool
     hasVisitedDiagram: bool
+    hasVisitedTech: bool
     
     nextNode: Literal[
         "investigator", "evaluator", "diagram_agent",
         "tactics", "asr", "style", "unifier",
         "style_tactics_parallel",  # transient: emitido por supervisor, consumido por router
         "intake",
+        "tech",
     ]
 
     # planificación multi-intent por turno
@@ -178,7 +182,7 @@ class GraphState(TypedDict):
 
     # control de idioma/intención/forcing RAG
     language: Literal["en","es"]
-    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style","intake"]
+    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style","intake","tech"]
     force_rag: bool
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 

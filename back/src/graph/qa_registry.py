@@ -152,3 +152,11 @@ def tactics_node_name_for_qa(qa_id: str) -> str:
     if qa == "general":
         return "tactics"
     return f"tactics_{qa_to_node_suffix(qa)}"
+
+
+def tech_node_name_for_qa(qa_id: str) -> str:
+    """Devuelve nombre de nodo tech para un QA canónico."""
+    qa = normalize_qa(qa_id)
+    if qa == "general":
+        return "tech"
+    return f"tech_{qa_to_node_suffix(qa)}"
