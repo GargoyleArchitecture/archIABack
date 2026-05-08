@@ -157,12 +157,14 @@ def tech_node_impl(
             if lang == "es"
             else "I need you to confirm tactics before proposing technologies."
         )
+        # hasVisitedTech=True so _augment_completed_nodes marks 'tech' complete
+        # and supervisor routes to unifier instead of looping back here.
         return {
             **state,
             "endMessage": msg,
             "nextNode": "unifier",
             "intent": "tech",
-            "hasVisitedTech": False,
+            "hasVisitedTech": True,
         }
 
     if lang == "en":

@@ -19,6 +19,19 @@ from src.graph.qa_registry import prefer_specific_qa
 
 log = logging.getLogger("context_loader")
 
+# Maps old uppercase Phase values (pre-M2) stored in persisted ledgers
+# to the new lowercase snake_case values. Applied on every ledger load so
+# stale DBs don't require manual migration.
+_LEGACY_PHASE_MAP: dict[str, str] = {
+    "INTAKE":   "diagnosis",
+    "ASR":      "asr_table",
+    "STYLE":    "style_table",
+    "TACTICS":  "tactics_table",
+    "DIAGRAM":  "diagram",
+    "ANALYSIS": "analysis",
+    "DONE":     "done",
+}
+
 
 def _mirror_legacy(active: dict, updates: dict) -> None:
     """Copy active ledger decisions into legacy scalar fields.
@@ -112,7 +125,8 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             updates["ledger"]                 = ledger
             updates["ledger_active"]          = active
             updates["design_dossier_md"]      = render_dossier(ledger, lang=lang)
-            updates["current_phase"]          = ledger.get("current_phase") or "intro"
+            raw_phase = ledger.get("current_phase") or "intro"
+            updates["current_phase"]          = _LEGACY_PHASE_MAP.get(raw_phase, raw_phase)
             updates["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
             updates["ledger_phase_prompt"]    = render_phase_prompt(ledger, lang=lang)
             updates["ledger_pending_advance"] = ledger.get("pending_advance") or {}
