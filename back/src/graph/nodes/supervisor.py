@@ -6,6 +6,7 @@ from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, supervisorSchema
 from src.graph.nodes.classifier import FOLLOWUP_PATTERNS
 from src.graph.utils import is_explicit_asr_request
+from src.graph.consts import PHASE_INT, FUNNEL_INTENT_MIN_PHASE, PHASE_DISPLAY, PHASE_NEXT_TASK
 import logging
 
 log = logging.getLogger("graph")
@@ -75,6 +76,31 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
     if state.get("hasVisitedDiagram"):
         _append_unique(out, "diagram_agent")
     return out
+
+def _build_block_message(current_phase: str, requested_phase: str, lang: str) -> str:
+    cur_display = PHASE_DISPLAY.get(current_phase, {}).get(lang, current_phase)
+    req_display = PHASE_DISPLAY.get(requested_phase, {}).get(lang, requested_phase)
+    cur_task    = PHASE_NEXT_TASK.get(current_phase, {}).get(lang, "")
+
+    if lang == "es":
+        lines = [
+            f"Estamos en la fase de **{cur_display}**.",
+            f"Para llegar a **{req_display}** primero necesitamos completar la fase actual.",
+        ]
+        if cur_task:
+            lines.append(f"La tarea pendiente ahora es: *{cur_task}*.")
+        lines.append("¿Continuamos?")
+    else:
+        lines = [
+            f"We are currently in the **{cur_display}** phase.",
+            f"To reach **{req_display}** we need to complete the current phase first.",
+        ]
+        if cur_task:
+            lines.append(f"The pending task right now is: *{cur_task}*.")
+        lines.append("Shall we continue?")
+
+    return "\n\n".join(lines)
+
 
 def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> list[str]:
     low = (uq or "").lower()
@@ -201,6 +227,29 @@ def supervisor_node(state: GraphState):
     state_lang = state.get("language") or detect_lang(uq)
     state_lang = "es" if state_lang == "es" else "en"
 
+    # ─── M1: Gate de fase ADD 3.0 ───────────────────────────────────────────
+    current_phase = (state.get("current_phase") or "intro")
+    intent_raw = (state.get("intent") or "")
+    min_phase_key = FUNNEL_INTENT_MIN_PHASE.get(intent_raw)
+
+    if min_phase_key and PHASE_INT.get(current_phase, 0) < PHASE_INT[min_phase_key]:
+        block_text = _build_block_message(current_phase, min_phase_key, state_lang)
+        _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
+        _sugs_en = ["Yes, let's continue", "I want to change the system context"]
+        return {
+            **state,
+            "endMessage": block_text,
+            "nextNode": "unifier",
+            "intent": "intake",
+            "language": state_lang,
+            "suggestions": _sugs_es if state_lang == "es" else _sugs_en,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": [],
+            "phase_redirect_hint": "",
+        }
+    # ────────────────────────────────────────────────────────────────────────
+
     # Estado multi-intent del turno
     completed_nodes = _augment_completed_nodes(state, list(state.get("completed_nodes", []) or []))
     pending_nodes = list(state.get("pending_nodes", []) or [])
@@ -310,6 +359,17 @@ def supervisor_node(state: GraphState):
         next_node = "investigator"
         intent_val = "architecture"
 
+    # M1: redirect hint para respuestas de smalltalk/general (unifier lo añade al final)
+    free_intents = {"smalltalk", "general", "greeting", "architecture"}
+    phase_redirect = ""
+    if intent_raw in free_intents:
+        task = PHASE_NEXT_TASK.get(current_phase, {}).get(state_lang, "")
+        if task:
+            if state_lang == "es":
+                phase_redirect = f"> **Nota:** Cuando quieras, podemos continuar con: *{task}*."
+            else:
+                phase_redirect = f"> **Note:** Whenever you're ready, we can continue with: *{task}*."
+
     return {
         **state,
         "localQuestion": local_q,
@@ -319,4 +379,5 @@ def supervisor_node(state: GraphState):
         "requested_nodes": requested_nodes,
         "pending_nodes": pending_nodes,
         "completed_nodes": completed_nodes,
+        "phase_redirect_hint": phase_redirect,
     }

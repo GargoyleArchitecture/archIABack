@@ -346,6 +346,9 @@ async def unifier_node(state: GraphState) -> GraphState:
             )
 
         end_text = hello + "\n\n" + footer
+        redirect = (state.get("phase_redirect_hint") or "").strip()
+        if redirect:
+            end_text = end_text + "\n\n" + redirect
         state["suggestions"] = nexts
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
@@ -424,6 +427,9 @@ SOURCE:
     resp = await llm.ainvoke(apply_mode_prompt(state, prompt))
     final_text = getattr(resp, "content", str(resp))
     final_text = _strip_mermaid_artifacts(final_text)
+    redirect = (state.get("phase_redirect_hint") or "").strip()
+    if redirect:
+        final_text = final_text + "\n\n" + redirect
 
     secs = _split_sections(final_text)
     chips = []

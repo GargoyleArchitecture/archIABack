@@ -94,6 +94,7 @@ async def boot_node(state: GraphState) -> GraphState:
         "hasVisitedTech": False,
         "diagram": {},
         "endMessage": "",
+        "phase_redirect_hint": "",
         "requested_nodes": [],
         "pending_nodes": [],
         "completed_nodes": [],

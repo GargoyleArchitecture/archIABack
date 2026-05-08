@@ -166,7 +166,7 @@ class GraphState(TypedDict):
     imagePath2: str
 
     endMessage: str
-
+    phase_redirect_hint: str
 
     diagram: dict
 

@@ -237,3 +237,41 @@ ANALYZE_PREFIX = (
     "Compare two diagrams for the SAME component/system. Identify mismatches, missing elements and how they affect quality attributes."
 )
 
+# ========== ADD 3.0 phase gating (M1) ==========
+
+PHASE_INT: dict[str, int] = {
+    "intro": 0, "diagnosis": 1, "asr_table": 2, "style_table": 3,
+    "tactics_table": 4, "tech_proposals": 5, "diagram": 6, "analysis": 7, "done": 8,
+}
+
+FUNNEL_INTENT_MIN_PHASE: dict[str, str] = {
+    "asr":     "asr_table",
+    "style":   "style_table",
+    "tactics": "tactics_table",
+    "tech":    "tech_proposals",
+    "diagram": "diagram",
+}
+
+PHASE_DISPLAY: dict[str, dict[str, str]] = {
+    "intro":          {"es": "introducción",               "en": "introduction"},
+    "diagnosis":      {"es": "diagnóstico",                "en": "diagnosis"},
+    "asr_table":      {"es": "selección de ASRs",          "en": "ASR selection"},
+    "style_table":    {"es": "selección de estilo",        "en": "style selection"},
+    "tactics_table":  {"es": "selección de tácticas",      "en": "tactic selection"},
+    "tech_proposals": {"es": "propuesta de tecnologías",   "en": "technology proposals"},
+    "diagram":        {"es": "diagrama de arquitectura",   "en": "architecture diagram"},
+    "analysis":       {"es": "análisis",                   "en": "analysis"},
+    "done":           {"es": "completado",                 "en": "done"},
+}
+
+PHASE_NEXT_TASK: dict[str, dict[str, str]] = {
+    "intro":          {"es": "iniciar el proceso con el diagnóstico del sistema",         "en": "begin the process with the system diagnosis"},
+    "diagnosis":      {"es": "completar el diagnóstico del sistema",                      "en": "complete the system diagnosis"},
+    "asr_table":      {"es": "confirmar los ASRs de calidad del proyecto",                "en": "confirm the project quality ASRs"},
+    "style_table":    {"es": "seleccionar el estilo arquitectónico para los ASRs",        "en": "select the architecture style for the ASRs"},
+    "tactics_table":  {"es": "confirmar las tácticas de diseño para el estilo elegido",  "en": "confirm design tactics for the chosen style"},
+    "tech_proposals": {"es": "revisar las tecnologías propuestas para las tácticas",     "en": "review the proposed technologies for the tactics"},
+    "diagram":        {"es": "generar el diagrama de arquitectura",                       "en": "generate the architecture diagram"},
+    "analysis":       {"es": "analizar la arquitectura resultante",                       "en": "analyze the resulting architecture"},
+    "done":           {"es": "revisar el dossier completo del proyecto",                  "en": "review the complete project dossier"},
+}
