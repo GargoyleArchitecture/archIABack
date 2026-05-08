@@ -65,6 +65,22 @@ def _mirror_legacy(active: dict, updates: dict) -> None:
             updates["tactics_list"]   = [
                 t.get("name", "") for t in items if isinstance(t, dict)
             ]
+            # Populate ADD 3.0 fields so the tech gate passes and
+            # _build_selected_context can resolve names from IDs.
+            # Assign stable fallback IDs (TAC-N) to items that lack one.
+            candidates = []
+            ids = []
+            for i, t in enumerate(items, 1):
+                if not isinstance(t, dict):
+                    continue
+                item = dict(t)
+                if not item.get("id"):
+                    item["id"] = f"TAC-{i}"
+                candidates.append(item)
+                ids.append(item["id"])
+            if ids:
+                updates["tactics_candidates"] = candidates
+                updates["selected_tactics"]   = ids
 
 
 def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState:
