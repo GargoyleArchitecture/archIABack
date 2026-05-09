@@ -99,6 +99,19 @@ _WELCOME_EN = (
     "Let's start with the first one:"
 )
 
+_INTRO_ADD30_ES = (
+    "Soy ArchIA, tu guía para el proceso de diseño arquitectónico siguiendo ADD 3.0 del SEI.\n\n"
+    "Te voy a entregar estilos arquitectónicos y tácticas priorizadas asociadas a los ASRs de tu proyecto.\n\n"
+    "Lo haremos en fases secuenciales: diagnóstico → ASRs → estilo → tácticas → tecnologías.\n\n"
+    "Empecemos con la primera pregunta del diagnóstico:"
+)
+_INTRO_ADD30_EN = (
+    "I'm ArchIA, your guide for architectural design following ADD 3.0 from the SEI.\n\n"
+    "I will deliver architectural styles and prioritized tactics associated with your project's ASRs.\n\n"
+    "We'll work through sequential phases: diagnosis → ASRs → style → tactics → technologies.\n\n"
+    "Let's begin with the first diagnostic question:"
+)
+
 
 def _welcome_message(lang: str) -> str:
     return _WELCOME_ES if lang == "es" else _WELCOME_EN
@@ -265,6 +278,20 @@ async def intake_node(state: GraphState) -> GraphState:
                 ))
             except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
                 log.warning("intake_node: intro→diagnosis transition failed (nonfatal): %s", _exc)
+
+    # M6: Auto-introducción ADD 3.0 — ocurre exactamente una vez
+    if (state.get("current_phase") or "") == "intro":
+        _intro = _INTRO_ADD30_ES if lang == "es" else _INTRO_ADD30_EN
+        _q0 = INTAKE_SCRIPT[0][f"question_{lang}"]
+        return {
+            **state,
+            "intake_fields": intake_fields,
+            "intake_current_field": 0,
+            "intake_complete": False,
+            "endMessage": f"{_intro}\n\n{_q0}",
+            "nextNode": "unifier",
+            "intent": "intake",
+        }
 
     # Rama A: intake completo — procesar respuesta del arquitecto sobre ASRs
     if intake_complete:
