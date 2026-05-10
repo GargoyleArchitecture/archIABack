@@ -11,6 +11,7 @@ from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
     is_explicit_asr_request,
+    is_asr_regenerate_request,
     _sanitize_response,
     _strip_tactics_sections,
 )
@@ -326,16 +327,29 @@ def asr_node(state: GraphState) -> GraphState:
     explicit_asr_request = is_explicit_asr_request(uq)
 
     if existing_asr and not explicit_asr_request:
-        log.info("asr_node: preserving existing ASR for non-ASR follow-up")
+        log.info("asr_node: re-rendering existing ASR (no explicit request to change)")
         requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
         pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
         return {
             **state,
             "requested_nodes": requested_nodes,
             "pending_nodes": pending_nodes,
-            "endMessage": "",
+            "endMessage": existing_asr,
             "nextNode": "unifier",
         }
+
+    # ── Regeneration: clear downstream state (P8) ─────────────────────────
+    _is_regenerate = is_asr_regenerate_request(uq)
+    if _is_regenerate:
+        log.info("asr_node: regeneration requested — clearing downstream state")
+        state["asr_candidates"] = []
+        state["selected_asrs"] = []
+        state["style_candidates"] = []
+        state["selected_style"] = ""
+        state["selected_tactics"] = []
+        state["tactics_candidates"] = []
+        state["tech_candidates"] = []
+        state["current_phase"] = "asr_table"
 
     # Heurística del atributo
     concern = (
@@ -628,6 +642,7 @@ Rules:
 
     if _user_id and not _asr_discarded:
         try:
+            _asr_payload = _build_asr_payload(content, domain)
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "asr",
@@ -635,7 +650,7 @@ Rules:
                 "iteration":        0,
                 "qa":               qa_pipeline,
                 "parents":          [],
-                "payload":          _build_asr_payload(content, domain),
+                "payload":          _asr_payload,
                 "rationale":        "",
                 "sources":          _build_sources_from_docs(docs_list),
                 "status":           "active",
@@ -651,6 +666,19 @@ Rules:
                 _saved["id"], qa_pipeline, _project_id,
             )
             _refresh_ledger_state(state, _user_id, _project_id, lang)
+
+            # ── Populate asr_candidates (P8) ───────────────────────────────
+            _asr_entry = {
+                "id": _saved["id"],
+                "qa": qa_pipeline,
+                "scenario": _clip_text(content.strip().split("\n")[0], 200),
+                "payload": _asr_payload,
+            }
+            if _is_regenerate:
+                state["asr_candidates"] = [_asr_entry]
+            else:
+                state["asr_candidates"] = (state.get("asr_candidates") or []) + [_asr_entry]
+
         except LedgerValidationError as _exc:
             log.warning("asr_node: ledger validation error (nonfatal): %s", _exc)
         except LedgerConcurrencyError as _exc:
