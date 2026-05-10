@@ -68,6 +68,131 @@ def _is_digression(uq: str) -> bool:
         return False
     return bool(_DIGRESSION_QUESTION_RE.search(uq)) or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
 
+# ---------------------------------------------------------------------------
+# Baseline extraction: parse campo_4_ambientes into structured metrics
+# ---------------------------------------------------------------------------
+
+_BASELINE_METRIC_RE = re.compile(
+    r"(?P<metric>latenci[ay]|latency|p\d{1,2}|throughput|rps|tps|"
+    r"disponibilidad|availability|usuarios?|users?|"
+    r"error\s*rate|tasa\s*de\s*error|uptime|"
+    r"concurrent|concurrentes?|requests?)"
+    r"\s*(?P<op>[<>]=?|[=:])\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>%|ms|s|rps|tps|k|m)?",
+    re.IGNORECASE,
+)
+
+_BASELINE_BARE_METRIC_RE = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>ms|rps|tps|%)\b",
+    re.IGNORECASE,
+)
+
+_BASELINE_VALUE_FIRST_RE = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s+"
+    r"(?P<metric>usuarios?|users?|concurrent|concurrentes?|requests?|rps|tps)\b",
+    re.IGNORECASE,
+)
+
+_NORMAL_LABEL_RE = re.compile(
+    r"\b(normal|carga\s+normal|normal\s+load|operaci[oó]n\s+normal|baseline)\b",
+    re.IGNORECASE,
+)
+_OVERLOAD_LABEL_RE = re.compile(
+    r"\b(sobrecarga|overload|pico|peak|spike|burst|estr[eé]s|stress)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_metrics_from_segment(text: str) -> list[dict]:
+    """Extract metric dicts from a text segment."""
+    results: list[dict] = []
+    matched_spans: set[tuple[int, int]] = set()
+
+    for m in _BASELINE_METRIC_RE.finditer(text):
+        raw_metric = m.group("metric").lower().strip()
+        val_str = m.group("value").replace(",", ".")
+        results.append({
+            "metric": raw_metric,
+            "value": float(val_str),
+            "unit": (m.group("unit") or "").lower(),
+            "operator": m.group("op").replace(":", "=").replace("=", "<") if m.group("op") in (":", "=") else m.group("op"),
+        })
+        matched_spans.add((m.start(), m.end()))
+
+    for m in _BASELINE_BARE_METRIC_RE.finditer(text):
+        if any(s <= m.start() < e for s, e in matched_spans):
+            continue
+        val_str = m.group("value").replace(",", ".")
+        unit = m.group("unit").lower()
+        metric = "latency" if unit == "ms" else ("latency_s" if unit == "s" else "throughput" if unit in ("rps", "tps") else "percent")
+        results.append({
+            "metric": metric,
+            "value": float(val_str),
+            "unit": unit,
+            "operator": "<" if unit in ("ms", "s") else ">=",
+        })
+
+    if not results:
+        for m in _BASELINE_VALUE_FIRST_RE.finditer(text):
+            val_str = m.group("value").replace(",", ".")
+            raw_metric = m.group("metric").lower().strip()
+            results.append({
+                "metric": raw_metric,
+                "value": float(val_str),
+                "unit": "",
+                "operator": ">=",
+            })
+    return results
+
+
+def _extract_baseline(campo_4: str) -> dict:
+    """Parse campo_4_ambientes into a structured baseline dict.
+
+    Tries to split the text into normal/overload segments and extract
+    numeric metrics from each. Falls back to raw text if parsing fails.
+    """
+    if not campo_4 or not campo_4.strip():
+        return {"raw": "", "parsed": False}
+
+    text = campo_4.strip()
+
+    segments = re.split(r"[;|]|\n", text)
+
+    normal_metrics: list[dict] = []
+    overload_metrics: list[dict] = []
+    unclassified_metrics: list[dict] = []
+
+    for seg in segments:
+        seg_clean = seg.strip()
+        if not seg_clean:
+            continue
+        metrics = _parse_metrics_from_segment(seg_clean)
+        if not metrics:
+            continue
+        if _OVERLOAD_LABEL_RE.search(seg_clean):
+            overload_metrics.extend(metrics)
+        elif _NORMAL_LABEL_RE.search(seg_clean):
+            normal_metrics.extend(metrics)
+        else:
+            unclassified_metrics.extend(metrics)
+
+    if not normal_metrics and not overload_metrics and not unclassified_metrics:
+        return {"raw": text, "parsed": False}
+
+    if not normal_metrics and unclassified_metrics:
+        normal_metrics = unclassified_metrics
+        unclassified_metrics = []
+
+    return {
+        "parsed": True,
+        "normal_load": normal_metrics,
+        "overload": overload_metrics,
+        "raw": text,
+    }
+
+
 _ASR_QUESTION_ES = (
     "Ya tengo toda la información necesaria. "
     "¿Quieres que proponga los ASRs o ya tienes alguno definido?"
@@ -373,12 +498,15 @@ async def intake_node(state: GraphState) -> GraphState:
                 except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
                     log.warning("intake_node: ledger error (nonfatal): %s", _exc)
 
+            _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+
             _a2: dict = {
                 **state,
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
                 "current_phase": "asr_table",  # mirror ledger transition so supervisor skips diagnosis gate
+                "normal_operation_baseline": _baseline,
                 "endMessage": "",         # asr_node will set the real response
                 "nextNode": "asr",
                 "intent": "asr",
