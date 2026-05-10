@@ -24,6 +24,7 @@ from src.ledger.store import (
     append_decision,
     clear_pending_advance,
     compute_active_view,
+    get_all_active_asrs,
     is_phase_complete,
     load_ledger,
     reject_decision,
@@ -48,7 +49,7 @@ __all__ = [
     # store
     "load_ledger", "save_ledger", "append_decision", "reject_decision",
     "transition_phase", "stage_pending_advance", "clear_pending_advance",
-    "compute_active_view", "is_phase_complete",
+    "compute_active_view", "get_all_active_asrs", "is_phase_complete",
     # render
     "render_dossier", "render_dossier_compact", "render_phase_prompt",
 ]

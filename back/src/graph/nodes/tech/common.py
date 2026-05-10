@@ -16,6 +16,7 @@ from src.graph.nodes.tactics.common import resolve_qa_for_tactics, _refresh_ledg
 from src.ledger import (
     append_decision,
     compute_active_view,
+    get_all_active_asrs,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
@@ -227,6 +228,32 @@ def tech_node_impl(
             f'{"=" * 60}\n'
         )
 
+    # ── Multi-ASR priority constraint (P7) ─────────────────────────────────
+    _ledger = state.get("ledger") or {}
+    _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
+    _priority_block = ""
+    if _all_asrs:
+        _top_qa = _all_asrs[0].get("qa", "")
+        if _top_qa:
+            if lang == "en":
+                _priority_block = (
+                    f'\n{"=" * 60}\n'
+                    f'PRIORITY CONSTRAINT (P7):\n'
+                    f'  Highest-priority QA: {_top_qa}\n'
+                    f'  If a technology negatively impacts "{_top_qa}", add a\n'
+                    f'  "priority_conflict" field (one sentence) to its JSON entry.\n'
+                    f'{"=" * 60}\n'
+                )
+            else:
+                _priority_block = (
+                    f'\n{"=" * 60}\n'
+                    f'RESTRICCIÓN DE PRIORIDAD (P7):\n'
+                    f'  QA de mayor prioridad: {_top_qa}\n'
+                    f'  Si una tecnología impacta negativamente "{_top_qa}", agrega un\n'
+                    f'  campo "priority_conflict" (una oración) en su entrada JSON.\n'
+                    f'{"=" * 60}\n'
+                )
+
     prompt = f"""{directive}
 You are an architecture technology advisor following ADD 3.0.
 
@@ -234,6 +261,7 @@ Your job is to propose CONCRETE technologies that implement the CONFIRMED archit
 Each technology must directly trace back to one tactic and one ASR.
 {proj_ctx_block}
 {binding_block}
+{_priority_block}
 ## ADD 3.0 Decision Chain (confirmed by user)
 {decision_chain or "(no prior decisions in state)"}
 

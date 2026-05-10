@@ -14,6 +14,7 @@ from src.graph.utils import _dedupe_snippets
 from src.ledger import (
     append_decision,
     compute_active_view,
+    get_all_active_asrs,
     load_ledger,
     render_dossier,
     render_dossier_compact,
@@ -143,6 +144,62 @@ def _build_asr_parent_ref(ledger_active: dict) -> list:
     return [{"id": asr["id"], "kind": "asr", "iteration": asr.get("iteration", 0)}]
 
 
+def _build_multi_asr_constraint_block(all_asrs: list[dict], lang: str) -> str:
+    """Prompt block listing all active ASRs with priority — #1 is highest."""
+    if not all_asrs or len(all_asrs) < 2:
+        return ""
+    lines = []
+    for i, asr in enumerate(all_asrs, 1):
+        qa = asr.get("qa", "")
+        payload = asr.get("payload") or {}
+        rm = payload.get("response_measure", "")
+        summary = (payload.get("summary") or "")[:100]
+        lines.append(f"  {i}. [{asr.get('id','')}] QA={qa} | RM={rm} | {summary}")
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'ALL ACTIVE ASRs (ordered by priority, #1 = highest):\n'
+            + "\n".join(lines) + "\n\n"
+            f'CONSTRAINT: Do NOT propose any style that degrades the quality '
+            f'attribute of ASR #1 ({all_asrs[0].get("qa","")}).\n'
+            f'If a style benefits a lower-priority ASR but harms ASR #1, '
+            f'EXCLUDE it from candidates.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'TODOS LOS ASRs ACTIVOS (ordenados por prioridad, #1 = máxima):\n'
+        + "\n".join(lines) + "\n\n"
+        f'RESTRICCIÓN: NO propongas ningún estilo que degrade el atributo de '
+        f'calidad del ASR #1 ({all_asrs[0].get("qa","")}).\n'
+        f'Si un estilo beneficia un ASR de menor prioridad pero perjudica al '
+        f'ASR #1, EXCLÚYELO de los candidatos.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _check_style_conflicts(data: dict, all_asrs: list[dict]) -> str:
+    """Return the name of a conflicting style if its impact mentions
+    degrading the highest-priority ASR's QA. Returns '' if clean."""
+    if not all_asrs:
+        return ""
+    top_qa = (all_asrs[0].get("qa") or "").lower()
+    if not top_qa:
+        return ""
+    negative_indicators = [
+        "degrad", "harm", "sacrifice", "reduce", "worsen",
+        "perjudic", "degrada", "sacrific", "afect", "comprom",
+    ]
+    for style_key in ("style_1", "style_2"):
+        style = data.get(style_key) or {}
+        impact = (style.get("impact") or "").lower()
+        if top_qa not in impact:
+            continue
+        if any(neg in impact for neg in negative_indicators):
+            return style.get("name", style_key)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Ledger state refresh (Step 2 — P4)
 # ---------------------------------------------------------------------------
@@ -255,6 +312,11 @@ the specific technologies listed. Business rules must be respected in all trade-
         state.get("ledger_active") or {}, lang
     )
 
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────���──
+    _ledger = state.get("ledger") or {}
+    _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
+    multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
+
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
 
@@ -264,6 +326,7 @@ and then recommend which of them is BETTER to satisfy this ASR,
 explaining the recommendation in terms of its impact on the system and the quality attribute.
 {proj_ctx_block}
 {dossier_binding_block}
+{multi_asr_block}
 Quality attribute focus (e.g., availability, performance, latency, security, etc.):
 {qa}
 
@@ -404,6 +467,21 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
         f"**{chosen_name}** {because}:\n\n"
         f"{rationale}\n"
     )
+
+    # ── Post-LLM consistency check (P7) ────────────────────────────────────
+    _conflict_style = _check_style_conflicts(data, _all_asrs)
+    if _conflict_style:
+        _top_qa = _all_asrs[0].get("qa", "")
+        if lang == "es":
+            content += (
+                f"\n\n---\n⚠️ **Nota de consistencia:** El estilo \"{_conflict_style}\" "
+                f"podría afectar el ASR de mayor prioridad ({_top_qa})."
+            )
+        else:
+            content += (
+                f"\n\n---\n⚠️ **Consistency note:** Style \"{_conflict_style}\" "
+                f"may affect the highest-priority ASR ({_top_qa})."
+            )
 
     state["turn_messages"] = state.get("turn_messages", []) + [
         {"role": "assistant", "name": "style_recommender", "content": content}

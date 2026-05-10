@@ -308,6 +308,14 @@ def compute_active_view(ledger: DesignLedger) -> dict[str, Any]:
     return active
 
 
+def get_all_active_asrs(ledger: DesignLedger) -> list[dict]:
+    """Return all active ASR decisions, ordered by creation (earliest first)."""
+    return [
+        d for d in ledger.get("decisions", [])
+        if d.get("kind") == "asr" and d.get("status") == "active"
+    ]
+
+
 def is_phase_complete(ledger: DesignLedger, phase: Phase) -> bool:
     """Check whether the given phase has been completed in the ledger."""
     active = compute_active_view(ledger)

@@ -27,6 +27,7 @@ from src.graph.qa_registry import normalize_qa
 from src.ledger import (
     append_decision,
     compute_active_view,
+    get_all_active_asrs,
     load_ledger,
     render_dossier,
     render_dossier_compact,
@@ -242,6 +243,59 @@ def _validate_tactic_traces(items: list, response_measure: str) -> list:
     return items
 
 
+def _build_multi_asr_tactics_constraint(all_asrs: list[dict], lang: str) -> str:
+    """Prompt block: flag tactics that conflict with the highest-priority ASR."""
+    if not all_asrs:
+        return ""
+    top_asr = all_asrs[0]
+    top_qa = top_asr.get("qa", "")
+    top_rm = (top_asr.get("payload") or {}).get("response_measure", "")
+    if not top_qa:
+        return ""
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'HIGHEST-PRIORITY ASR CONSTRAINT:\n'
+            f'  QA: {top_qa}\n'
+            f'  Response Measure: {top_rm}\n\n'
+            f'RULE: If a tactic conflicts with "{top_qa}", it MAY still appear '
+            f'in the list, but you MUST add a "conflict_note" field (one sentence) '
+            f'explaining the tradeoff. The architect decides — do not hide options.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'RESTRICCIÓN DEL ASR DE MAYOR PRIORIDAD:\n'
+        f'  QA: {top_qa}\n'
+        f'  Medida de Respuesta: {top_rm}\n\n'
+        f'REGLA: Si una táctica conflictúa con "{top_qa}", PUEDE seguir en la lista, '
+        f'pero DEBES agregar un campo "conflict_note" (una oración) explicando el '
+        f'tradeoff. El arquitecto decide — no ocultes opciones.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _render_conflict_flags(struct: list, all_asrs: list[dict], lang: str) -> str:
+    """If any tactic has a conflict_note, build a visible warning block."""
+    if not all_asrs:
+        return ""
+    top_qa = all_asrs[0].get("qa", "")
+    notes = []
+    for item in struct:
+        if not isinstance(item, dict):
+            continue
+        cn = (item.get("conflict_note") or "").strip()
+        if cn:
+            notes.append(f"- **{item.get('name', '?')}**: {cn}")
+    if not notes:
+        return ""
+    if lang == "es":
+        header = f"\n\n---\n⚠️ **Conflictos con ASR prioritario ({top_qa}):**\n"
+    else:
+        header = f"\n\n---\n⚠️ **Conflicts with highest-priority ASR ({top_qa}):**\n"
+    return header + "\n".join(notes)
+
+
 # ---------------------------------------------------------------------------
 # Ledger state refresh (Step 5 — P4)
 # ---------------------------------------------------------------------------
@@ -382,6 +436,11 @@ Mention specific technologies from the stack when describing how each tactic wou
     _active_asr = (state.get("ledger_active") or {}).get("asr")
     _response_measure = ((_active_asr or {}).get("payload") or {}).get("response_measure", "")
 
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────────
+    _ledger = state.get("ledger") or {}
+    _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
+    multi_asr_constraint = _build_multi_asr_tactics_constraint(_all_asrs, lang)
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
@@ -389,6 +448,7 @@ We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 arch
 Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
 {proj_ctx_block}
 {dossier_binding_block}
+{multi_asr_constraint}
 Additional session context (if any):
 {ctx or "None"}
 
@@ -484,6 +544,11 @@ Example shape (values are illustrative — adjust to your tactics):
         md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
     if (not md_only) and isinstance(struct, list) and struct:
         md_only = "\n".join(f"- {it.get('name','')}: {it.get('rationale','')}" for it in struct if isinstance(it, dict))
+
+    # ── Post-LLM conflict flags (P7) ──────────────────────────────────────
+    _conflict_block = _render_conflict_flags(struct, _all_asrs, lang)
+    if _conflict_block:
+        md_only += _conflict_block
 
     src_lines = [
         _clip_text(f"- {title}{page_str} — {path}", 60)
