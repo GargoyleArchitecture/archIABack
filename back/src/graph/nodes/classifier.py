@@ -166,6 +166,20 @@ def classifier_node(state: GraphState) -> GraphState:
     # exponemos `mode_suggestion` para que el Frontend ofrezca el cambio.
     mode_suggestion = suggest_mode(msg, state.get("mode") or "professional")
 
+    # F11-T6: instrumentación de sugerencia de modo.
+    if mode_suggestion:
+        try:
+            from src.services.telemetry import emit as _emit_telemetry  # noqa: E402  (lazy import)
+            _emit_telemetry(
+                "mode_suggested",
+                user_id=state.get("user_id"),
+                current_mode=state.get("mode"),
+                suggestion=mode_suggestion,
+            )
+        except Exception:
+            # Telemetry nunca debe romper el flujo del grafo.
+            pass
+
     return {
         **state,
         "language": lang,

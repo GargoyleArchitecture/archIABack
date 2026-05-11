@@ -62,10 +62,12 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from src.graph import (
     build_graph,
+    build_routine_graph,
     get_graph,
     set_graph,
     set_store,
     make_inmemory_store,
+    set_routine_graph,
 )
 from src.rag_agent import create_or_load_vectorstore
 from src.memory import (
@@ -98,6 +100,13 @@ async def lifespan(app: FastAPI):
         compiled = build_graph(saver, store=store)
         set_graph(compiled)
         set_store(store)
+        # F5-T2: compilamos también el subgrafo de generación de retos.
+        try:
+            routine_g = build_routine_graph()
+            set_routine_graph(routine_g)
+            print("[startup] RoutineGenerator subgrafo compilado")
+        except Exception as e:
+            print(f"[startup] RoutineGenerator subgrafo NO compilado: {e}")
         try:
             create_or_load_vectorstore()
             print("[startup] RAG listo")
@@ -873,6 +882,42 @@ async def message(
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
+
+# ===================== /generate-routine (F5-T2) ============
+from pydantic import BaseModel as _BM
+from src.services.routine_generator import (
+    verify_internal_token as _verify_internal_token,
+    make_trace_id as _make_trace_id,
+    generate_routine_for_user as _generate_routine_for_user,
+)
+
+
+class GenerateRoutineRequest(_BM):
+    """F5-T2: body del endpoint POST /generate-routine."""
+    user_id: str
+    target_weakness: Optional[str] = None
+
+
+@app.post("/generate-routine")
+async def generate_routine_endpoint(request: Request, body: GenerateRoutineRequest):
+    """F5-T2: genera un reto pedagógico desde el perfil del usuario.
+
+    Auth: header `X-Internal-Token` (mismo token de F4-T2 / F3-T5).
+    Trace: usa `X-Trace-Id` si viene; si no, genera uno.
+
+    Devuelve `RoutineOutput` (title, target_weakness, expected_concepts,
+    difficulty 1..5, challenge_md, inverse_rag_snippet?). El ID y status
+    los pone Negocio al persistir (F4-T5).
+    """
+    _verify_internal_token(request)
+    trace_id = _make_trace_id(request)
+    final = await _generate_routine_for_user(
+        user_id=body.user_id,
+        target_weakness=body.target_weakness,
+        trace_id=trace_id,
+    )
+    return final.model_dump()
 
 
 # ===================== /feedback ========================

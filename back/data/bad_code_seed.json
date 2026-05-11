@@ -1,0 +1,724 @@
+[
+  {
+    "id": "acoplamiento-001",
+    "category": "acoplamiento",
+    "concept": "tight_coupling_to_concrete_dependency",
+    "severity": "high",
+    "fix_hint": "Inject the dependency as an interface and wire the concrete implementation in a composition root.",
+    "code": "class OrderService:\n    def __init__(self):\n        self.email = SmtpEmailSender()  # concrete dependency\n\n    def submit(self, order):\n        save(order)\n        self.email.send(order.user, 'Confirmed')"
+  },
+  {
+    "id": "acoplamiento-002",
+    "category": "acoplamiento",
+    "concept": "circular_dependency_between_modules",
+    "severity": "high",
+    "fix_hint": "Extract the shared abstraction into a third module that both depend on.",
+    "code": "# users.py imports billing.py imports users.py\nfrom billing import charge\n\ndef create_user(u):\n    saved = db.save(u)\n    charge(saved.id)\n\n# billing.py\nfrom users import find_user  # circular!\n\ndef charge(user_id):\n    u = find_user(user_id)\n    gateway.charge(u.card)"
+  },
+  {
+    "id": "acoplamiento-003",
+    "category": "acoplamiento",
+    "concept": "layer_violation_controller_to_repository",
+    "severity": "medium",
+    "fix_hint": "Route the call through a service layer that encapsulates business rules.",
+    "code": "@app.post('/orders')\ndef create(req):\n    # controller goes straight to the DB layer, skipping the service\n    return OrderRepository().insert(req.body)"
+  },
+  {
+    "id": "acoplamiento-004",
+    "category": "acoplamiento",
+    "concept": "service_locator_antipattern",
+    "severity": "medium",
+    "fix_hint": "Replace ServiceLocator.get() calls with constructor injection.",
+    "code": "class Checkout:\n    def run(self):\n        payments = ServiceLocator.get('payments')\n        emails = ServiceLocator.get('emails')\n        payments.charge(); emails.send()"
+  },
+  {
+    "id": "acoplamiento-005",
+    "category": "acoplamiento",
+    "concept": "inheritance_for_code_reuse_not_isa",
+    "severity": "medium",
+    "fix_hint": "Prefer composition: extract a helper/strategy and inject it instead of subclassing.",
+    "code": "class TextLogger:\n    def write(self, msg): print(msg)\n\nclass UserService(TextLogger):  # IS-A logger? no\n    def create(self, u):\n        self.write(f'creating {u.email}')\n        ..."
+  },
+  {
+    "id": "acoplamiento-006",
+    "category": "acoplamiento",
+    "concept": "boolean_flag_argument_for_control_flow",
+    "severity": "low",
+    "fix_hint": "Split into two methods or pass a strategy object.",
+    "code": "def send_invoice(user, is_admin=False):\n    if is_admin:\n        send_admin_invoice(user)\n    else:\n        send_user_invoice(user)"
+  },
+  {
+    "id": "acoplamiento-007",
+    "category": "acoplamiento",
+    "concept": "god_object_with_too_many_responsibilities",
+    "severity": "high",
+    "fix_hint": "Split by responsibility (SRP): user CRUD, billing, notifications, auth — each in its own class.",
+    "code": "class App:\n    def create_user(self, u): ...\n    def authenticate(self, u, pw): ...\n    def send_email(self, to, body): ...\n    def charge_card(self, u, amount): ...\n    def render_html(self, template, ctx): ..."
+  },
+  {
+    "id": "acoplamiento-008",
+    "category": "acoplamiento",
+    "concept": "shotgun_surgery_via_shared_dto",
+    "severity": "medium",
+    "fix_hint": "Use bounded context DTOs per module; avoid one shared mega-DTO.",
+    "code": "# Adding one field to UserDTO requires changes in 12 unrelated modules.\nclass UserDTO:\n    id: str\n    email: str\n    address: dict   # used by billing\n    cart: list      # used by checkout\n    permissions: list  # used by auth\n    avatar_url: str    # used by UI"
+  },
+  {
+    "id": "acoplamiento-009",
+    "category": "acoplamiento",
+    "concept": "static_singleton_in_business_logic",
+    "severity": "high",
+    "fix_hint": "Replace static access with an injected instance scoped to the request/transaction.",
+    "code": "class Config:\n    _instance = None\n    @classmethod\n    def get(cls): \n        if not cls._instance: cls._instance = Config()\n        return cls._instance\n\ndef ship(order):\n    region = Config.get().region  # hard to test, hard to swap\n    ..."
+  },
+  {
+    "id": "acoplamiento-010",
+    "category": "acoplamiento",
+    "concept": "global_state_via_module_variable",
+    "severity": "high",
+    "fix_hint": "Pass state explicitly or wrap it in a context object.",
+    "code": "# session.py\ncurrent_user = None\n\n# orders.py\nfrom session import current_user\n\ndef place(order):\n    if current_user is None: raise\n    ...  # impossible to unit-test deterministically"
+  },
+  {
+    "id": "acoplamiento-011",
+    "category": "acoplamiento",
+    "concept": "tight_coupling_to_orm_in_domain",
+    "severity": "high",
+    "fix_hint": "Use a repository abstraction; the domain shouldn't import ORM classes.",
+    "code": "# domain/order.py\nfrom sqlalchemy.orm import Session\n\nclass Order:\n    def fulfill(self, session: Session):\n        session.query(Item).filter_by(order_id=self.id).update(...)"
+  },
+  {
+    "id": "acoplamiento-012",
+    "category": "acoplamiento",
+    "concept": "domain_logic_inside_http_controller",
+    "severity": "high",
+    "fix_hint": "Move business rules to a service or use case; the controller only translates HTTP <-> domain.",
+    "code": "@app.post('/checkout')\ndef checkout(req):\n    if req.user.balance < req.amount: return 402\n    if req.user.region == 'EU' and req.amount > 10000: ...\n    db.execute('UPDATE accounts SET ...')\n    queue.publish('checkout.done', req.user)"
+  },
+  {
+    "id": "acoplamiento-013",
+    "category": "acoplamiento",
+    "concept": "concrete_db_calls_in_request_handler",
+    "severity": "medium",
+    "fix_hint": "Wrap persistence behind a repository or DAO interface.",
+    "code": "@app.get('/users/{id}')\ndef get_user(id):\n    cur = pg_connection.cursor()\n    cur.execute('SELECT * FROM users WHERE id=%s', (id,))\n    return cur.fetchone()"
+  },
+  {
+    "id": "acoplamiento-014",
+    "category": "acoplamiento",
+    "concept": "import_of_internal_module_state",
+    "severity": "medium",
+    "fix_hint": "Expose a public API; never import the underscore-prefixed internals of another module.",
+    "code": "from billing._private import _open_connections, _retry_count\n\ndef debug():\n    print(_open_connections, _retry_count)  # depends on internals"
+  },
+  {
+    "id": "acoplamiento-015",
+    "category": "acoplamiento",
+    "concept": "logger_concrete_instead_of_interface",
+    "severity": "low",
+    "fix_hint": "Depend on logging.Logger or an interface, not a specific provider's class.",
+    "code": "from datadog_logger import DatadogLogger\n\nclass UserService:\n    def __init__(self):\n        self.log = DatadogLogger(api_key='...')  # tied to vendor"
+  },
+  {
+    "id": "acoplamiento-016",
+    "category": "acoplamiento",
+    "concept": "concrete_message_queue_dependency",
+    "severity": "medium",
+    "fix_hint": "Depend on a Publisher interface; provide a Kafka or in-memory implementation per environment.",
+    "code": "import boto3\n\nclass OrderService:\n    def __init__(self):\n        self.sqs = boto3.client('sqs')  # locked into AWS\n\n    def publish(self, e):\n        self.sqs.send_message(QueueUrl=..., MessageBody=...)"
+  },
+  {
+    "id": "acoplamiento-017",
+    "category": "acoplamiento",
+    "concept": "event_handler_imports_publisher",
+    "severity": "high",
+    "fix_hint": "Use a pub/sub bus; the handler should never know who emitted the event.",
+    "code": "from orders import OrderService\n\ndef on_order_paid(event):\n    # handler reaches back into the publisher's module\n    OrderService.update_internal_state(event.order_id)"
+  },
+  {
+    "id": "acoplamiento-018",
+    "category": "acoplamiento",
+    "concept": "test_coupling_to_concrete_implementation",
+    "severity": "medium",
+    "fix_hint": "Test against the interface using a fake/mock; avoid asserting against private fields.",
+    "code": "def test_checkout():\n    svc = CheckoutService()\n    svc.checkout(o)\n    assert svc._email_sender._sent_count == 1  # peeking inside"
+  },
+  {
+    "id": "acoplamiento-019",
+    "category": "acoplamiento",
+    "concept": "concrete_clock_dependency",
+    "severity": "medium",
+    "fix_hint": "Inject a Clock interface so tests can freeze time.",
+    "code": "from datetime import datetime\n\ndef expire_session(s):\n    if datetime.now() > s.expires_at:  # untestable without monkeypatch\n        s.invalidate()"
+  },
+  {
+    "id": "acoplamiento-020",
+    "category": "acoplamiento",
+    "concept": "file_system_coupling_in_unit_test",
+    "severity": "low",
+    "fix_hint": "Inject a file system abstraction or use a tmpfs/in-memory FS for tests.",
+    "code": "def test_export():\n    Service().export_csv('/tmp/out.csv')\n    with open('/tmp/out.csv') as f: data = f.read()  # real disk in unit test"
+  },
+  {
+    "id": "acoplamiento-021",
+    "category": "acoplamiento",
+    "concept": "tight_coupling_to_third_party_sdk",
+    "severity": "high",
+    "fix_hint": "Wrap the SDK in your own port; depend on the port instead of the vendor classes.",
+    "code": "import stripe\n\ndef refund(order):\n    stripe.Charge.retrieve(order.charge_id).refund()  # vendor leaks everywhere"
+  },
+  {
+    "id": "acoplamiento-022",
+    "category": "acoplamiento",
+    "concept": "shared_mutable_state_between_modules",
+    "severity": "high",
+    "fix_hint": "Each module owns its own state; communicate via events or function parameters.",
+    "code": "# cart.py\nactive_carts = {}\n\n# checkout.py\nfrom cart import active_carts\n\ndef finish(uid):\n    del active_carts[uid]  # cart now broken"
+  },
+  {
+    "id": "acoplamiento-023",
+    "category": "acoplamiento",
+    "concept": "deep_inheritance_chain",
+    "severity": "medium",
+    "fix_hint": "Flatten using composition; deep hierarchies make changes propagate unpredictably.",
+    "code": "class A: pass\nclass B(A): pass\nclass C(B): pass\nclass D(C): pass\nclass E(D): pass\nclass UserModel(E):  # what does it inherit? nobody knows\n    pass"
+  },
+  {
+    "id": "acoplamiento-024",
+    "category": "acoplamiento",
+    "concept": "feature_flag_in_business_logic",
+    "severity": "medium",
+    "fix_hint": "Resolve flags at the edge (controller); pass behavior as strategy into the domain.",
+    "code": "def calculate_discount(order):\n    if FeatureFlags.is_enabled('NEW_DISCOUNT_RULE'):  # buried deep\n        return order.subtotal * 0.15\n    return order.subtotal * 0.10"
+  },
+  {
+    "id": "acoplamiento-025",
+    "category": "acoplamiento",
+    "concept": "concrete_email_provider_dependency",
+    "severity": "low",
+    "fix_hint": "Depend on EmailSender interface; the SendGrid/Mailgun choice is wiring, not domain.",
+    "code": "from sendgrid import SendGridAPIClient\n\nclass NotifyService:\n    def __init__(self, api_key):\n        self.sg = SendGridAPIClient(api_key)\n    def notify(self, to, msg):\n        self.sg.send(...)"
+  },
+  {
+    "id": "acoplamiento-026",
+    "category": "acoplamiento",
+    "concept": "controller_imports_domain_entities",
+    "severity": "low",
+    "fix_hint": "Map between HTTP DTOs and domain entities at the controller boundary.",
+    "code": "from domain.order import Order  # entity leaks to HTTP layer\n\n@app.post('/orders')\ndef create(req):\n    o = Order(**req.body)  # binding HTTP -> domain directly\n    o.persist()"
+  },
+  {
+    "id": "acoplamiento-027",
+    "category": "acoplamiento",
+    "concept": "global_singleton_registry",
+    "severity": "high",
+    "fix_hint": "Replace with a DI container scoped per request or test.",
+    "code": "REGISTRY = {}\n\ndef register(name, impl): REGISTRY[name] = impl\n\nclass Foo:\n    def run(self):\n        impl = REGISTRY['db']  # global lookup, hard to override"
+  },
+  {
+    "id": "acoplamiento-028",
+    "category": "acoplamiento",
+    "concept": "parent_module_imports_child_internals",
+    "severity": "medium",
+    "fix_hint": "Children expose a public facade; the parent never reaches inside child internals.",
+    "code": "# api/__init__.py\nfrom api.handlers._private_helpers import internal_validator  # leak"
+  },
+  {
+    "id": "acoplamiento-029",
+    "category": "acoplamiento",
+    "concept": "fat_model_owns_unrelated_business_logic",
+    "severity": "high",
+    "fix_hint": "Move workflows out of the entity; keep the entity focused on its invariants.",
+    "code": "class User:\n    def send_password_reset(self): ...\n    def charge_invoice(self): ...\n    def export_to_csv(self): ...\n    def render_avatar_html(self): ..."
+  },
+  {
+    "id": "acoplamiento-030",
+    "category": "acoplamiento",
+    "concept": "test_double_returning_real_db_object",
+    "severity": "low",
+    "fix_hint": "Build a fake at the interface boundary; never return real ORM models from a stub.",
+    "code": "class FakeRepo:\n    def find(self, id):\n        return SqlAlchemyUserRow(id=id, name='X')  # real ORM type leaks back"
+  },
+
+  {
+    "id": "escalabilidad-001",
+    "category": "escalabilidad",
+    "concept": "global_mutable_state_per_process",
+    "severity": "high",
+    "fix_hint": "Move state to a shared store (Redis, DB) so all replicas see the same view.",
+    "code": "RATE_LIMIT_COUNTERS = {}\n\ndef rate_limit(uid):\n    RATE_LIMIT_COUNTERS[uid] = RATE_LIMIT_COUNTERS.get(uid, 0) + 1\n    if RATE_LIMIT_COUNTERS[uid] > 100: raise Throttled  # only this replica knows"
+  },
+  {
+    "id": "escalabilidad-002",
+    "category": "escalabilidad",
+    "concept": "session_pinning_unnecessary",
+    "severity": "medium",
+    "fix_hint": "Move session state to a shared store; sticky sessions limit horizontal scaling.",
+    "code": "# load balancer config:\n# session_affinity: client_ip  # forces same user to same node\n# Even though the app could be stateless if sessions lived in Redis."
+  },
+  {
+    "id": "escalabilidad-003",
+    "category": "escalabilidad",
+    "concept": "shared_counter_without_atomic_op",
+    "severity": "high",
+    "fix_hint": "Use Redis INCR or DB atomic increment; race conditions corrupt the counter under load.",
+    "code": "view_count = 0\n\ndef on_view():\n    global view_count\n    current = view_count       # read\n    view_count = current + 1   # write — race window!"
+  },
+  {
+    "id": "escalabilidad-004",
+    "category": "escalabilidad",
+    "concept": "n_plus_one_orm_query",
+    "severity": "high",
+    "fix_hint": "Eager-load the relation with select_related / joinedload; one query instead of N+1.",
+    "code": "users = db.query(User).all()\nfor u in users:\n    print(u.profile.bio)  # one query per user"
+  },
+  {
+    "id": "escalabilidad-005",
+    "category": "escalabilidad",
+    "concept": "single_writer_bottleneck_to_db",
+    "severity": "high",
+    "fix_hint": "Shard writes by tenant or use append-only logs; don't funnel all writes through one row.",
+    "code": "def increment_global_counter():\n    db.execute('UPDATE counters SET value=value+1 WHERE id=1')  # contention hot spot"
+  },
+  {
+    "id": "escalabilidad-006",
+    "category": "escalabilidad",
+    "concept": "global_mutex_around_hot_section",
+    "severity": "high",
+    "fix_hint": "Use partitioned locks or lock-free structures; one global lock kills concurrency.",
+    "code": "import threading\n_LOCK = threading.Lock()\n\ndef hot_path(req):\n    with _LOCK:\n        process(req)  # serializes every single request"
+  },
+  {
+    "id": "escalabilidad-007",
+    "category": "escalabilidad",
+    "concept": "local_disk_cache_under_horizontal_scale",
+    "severity": "high",
+    "fix_hint": "Cache invalidation across replicas requires a shared cache (Redis/Memcached).",
+    "code": "CACHE = {}\n\ndef get_user(uid):\n    if uid in CACHE: return CACHE[uid]   # different per pod\n    u = db.fetch(uid); CACHE[uid] = u\n    return u"
+  },
+  {
+    "id": "escalabilidad-008",
+    "category": "escalabilidad",
+    "concept": "unbounded_queue_consumer",
+    "severity": "high",
+    "fix_hint": "Apply backpressure: bounded queue + 4xx/429 when full, or pause producers.",
+    "code": "from queue import Queue\nq = Queue()  # maxsize=0 → unbounded; consumer can OOM"
+  },
+  {
+    "id": "escalabilidad-009",
+    "category": "escalabilidad",
+    "concept": "fan_out_serial_when_could_be_parallel",
+    "severity": "medium",
+    "fix_hint": "Use asyncio.gather / Promise.all for independent calls; reduces wall time linearly.",
+    "code": "async def aggregate(uid):\n    profile = await profile_api(uid)\n    orders  = await orders_api(uid)\n    points  = await loyalty_api(uid)\n    # 3x the latency of a parallel fan-out"
+  },
+  {
+    "id": "escalabilidad-010",
+    "category": "escalabilidad",
+    "concept": "in_process_state_for_user_session",
+    "severity": "high",
+    "fix_hint": "Externalize session state to Redis; allow stateless replicas to be added on demand.",
+    "code": "SESSIONS = {}  # in-memory dict per pod\n\ndef login(user):\n    SESSIONS[user.id] = {'token': new_token()}  # gone if pod dies"
+  },
+  {
+    "id": "escalabilidad-011",
+    "category": "escalabilidad",
+    "concept": "blocking_lock_in_request_path",
+    "severity": "high",
+    "fix_hint": "Move heavy work behind an async queue; the request path must remain non-blocking.",
+    "code": "@app.post('/upload')\ndef upload(file):\n    with FILE_LOCK:                # serializes uploads\n        write_to_disk(file)\n        index_in_db(file)"
+  },
+  {
+    "id": "escalabilidad-012",
+    "category": "escalabilidad",
+    "concept": "all_writes_to_single_master",
+    "severity": "high",
+    "fix_hint": "Partition writes by tenant_id or shard key; multi-master if you can tolerate eventual consistency.",
+    "code": "PRIMARY_DB = connect('primary.example.com')  # the only writeable instance\n\ndef write(record):\n    PRIMARY_DB.execute('INSERT ...')"
+  },
+  {
+    "id": "escalabilidad-013",
+    "category": "escalabilidad",
+    "concept": "singleton_resource_in_hot_path",
+    "severity": "medium",
+    "fix_hint": "Use a connection pool; never share a single non-reentrant resource across requests.",
+    "code": "GLOBAL_HTTP = requests.Session()  # one shared session\n\ndef call(url):\n    return GLOBAL_HTTP.get(url)  # contention under load"
+  },
+  {
+    "id": "escalabilidad-014",
+    "category": "escalabilidad",
+    "concept": "in_memory_cache_no_invalidation",
+    "severity": "high",
+    "fix_hint": "Pub/sub invalidation across replicas, or pick a TTL that bounds staleness.",
+    "code": "_PRICING = {}\n\ndef get_price(sku):\n    if sku not in _PRICING:\n        _PRICING[sku] = db.fetch_price(sku)\n    return _PRICING[sku]  # never refreshed"
+  },
+  {
+    "id": "escalabilidad-015",
+    "category": "escalabilidad",
+    "concept": "db_connection_per_request_no_pool",
+    "severity": "high",
+    "fix_hint": "Use a connection pool sized to your worker count; avoid TCP/TLS handshakes per request.",
+    "code": "@app.get('/users/{id}')\ndef get(id):\n    conn = psycopg2.connect(DSN)  # new TCP each request\n    try: return conn.cursor().execute(...)\n    finally: conn.close()"
+  },
+  {
+    "id": "escalabilidad-016",
+    "category": "escalabilidad",
+    "concept": "monolithic_distributed_transaction",
+    "severity": "high",
+    "fix_hint": "Replace 2PC across services with a saga + idempotent compensations.",
+    "code": "def place_order(o):\n    with distributed_tx([orders_db, billing_db, inventory_db]):\n        orders_db.insert(o)\n        billing_db.charge(o.user)\n        inventory_db.reserve(o.items)  # blocks all three on slowest"
+  },
+  {
+    "id": "escalabilidad-017",
+    "category": "escalabilidad",
+    "concept": "unbounded_recursion_per_request",
+    "severity": "medium",
+    "fix_hint": "Replace recursion with iteration; cap depth and treat overflow as a 4xx.",
+    "code": "def render(node):\n    out = node.text\n    for child in node.children:\n        out += render(child)  # deep tree → stack overflow\n    return out"
+  },
+  {
+    "id": "escalabilidad-018",
+    "category": "escalabilidad",
+    "concept": "polling_remote_in_tight_loop",
+    "severity": "high",
+    "fix_hint": "Use webhooks or long polling; busy-loop wastes CPU and rate-limits the upstream.",
+    "code": "while not job_done(job_id):\n    sleep(0.05)  # 20 polls/sec, all replicas → upstream overload"
+  },
+  {
+    "id": "escalabilidad-019",
+    "category": "escalabilidad",
+    "concept": "central_lock_service_for_all_writes",
+    "severity": "high",
+    "fix_hint": "Partition the lock space (per tenant, per resource); a global lock service is a single point of contention.",
+    "code": "for record in batch:\n    with global_lock_service.acquire('writes'):  # everyone waits\n        record.save()"
+  },
+  {
+    "id": "escalabilidad-020",
+    "category": "escalabilidad",
+    "concept": "centralized_id_generation",
+    "severity": "medium",
+    "fix_hint": "Use UUIDv7 / Snowflake / per-shard sequences so replicas can mint IDs independently.",
+    "code": "def next_id():\n    return id_service.fetch_next()  # one RPC per insert, scales to one writer"
+  },
+  {
+    "id": "escalabilidad-021",
+    "category": "escalabilidad",
+    "concept": "sql_count_for_pagination",
+    "severity": "medium",
+    "fix_hint": "Use cursor pagination (WHERE id > last_id LIMIT N) to avoid full-table COUNT.",
+    "code": "total = db.execute('SELECT COUNT(*) FROM orders').scalar()  # full table scan\nrows = db.execute('SELECT * FROM orders LIMIT 20 OFFSET %s', (page*20,))"
+  },
+  {
+    "id": "escalabilidad-022",
+    "category": "escalabilidad",
+    "concept": "global_rate_limiter_in_app_layer",
+    "severity": "medium",
+    "fix_hint": "Push rate limiting to a stateless edge (Envoy, Nginx, API gateway) backed by Redis.",
+    "code": "_BUCKETS = {}\n\ndef check(uid):\n    b = _BUCKETS.setdefault(uid, [0, time()])\n    # local buckets diverge across replicas, allowing 5x the limit"
+  },
+  {
+    "id": "escalabilidad-023",
+    "category": "escalabilidad",
+    "concept": "eager_load_all_records_for_paginated_view",
+    "severity": "high",
+    "fix_hint": "Push pagination to the DB (LIMIT/OFFSET or cursor); never materialize the full result set in memory.",
+    "code": "def page(p, size=20):\n    all_users = db.query(User).all()  # loads N rows\n    return all_users[p*size:(p+1)*size]"
+  },
+  {
+    "id": "escalabilidad-024",
+    "category": "escalabilidad",
+    "concept": "sticky_routing_to_single_node",
+    "severity": "medium",
+    "fix_hint": "Make handlers stateless; if you must pin, partition by hash of tenant_id, not session_id.",
+    "code": "# nginx.conf\nupstream app { ip_hash; server a; server b; server c; }\n# Hot users (one big tenant) all land on one node."
+  },
+  {
+    "id": "escalabilidad-025",
+    "category": "escalabilidad",
+    "concept": "unindexed_search_on_growing_table",
+    "severity": "high",
+    "fix_hint": "Add a composite index aligned with the WHERE clause and confirm with EXPLAIN.",
+    "code": "-- table grows to millions of rows; query takes 30s\nSELECT * FROM events WHERE user_id = ? AND created_at > ?\n-- (no index on (user_id, created_at))"
+  },
+  {
+    "id": "escalabilidad-026",
+    "category": "escalabilidad",
+    "concept": "shared_thread_pool_blocking_io",
+    "severity": "high",
+    "fix_hint": "Separate pools for CPU vs IO; use async IO so a slow upstream doesn't starve everything.",
+    "code": "executor = ThreadPoolExecutor(max_workers=8)\n\ndef handle_all_requests(req):\n    executor.submit(slow_external_call, req)  # 8 hangs = full stop"
+  },
+  {
+    "id": "escalabilidad-027",
+    "category": "escalabilidad",
+    "concept": "memory_leak_via_unbounded_cache",
+    "severity": "high",
+    "fix_hint": "Use an LRU cache with a bounded size; without eviction, memory grows until OOM.",
+    "code": "CACHE = {}\n\ndef render(template_id, ctx):\n    key = (template_id, hash(repr(ctx)))\n    if key not in CACHE:\n        CACHE[key] = compile_template(template_id, ctx)\n    return CACHE[key]  # ctx values explode the keyspace"
+  },
+  {
+    "id": "escalabilidad-028",
+    "category": "escalabilidad",
+    "concept": "write_amplification_full_doc_update",
+    "severity": "medium",
+    "fix_hint": "Use partial updates ($set) or event sourcing; rewriting a 2 MB document for a flag flip is wasteful.",
+    "code": "def toggle_flag(user_id, flag):\n    user = db.find(user_id)\n    user['flags'][flag] = True\n    db.replace(user_id, user)  # rewrites the whole document"
+  },
+  {
+    "id": "escalabilidad-029",
+    "category": "escalabilidad",
+    "concept": "sequential_processing_when_independent",
+    "severity": "medium",
+    "fix_hint": "Process independent items in parallel batches; sequential loops scale O(n) when O(1) is possible.",
+    "code": "for record in records:\n    enrich(record)  # each call is 200ms; 1000 records = 200s"
+  },
+  {
+    "id": "escalabilidad-030",
+    "category": "escalabilidad",
+    "concept": "synchronous_fan_in_aggregator",
+    "severity": "medium",
+    "fix_hint": "Use a streaming aggregator (Kinesis/Kafka + windows); pulling everyone in real time doesn't scale.",
+    "code": "def get_dashboard():\n    return {svc: requests.get(svc.url + '/metrics').json() for svc in ALL_SERVICES}\n# Adding a service multiplies aggregator latency."
+  },
+
+  {
+    "id": "latencia-001",
+    "category": "latencia",
+    "concept": "n_plus_one_queries_in_view",
+    "severity": "high",
+    "fix_hint": "Use prefetch_related / JOIN; one query for the parent + one for the child collection.",
+    "code": "for order in orders:\n    print(order.id, order.user.email)  # one query per order"
+  },
+  {
+    "id": "latencia-002",
+    "category": "latencia",
+    "concept": "synchronous_retries_no_backoff",
+    "severity": "high",
+    "fix_hint": "Exponential backoff with jitter; don't hammer a failing upstream.",
+    "code": "for _ in range(10):\n    try: return upstream.call()\n    except: pass     # 10x latency for any transient failure"
+  },
+  {
+    "id": "latencia-003",
+    "category": "latencia",
+    "concept": "blocking_serialization_in_hot_path",
+    "severity": "medium",
+    "fix_hint": "Pre-serialize cacheable results, or use a faster format (msgpack/protobuf).",
+    "code": "@app.get('/feed')\ndef feed(uid):\n    items = db.fetch_feed(uid)  # 50 items\n    return json.dumps([item.to_full_dict() for item in items])  # heavy reflection per item"
+  },
+  {
+    "id": "latencia-004",
+    "category": "latencia",
+    "concept": "sleep_in_loop_polling",
+    "severity": "high",
+    "fix_hint": "Switch to an event-driven notification (webhook / pub-sub).",
+    "code": "while True:\n    if check_status(): break\n    sleep(1)  # average 0.5s of pure waste, multiplied by every caller"
+  },
+  {
+    "id": "latencia-005",
+    "category": "latencia",
+    "concept": "synchronous_remote_call_on_request_path",
+    "severity": "high",
+    "fix_hint": "Move the call off the request path: queue + async webhook back, or cache aggressively.",
+    "code": "@app.get('/checkout')\ndef checkout(req):\n    fraud_score = fraud_api.check(req.user)  # 800ms remote call\n    return render(fraud_score)"
+  },
+  {
+    "id": "latencia-006",
+    "category": "latencia",
+    "concept": "sequential_external_api_calls",
+    "severity": "high",
+    "fix_hint": "Issue independent calls in parallel; total latency drops from sum to max.",
+    "code": "a = api_a()  # 200ms\nb = api_b()  # 200ms\nc = api_c()  # 200ms\nreturn merge(a, b, c)  # 600ms wall time, could be 200ms"
+  },
+  {
+    "id": "latencia-007",
+    "category": "latencia",
+    "concept": "eager_serialization_of_large_payload",
+    "severity": "medium",
+    "fix_hint": "Stream the response or paginate; serializing 50 MB blocks the worker for seconds.",
+    "code": "@app.get('/export')\ndef export():\n    rows = db.query(Event).all()         # 1M rows\n    return jsonify([r.to_dict() for r in rows])  # 30s for the dict comprehension alone"
+  },
+  {
+    "id": "latencia-008",
+    "category": "latencia",
+    "concept": "uncompressed_static_responses",
+    "severity": "low",
+    "fix_hint": "Enable gzip/brotli at the edge; 70% smaller payloads → 70% less time on the wire.",
+    "code": "@app.get('/bundle.js')\ndef bundle():\n    return open('bundle.js').read()  # 2 MB plain text on every load"
+  },
+  {
+    "id": "latencia-009",
+    "category": "latencia",
+    "concept": "round_trip_per_property_lookup",
+    "severity": "medium",
+    "fix_hint": "Batch loads (DataLoader pattern) so one round trip resolves many properties.",
+    "code": "def to_graphql(orders):\n    for o in orders:\n        o.user = users_api.get(o.user_id)        # 1 round trip\n        o.items = items_api.get_all(o.id)        # 1 round trip"
+  },
+  {
+    "id": "latencia-010",
+    "category": "latencia",
+    "concept": "logging_io_in_hot_loop",
+    "severity": "low",
+    "fix_hint": "Buffer logs and flush async; sync writes to stderr in a tight loop dominate latency.",
+    "code": "for record in big_batch:\n    log.info('processing %s', record.id)  # one syscall per record\n    process(record)"
+  },
+  {
+    "id": "latencia-011",
+    "category": "latencia",
+    "concept": "bcrypt_in_request_path_blocking",
+    "severity": "high",
+    "fix_hint": "Run bcrypt in a dedicated thread/process pool so the event loop isn't blocked for ~200ms.",
+    "code": "@app.post('/login')\nasync def login(req):\n    if bcrypt.checkpw(req.password, user.hash):  # blocks the event loop\n        return token()"
+  },
+  {
+    "id": "latencia-012",
+    "category": "latencia",
+    "concept": "http_call_inside_db_transaction",
+    "severity": "high",
+    "fix_hint": "End the transaction, then call the external service; or use the outbox pattern.",
+    "code": "with db.transaction():\n    db.execute('UPDATE ...')\n    notify_api.send(user_id)  # holds row locks for the entire HTTP call"
+  },
+  {
+    "id": "latencia-013",
+    "category": "latencia",
+    "concept": "dns_lookup_per_request_no_cache",
+    "severity": "medium",
+    "fix_hint": "Use a long-lived HTTP client with connection pooling; let the OS resolver cache hits.",
+    "code": "def call_api(url):\n    r = requests.get(url)  # fresh DNS + TCP + TLS each call\n    return r.json()"
+  },
+  {
+    "id": "latencia-014",
+    "category": "latencia",
+    "concept": "tls_handshake_per_request_no_keepalive",
+    "severity": "medium",
+    "fix_hint": "Use a Session() (or HTTP/2); reuse one TLS connection across requests.",
+    "code": "for url in urls:\n    requests.get(url)  # full TLS handshake per URL"
+  },
+  {
+    "id": "latencia-015",
+    "category": "latencia",
+    "concept": "select_star_loading_blob_columns",
+    "severity": "medium",
+    "fix_hint": "Project only the columns you need; large blob columns hurt every list view.",
+    "code": "SELECT * FROM users WHERE country='ES'  -- includes 5 MB avatar_blob per row"
+  },
+  {
+    "id": "latencia-016",
+    "category": "latencia",
+    "concept": "blocking_io_on_single_thread_event_loop",
+    "severity": "high",
+    "fix_hint": "Run sync IO inside loop.run_in_executor(); never block the asyncio loop.",
+    "code": "async def handler(req):\n    data = open(req.path).read()  # sync syscall blocks the loop\n    return Response(data)"
+  },
+  {
+    "id": "latencia-017",
+    "category": "latencia",
+    "concept": "sync_log_aggregation_to_remote",
+    "severity": "medium",
+    "fix_hint": "Log async (fire-and-forget queue) or use a sidecar agent; the request shouldn't wait for the log shipper.",
+    "code": "for event in audit_events:\n    splunk.send_blocking(event)  # 50ms per event * 100 events = 5s"
+  },
+  {
+    "id": "latencia-018",
+    "category": "latencia",
+    "concept": "no_caching_for_dependency_resolution",
+    "severity": "medium",
+    "fix_hint": "Memoize resolution for the lifetime of a request; recomputing the dependency tree on every call is wasteful.",
+    "code": "def resolve(name):\n    deps = registry.get(name).deps\n    return [resolve(d) for d in deps]  # exponential without memo"
+  },
+  {
+    "id": "latencia-019",
+    "category": "latencia",
+    "concept": "eager_population_of_nested_relations",
+    "severity": "medium",
+    "fix_hint": "Lazy-load only what the response actually needs; default-eager loads inflate every query.",
+    "code": "User.options(joinedload(User.orders).joinedload(Order.items).joinedload(Item.images))\n# every user list now loads order images"
+  },
+  {
+    "id": "latencia-020",
+    "category": "latencia",
+    "concept": "sync_publish_to_message_broker",
+    "severity": "medium",
+    "fix_hint": "Use the producer's async API or fire-and-forget with local buffering (outbox pattern).",
+    "code": "def on_request(req):\n    producer.send_sync('events', payload)  # 50-200ms wait for ACK"
+  },
+  {
+    "id": "latencia-021",
+    "category": "latencia",
+    "concept": "mass_assignment_loop_over_array",
+    "severity": "medium",
+    "fix_hint": "Bulk update with a single SQL UPDATE … WHERE id IN (...).",
+    "code": "for u in users:\n    db.execute('UPDATE users SET tier=? WHERE id=?', (u.tier, u.id))\n# 1000 users = 1000 round trips"
+  },
+  {
+    "id": "latencia-022",
+    "category": "latencia",
+    "concept": "synchronous_image_resize_in_handler",
+    "severity": "high",
+    "fix_hint": "Push the resize to a worker; respond 202 with a status URL.",
+    "code": "@app.post('/upload')\ndef upload(file):\n    img = Image.open(file)\n    for size in [128, 256, 512, 1024, 2048]:\n        img.resize((size, size)).save(f'/cdn/{size}.png')  # 4-8s blocking"
+  },
+  {
+    "id": "latencia-023",
+    "category": "latencia",
+    "concept": "blocking_validation_against_external_service",
+    "severity": "medium",
+    "fix_hint": "Validate at the edge or asynchronously; the third-party should not be on the critical path.",
+    "code": "@app.post('/signup')\ndef signup(req):\n    if not vat_service.is_valid(req.vat_id):  # 1-3s remote call\n        return 400\n    create_user(req)"
+  },
+  {
+    "id": "latencia-024",
+    "category": "latencia",
+    "concept": "xml_parsing_per_request_no_cache",
+    "severity": "low",
+    "fix_hint": "Parse once at startup if config is static; cache compiled DOM in memory.",
+    "code": "def get_setting(name):\n    tree = ET.parse('/etc/app/settings.xml')  # parsed every request\n    return tree.find(name).text"
+  },
+  {
+    "id": "latencia-025",
+    "category": "latencia",
+    "concept": "nested_loop_query_pattern",
+    "severity": "high",
+    "fix_hint": "Replace nested loops with a single SQL JOIN; let the DB optimize.",
+    "code": "for o in orders:\n    for it in db.query(Item, order_id=o.id):\n        for s in db.query(Stock, item_id=it.id):\n            ...  # quadratic round trips"
+  },
+  {
+    "id": "latencia-026",
+    "category": "latencia",
+    "concept": "cold_start_lazy_load_in_hot_path",
+    "severity": "medium",
+    "fix_hint": "Preload heavy resources (ML models, dictionaries) at boot, not on first request.",
+    "code": "_MODEL = None\n\n@app.post('/predict')\ndef predict(req):\n    global _MODEL\n    if _MODEL is None:\n        _MODEL = load_model_from_disk()  # 5s on the very first request\n    return _MODEL.predict(req.payload)"
+  },
+  {
+    "id": "latencia-027",
+    "category": "latencia",
+    "concept": "context_propagation_via_synchronous_db",
+    "severity": "medium",
+    "fix_hint": "Pass context (trace_id, locale) via headers, not a DB lookup per request.",
+    "code": "def get_locale(uid):\n    return db.execute('SELECT locale FROM users WHERE id=?', (uid,)).scalar()\n# Called from middleware on every request."
+  },
+  {
+    "id": "latencia-028",
+    "category": "latencia",
+    "concept": "expensive_regex_compiled_per_call",
+    "severity": "low",
+    "fix_hint": "Compile the regex once at module load; reuse the compiled pattern.",
+    "code": "def normalize(s):\n    return re.sub(r'[^a-z0-9]+', '-', s.lower())  # recompiled on every call"
+  },
+  {
+    "id": "latencia-029",
+    "category": "latencia",
+    "concept": "foreign_key_lookup_in_loop_no_in_clause",
+    "severity": "high",
+    "fix_hint": "Collect ids and use WHERE id IN (...) once; avoids round trips per item.",
+    "code": "users = []\nfor uid in user_ids:\n    users.append(db.find(uid))  # one round trip per id"
+  },
+  {
+    "id": "latencia-030",
+    "category": "latencia",
+    "concept": "sync_audit_log_blocking_response",
+    "severity": "medium",
+    "fix_hint": "Push audit events to a queue; never let auditing block the user-facing response.",
+    "code": "@app.post('/transfer')\ndef transfer(req):\n    do_transfer(req)\n    audit.write_sync({'event': 'transfer', ...})  # 100-300ms before client sees response\n    return {'ok': True}"
+  }
+]
