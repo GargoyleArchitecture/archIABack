@@ -410,6 +410,7 @@ async def intake_node(state: GraphState) -> GraphState:
         _q0 = INTAKE_SCRIPT[0][f"question_{lang}"]
         return {
             **state,
+            "current_phase": "diagnosis",  # advance state even if ledger write failed
             "intake_fields": intake_fields,
             "intake_current_field": 0,
             "intake_complete": False,

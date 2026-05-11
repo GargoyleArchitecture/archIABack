@@ -70,7 +70,7 @@ def test_load_ledger_returns_empty_when_missing(tmp_db):
     ledger = load_ledger("u1", "p1", auto_migrate=False)
     assert ledger["current_phase"] == Phase.INTRO.value
     assert ledger["decisions"] == []
-    assert ledger["version"] == LEDGER_SCHEMA_VERSION
+    assert ledger["version"] == 0  # empty_ledger returns 0 (never persisted)
 
 
 def test_save_then_load_round_trip(tmp_db):
@@ -82,24 +82,24 @@ def test_save_then_load_round_trip(tmp_db):
 
 def test_save_increments_version(tmp_db):
     L = empty_ledger("p", "u")
-    assert L["version"] == 1
+    assert L["version"] == 0  # empty_ledger starts at 0 (never persisted)
     saved = save_ledger("u", L, "p")
-    assert saved["version"] == 2
+    assert saved["version"] == 1  # first save increments 0 → 1
 
 
 def test_save_with_expected_version_ok(tmp_db):
     L = empty_ledger("p", "u")
-    saved = save_ledger("u", L, "p")          # version → 2
-    saved2 = save_ledger("u", saved, "p", expected_version=2)  # version → 3
-    assert saved2["version"] == 3
+    saved = save_ledger("u", L, "p")          # version → 1
+    saved2 = save_ledger("u", saved, "p", expected_version=1)  # version → 2
+    assert saved2["version"] == 2
 
 
 def test_optimistic_concurrency_conflict_raises(tmp_db):
     L = empty_ledger("p", "u")
-    saved = save_ledger("u", L, "p")      # version → 2
-    save_ledger("u", saved, "p")          # version → 3 (another write)
+    saved = save_ledger("u", L, "p")      # version → 1
+    save_ledger("u", saved, "p")          # version → 2 (another write)
     with pytest.raises(LedgerConcurrencyError):
-        save_ledger("u", saved, "p", expected_version=2)   # expects 2, stored 3
+        save_ledger("u", saved, "p", expected_version=1)   # expects 1, stored 2
 
 
 def test_load_no_project_id(tmp_db):

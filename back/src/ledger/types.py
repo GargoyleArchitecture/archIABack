@@ -91,7 +91,7 @@ class DesignLedger(TypedDict):
 
 def empty_ledger(project_id: str, user_id: str) -> DesignLedger:
     return DesignLedger(
-        version=LEDGER_SCHEMA_VERSION,
+        version=0,  # 0 = never persisted; save_ledger increments to 1 on first write
         project_id=project_id,
         user_id=user_id,
         current_phase=Phase.INTRO.value,

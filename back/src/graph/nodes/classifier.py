@@ -15,7 +15,8 @@ _ES_MARKERS = re.compile(
     r"mi|tu|su|una|ninguna|ningún|"
     r"el|la|del|al|debe|deben|usuario|usuarios|sistema|"
     r"por|pero|también|cuando|donde|quien|"
-    r"escalar|procesar|diseñar|implementar|manejar)\b",
+    r"escalar|procesar|diseñar|implementar|manejar|"
+    r"genera|crea|muestra|hazme|dime|ahora|vamos|este|ese)\b",
     re.IGNORECASE,
 )
 
