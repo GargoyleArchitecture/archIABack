@@ -344,18 +344,19 @@ You MUST respond with a VALID JSON object ONLY, with NO extra text, in the follo
 {{
   "style_1": {{
     "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
+    "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
+    "tradeoff": "One sentence (max 15 words) stating the main trade-off."
   }},
   "style_2": {{
     "name": "Short name of style 2",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
+    "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
+    "tradeoff": "One sentence (max 15 words) stating the main trade-off."
   }},
-  "best_style": "style_1 or style_2 (choose ONE)",
-  "rationale": "Explain why the chosen style is better for this ASR, based on its impact."
+  "best_style": "style_1 or style_2 (choose ONE)"
 }}
 
 Do NOT add comments or any text outside of this JSON object.
-All string values in the JSON (name, impact, rationale) MUST be written in {"English" if lang == "en" else "español"}.
+All string values in the JSON (name, justification, tradeoff) MUST be written in {"English" if lang == "en" else "español"}.
 """
 
     result = llm.invoke(apply_mode_prompt(state, prompt))
@@ -378,8 +379,10 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
     style2 = data.get("style_2", {}) or {}
     style1_name = style1.get("name", "").strip() or "Style 1"
     style2_name = style2.get("name", "").strip() or "Style 2"
-    style1_impact = style1.get("impact", "").strip()
-    style2_impact = style2.get("impact", "").strip()
+    style1_justification = style1.get("justification", "").strip()
+    style1_tradeoff = style1.get("tradeoff", "").strip()
+    style2_justification = style2.get("justification", "").strip()
+    style2_tradeoff = style2.get("tradeoff", "").strip()
     best_key = (data.get("best_style") or "").strip()
     rationale = data.get("rationale", "").strip()
 
@@ -456,16 +459,32 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
             "Compare these two styles in more depth for this ASR.",
         ]
 
+    _ledger_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
+    _asr_name = (
+        (_ledger_asr_payload.get("summary") or "").strip()[:60]
+        or next(
+            (ln.strip()[:60] for ln in
+             (state.get("current_asr") or state.get("last_asr") or "").splitlines()
+             if ln.strip() and not ln.strip().startswith("#")),
+            ("ASR activo" if lang == "es" else "Active ASR"),
+        )
+    )
+    _col_style = "Estilo arquitectónico" if lang == "es" else "Architecture Style"
+    _col_asr   = "ASR al que responde"   if lang == "es" else "ASR addressed"
+    _col_just  = "Justificación"         if lang == "es" else "Justification"
+    _col_trade = "Trade-off principal"   if lang == "es" else "Main trade-off"
+    _prompt_q  = (
+        "¿Cuál estilo quieres usar? Indícame el ID."
+        if lang == "es"
+        else "Which style do you want to use? Give me the ID."
+    )
+
     content = (
-        f"{header}\n\n"
-        f"### 1. {style1_name}\n\n"
-        f"- **{impact_label}:** {style1_impact}\n\n"
-        f"### 2. {style2_name}\n\n"
-        f"- **{impact_label}:** {style2_impact}\n\n"
-        f"---\n\n"
-        f"{rec_label}\n\n"
-        f"**{chosen_name}** {because}:\n\n"
-        f"{rationale}\n"
+        f"| ID | {_col_style} | {_col_asr} | {_col_just} | {_col_trade} |\n"
+        f"|---|---|---|---|---|\n"
+        f"| S1 | {style1_name} | {_asr_name} | {style1_justification} | {style1_tradeoff} |\n"
+        f"| S2 | {style2_name} | {_asr_name} | {style2_justification} | {style2_tradeoff} |\n"
+        f"\n{_prompt_q}\n"
     )
 
     # ── Post-LLM consistency check (P7) ────────────────────────────────────

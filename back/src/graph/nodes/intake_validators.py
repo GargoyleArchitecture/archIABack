@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import re
 from typing import Literal, Tuple
@@ -314,15 +315,18 @@ async def extract_and_validate_fields(
         project_context_text=context_snippet,
         pending_fields_spec=pending_fields_spec,
         criteria_spec=criteria_spec,
-        user_message=user_message[:600],
+        user_message=user_message[:5000],
         lang=_lang,
     )
 
     try:
-        result = await llm.with_structured_output(
-            MultiFieldAssessmentResult, method="function_calling"
-        ).ainvoke(prompt)
-        return result
+        response = await llm.ainvoke(prompt)
+        raw = getattr(response, "content", str(response)).strip()
+        # Strip markdown code fences some models add around JSON
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
+        raw = re.sub(r"```\s*$", "", raw, flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+        return MultiFieldAssessmentResult(**data)
     except Exception as exc:
         log.warning("extract_and_validate_fields: LLM call failed (fail-open): %s", exc)
         return None

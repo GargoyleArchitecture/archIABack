@@ -324,14 +324,14 @@ async def _process_intake_turn(
     failed: list[dict] = []
 
     if result is None:
-        # Fail-open: determinista únicamente, campo activo únicamente
-        det_ok, _ = validate_field(current_index, uq)
-        if det_ok:
-            intake_fields = dict(intake_fields)
-            intake_fields[INTAKE_SCRIPT[current_index]["field"]] = uq
-            saved.append(current_index)
-        # Si det falla → saved=[], failed=[] → caller usa reprompt_message
-        return intake_fields, saved, failed
+        # Fail-open: determinista en todos los campos pendientes
+        updated = dict(intake_fields)
+        for i in pending_indices:
+            det_ok, _ = validate_field(i, uq)
+            if det_ok:
+                updated[INTAKE_SCRIPT[i]["field"]] = uq
+                saved.append(i)
+        return updated, saved, failed
 
     for i in pending_indices:
         field_name = INTAKE_SCRIPT[i]["field"]
