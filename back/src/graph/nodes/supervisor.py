@@ -25,7 +25,12 @@ def _looks_like_eval(text: str) -> bool:
     t = (text or "").lower()
     return any(k in t for k in EVAL_TRIGGERS)
 
-def detect_lang(text: str) -> str:
+def detect_lang(text: str) -> str | None:
+    """Detect language from text. Returns None when there is no clear signal.
+
+    Returning None (instead of a default) lets callers that already hold a
+    prior language preserve it via `state.get("language") or detect_lang(uq) or "es"`.
+    """
     t = (text or "").lower()
     es_hits = sum(w in t for w in [
         "qué","que","cómo","como","por qué","porque","cuál","cual",
@@ -46,7 +51,7 @@ def detect_lang(text: str) -> str:
     ])
     if es_hits > en_hits: return "es"
     if en_hits > es_hits: return "en"
-    return "es"  # default to Spanish — this app's primary language
+    return None  # BUG-014: no signal — caller uses prior state language
 
 def classify_followup(question: str) -> str | None:
     q = (question or "").lower().strip()
@@ -66,6 +71,13 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         for m in (state.get("turn_messages") or [])
     }
     if state.get("hasVisitedASR"):
+        _append_unique(out, "asr")
+    # BUG-013: also mark asr as done when routing_phase shows we've already passed it,
+    # so completed_nodes stays consistent across turns even if hasVisitedASR was reset.
+    _routing_phase = state.get("routing_phase") or "intake"
+    if _routing_phase in ("asr", "style", "tactics", "tech", "done"):
+        _append_unique(out, "asr")
+    if bool(state.get("selected_asrs")) or bool(state.get("current_asr")) or bool(state.get("last_asr")):
         _append_unique(out, "asr")
     if "style_recommender" in turn_names:
         _append_unique(out, "style")
@@ -190,7 +202,9 @@ def makeSupervisorPrompt(state: GraphState) -> str:
     proj_ctx = (state.get("project_context_text") or "").strip()
     project_block = f"\n{proj_ctx}\n" if proj_ctx else ""
 
-    return f"""You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and ASR advisor.
+    return f"""GLOSSARY: In this system "ASR" ALWAYS means Architecturally Significant Requirement (ADD 3.0). NEVER interpret "ASR" as Automatic Speech Recognition or any audio/voice technology.
+
+You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and asr (Architecturally Significant Requirements advisor — ADD 3.0).
 Choose the next worker and craft a specific sub-question.
 
 Rules:
@@ -198,7 +212,7 @@ Rules:
 - If DOC-ONLY is ON: DO NOT call or suggest any retrieval tool (no local_RAG). Answers MUST rely only on the PROJECT DOCUMENT context provided.
 - If DOC-ONLY is OFF and user asks about ADD/architecture, prefer investigator (and it may call local_RAG).
 - If user asks for a diagram, route to diagram_agent.
-- If user asks for an ASR or a QAS, route to asr.
+- If user asks for an ASR or a QAS (Architecturally Significant Requirement), route to asr.
 - If two images are provided, evaluator may compare/analyze.
 - Do not go directly to unifier unless at least one worker has produced output.
 {project_block}
@@ -223,8 +237,8 @@ def supervisor_node(state: GraphState):
     if d.get("ok") and d.get("svg_b64"):
         return {**state, "nextNode": "unifier", "intent": "diagram"}
 
-    # idioma: usa el detectado en el último mensaje del usuario
-    state_lang = state.get("language") or detect_lang(uq)
+    # BUG-014: preserve prior language when detect_lang has no signal (returns None).
+    state_lang = state.get("language") or detect_lang(uq) or "es"
     state_lang = "es" if state_lang == "es" else "en"
 
     # ─── M1: Gate de fase ADD 3.0 ───────────────────────────────────────────
@@ -270,8 +284,15 @@ def supervisor_node(state: GraphState):
                 "completed_nodes": completed_nodes}
 
     # Scheduler multi-intent
-    # If ASR is part of the plan and still missing, prioritize it before style/tactics.
-    must_run_asr = ("asr" in requested_nodes) and ("asr" not in completed_nodes)
+    # BUG-013: gate ASR with all available signals to prevent re-running after a failed turn.
+    _routing_phase = state.get("routing_phase") or "intake"
+    _has_existing_asr = (
+        bool((state.get("current_asr") or state.get("last_asr") or "").strip())
+        or bool(state.get("selected_asrs"))
+        or _routing_phase in ("asr", "style", "tactics", "tech", "done")
+    )
+    _asr_already_done = ("asr" in completed_nodes) or _has_existing_asr
+    must_run_asr = ("asr" in requested_nodes) and not _asr_already_done
 
     if must_run_asr:
         next_node = "asr"
@@ -308,7 +329,11 @@ def supervisor_node(state: GraphState):
         intent_val = state.get("intent", "general")
 
     if next_node == "asr":
-        local_q = f"Create a concrete QAS (ASR) for: {uq}"
+        local_q = (
+            "GLOSSARY: ASR = Architecturally Significant Requirement (ADD 3.0)."
+            " NEVER interpret ASR as Automatic Speech Recognition.\n\n"
+            f"Create a concrete Architecturally Significant Requirement (ASR/QAS) for: {uq}"
+        )
     elif next_node == "style":
         local_q = uq or (
             "Selecciona el estilo arquitectónico más adecuado para el ASR actual."

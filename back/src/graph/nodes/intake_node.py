@@ -37,6 +37,23 @@ _NEGATION_RE = re.compile(
     r"\bno\b|\bnunca\b|\bningun[oa]?\b|\btodav[ií]a\s+no\b",
     re.IGNORECASE,
 )
+# Strong "propose ASRs for me" signal — forces A2 regardless of _HAS_ASRS_RE.
+# Covers: propón, propone, proponer, genera, generar, sugiere, sugerir, recomienda, etc.
+_PROPOSE_RE = re.compile(
+    r"\b(prop[oó]n|propone|propones|proponer|proponga[ns]?|"
+    r"genera[r]?|generen|"
+    r"sugier[ae]|sugieras|sugerir|"
+    r"recomienda[sr]?|recomendar|"
+    r"crea[r]?|elabora[r]?|"
+    r"propose|suggest|generate|create)\b",
+    re.IGNORECASE,
+)
+# A line that looks like an actual ASR entry (not a plain request sentence).
+# Required for A1 to prevent saving bare request text as "existing ASRs".
+_ASR_LIST_LINE_RE = re.compile(
+    r"^\s*(?:ASR\s*\d|[-*•]\s+\S|\d+[.)]\s+\S)",
+    re.MULTILINE,
+)
 
 # Digression detection: a message is a digression only when the *intent* is to
 # ask or request something off-topic from intake, NOT when architectural terms
@@ -279,7 +296,11 @@ def _build_feedback(
         repair_prompt = str(priority.get("repair_prompt") or "").strip()
         if reason:
             parts.append(f"→ {_FIELD_LABELS[i][lang]}: {reason}")
-        parts.append(repair_prompt or build_repair_prompt(i, lang, reason))
+        rp = repair_prompt or build_repair_prompt(i, lang)
+        # Only append repair prompt if it doesn't already start with the reason
+        # (guards against LLM-returned repair_prompts that duplicate the error text).
+        if rp and rp.strip() != reason.strip():
+            parts.append(rp)
     elif next_index < 8:
         q_key = "question_es" if lang == "es" else "question_en"
         parts.append(INTAKE_SCRIPT[next_index][q_key])
@@ -297,7 +318,10 @@ def _semantic_default_reason(lang: str) -> str:
 
 def _failed_entry(index: int, lang: str, reason: str, repair_prompt: str = "") -> dict:
     clean_reason = (reason or "").strip() or _semantic_default_reason(lang)
-    clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang, clean_reason)
+    # Do NOT pass clean_reason to build_repair_prompt — _build_feedback already
+    # emits reason as a separate line, so embedding it inside repair_prompt too
+    # would print the same error text twice (BUG-002).
+    clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang)
     return {
         "index": index,
         "reason": clean_reason,
@@ -361,14 +385,15 @@ async def _process_intake_turn(
 
         # Segunda línea: semántica ADD 3.0 (ya computada en el LLM call)
         if assessment.status == "answered_invalid":
-            failed.append(
-                _failed_entry(
-                    i,
-                    lang,
-                    assessment.reason or _semantic_default_reason(lang),
-                    assessment.repair_prompt,
+            if not any(f["index"] == i for f in failed):
+                failed.append(
+                    _failed_entry(
+                        i,
+                        lang,
+                        assessment.reason or _semantic_default_reason(lang),
+                        assessment.repair_prompt,
+                    )
                 )
-            )
             continue
 
         intake_fields = dict(intake_fields)
@@ -430,20 +455,39 @@ async def intake_node(state: GraphState) -> GraphState:
         _project_id = (state.get("project_id") or "").strip() or None
         _ts = datetime.now(timezone.utc).isoformat()
 
-        # Evaluate intent signals: NO wins over YES when both match (handles "No tengo...").
-        # _NEGATION_RE vetoes _HAS_ASRS_RE so "No tengo ASRs" never fires the YES branch.
-        _no_match  = bool(_NO_ASRS_RE.search(uq))
-        _yes_match = bool(_HAS_ASRS_RE.search(uq)) and not bool(_NEGATION_RE.search(uq))
-        # Defense-in-depth: a message that looks like a request (contains imperative verbs or
-        # is very short) should never be treated as user-provided ASRs even if _yes_match fired.
+        # Three-way intent classification for the post-intake ASR question:
+        #   WANT_PROPOSE → user wants ArchIA to generate ASRs  (→ A2)
+        #   HAVE_ASRS    → user is providing their own ASRs     (→ A1)
+        #   AMBIGUOUS    → clarify before acting                (→ A3)
+        #
+        # Priority (highest to lowest):
+        #   1. Any explicit "propose/generate" verb (_PROPOSE_RE) → WANT_PROPOSE
+        #   2. Explicit negation (_NEGATION_RE) → WANT_PROPOSE
+        #   3. _NO_ASRS_RE keyword → WANT_PROPOSE
+        #   4. Affirmative + message ≥80 chars + real ASR-list lines → HAVE_ASRS
+        #   5. Default → AMBIGUOUS
+        _propose_match  = bool(_PROPOSE_RE.search(uq))
+        _negation_match = bool(_NEGATION_RE.search(uq))
+        _no_match       = bool(_NO_ASRS_RE.search(uq))
+        _yes_match      = bool(_HAS_ASRS_RE.search(uq)) and not _negation_match and not _propose_match
+        _asr_list_match = bool(_ASR_LIST_LINE_RE.search(uq))
+
+        # Extra defense: short or imperative messages are never HAVE_ASRS
         if _yes_match and (
             len(uq.strip()) < 40
-            or _NO_ASRS_RE.search(uq)
+            or _no_match
             or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
         ):
             _yes_match = False
 
-        if _yes_match and not _no_match:
+        if _propose_match or _negation_match or _no_match:
+            _intent_class = "WANT_PROPOSE"
+        elif _asr_list_match and len(uq.strip()) >= 80:
+            _intent_class = "HAVE_ASRS"
+        else:
+            _intent_class = "AMBIGUOUS"
+
+        if _intent_class == "HAVE_ASRS":
             # A1 — el arquitecto ya tiene ASRs propios
             if _user_id:
                 try:
@@ -494,7 +538,7 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
 
-        if _no_match:
+        elif _intent_class == "WANT_PROPOSE":
             # A2 — ArchIA propone los ASRs.
             # Persists intake_v1 in the ledger, mirrors current_phase="asr_table" in state,
             # and routes to asr_node in this same turn via the conditional intake edge.
@@ -536,24 +580,25 @@ async def intake_node(state: GraphState) -> GraphState:
                 _a2["ledger"] = _updated_ledger
             return _a2
 
-        # A3 — respuesta ambigua: repregunta con más claridad
-        _clarify_es = (
-            "No estoy seguro de entenderte. ¿Ya tienes ASRs definidos que quieras compartir, "
-            "o prefieres que yo los proponga basándome en el contexto que me diste?"
-        )
-        _clarify_en = (
-            "I'm not sure I understood. Do you already have ASRs defined that you'd like to share, "
-            "or would you prefer that I propose them based on the context you provided?"
-        )
-        return {
-            **state,
-            "intake_fields": intake_fields,
-            "intake_current_field": 8,
-            "intake_complete": True,
-            "endMessage": _clarify_es if lang == "es" else _clarify_en,
-            "nextNode": "unifier",
-            "intent": "intake",
-        }
+        else:
+            # A3 — respuesta ambigua: repregunta con más claridad
+            _clarify_es = (
+                "No estoy seguro de entenderte. ¿Ya tienes ASRs definidos que quieras compartir, "
+                "o prefieres que yo los proponga basándome en el contexto que me diste?"
+            )
+            _clarify_en = (
+                "I'm not sure I understood. Do you already have ASRs defined that you'd like to share, "
+                "or would you prefer that I propose them based on the context you provided?"
+            )
+            return {
+                **state,
+                "intake_fields": intake_fields,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "endMessage": _clarify_es if lang == "es" else _clarify_en,
+                "nextNode": "unifier",
+                "intent": "intake",
+            }
 
     # Rama B: todos los campos validados en este turno
     if current_index >= 8:

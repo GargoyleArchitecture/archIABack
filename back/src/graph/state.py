@@ -224,6 +224,12 @@ class GraphState(TypedDict):
     intake_current_field: int    # índice activo 0–8 (8 = esperando respuesta de ASRs)
     intake_complete: bool        # True cuando los 8 campos han sido validados
 
+    # ── Routing phase (BUG-013) ──────────────────────────────────────────────
+    # Tracks which graph-routing phase the session has reached so boot_node can
+    # avoid resetting completed_nodes / hasVisitedASR on subsequent turns.
+    # Distinct from current_phase (ADD 3.0 ledger phase).
+    routing_phase: Literal["intake", "asr", "style", "tactics", "tech", "done"]
+
     # ── ADD 3.0 candidates and selections ────────────────────────────────────
     # Persisted across turns by boot_node; populated by ADD 3.0 phase nodes.
     normal_operation_baseline: dict      # baseline metrics captured during diagnosis

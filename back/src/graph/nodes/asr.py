@@ -351,6 +351,32 @@ def asr_node(state: GraphState) -> GraphState:
         state["tech_candidates"] = []
         state["current_phase"] = "asr_table"
 
+    # ── Early context reads for precondition + domain derivation ─────────
+    _proj_ctx_early = (state.get("project_context_text") or "").strip()
+    _intake_v1_early = (
+        (state.get("ledger") or {}).get("project_context", {}).get("intake_v1") or {}
+    )
+
+    # Hard precondition: refuse ASR generation when no domain context exists.
+    # Both sources must be empty to trigger; either one is enough to proceed.
+    if not _proj_ctx_early and not _intake_v1_early:
+        _no_ctx_msg = (
+            "Necesito completar el diagnóstico antes de generar ASRs. "
+            "Por favor responde las preguntas del diagnóstico para que pueda "
+            "generar ASRs relevantes para tu sistema."
+            if lang == "es" else
+            "I need to complete the diagnostic before generating ASRs. "
+            "Please answer the diagnostic questions so I can generate "
+            "ASRs relevant to your system."
+        )
+        log.warning("asr_node: no domain context — refusing to generate ASR")
+        return {
+            **state,
+            "endMessage": _no_ctx_msg,
+            "nextNode": "unifier",
+            "current_phase": "diagnosis",
+        }
+
     # Heurística del atributo
     concern = (
         "scalability"
@@ -366,16 +392,22 @@ def asr_node(state: GraphState) -> GraphState:
     qa_pipeline = qa_from_classifier if qa_from_classifier != "general" else qa_from_text
     qa_focus = qa_to_focus_label(qa_pipeline, default=concern)
 
-    # Dominio típico si el usuario no lo da
+    # Domain derived from intake/project context — avoids hard-coded domain bias.
+    # Priority: intake main requirement > project context header > uq keywords > neutral fallback.
+    _intake_req = _intake_v1_early.get("campo_0_requerimiento", "").strip()
     low = uq.lower()
-    if any(k in low for k in ["e-comm", "commerce", "shop", "checkout"]):
-        domain = "e-commerce flash sale"
+    if _intake_req:
+        domain = _intake_req[:120]
+    elif _proj_ctx_early:
+        domain = _proj_ctx_early.split("\n")[0][:120]
+    elif any(k in low for k in ["e-comm", "commerce", "shop", "checkout"]):
+        domain = "e-commerce platform"
     elif "api" in low:
-        domain = "public REST API with burst traffic"
+        domain = "public REST API"
     elif any(k in low for k in ["stream", "kafka"]):
         domain = "event streaming pipeline"
     else:
-        domain = "e-commerce flash sale"
+        domain = "general software system"
 
     # === RAG (saltable) ===
     docs_list = []
@@ -412,6 +444,15 @@ def asr_node(state: GraphState) -> GraphState:
         ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")
     ).strip()[:2000]
     proj_ctx = (state.get("project_context_text") or "").strip()
+    # Mirror intake main requirement + components into proj_ctx when no project context exists.
+    if not proj_ctx and _intake_v1_early:
+        _mirror_parts = []
+        for _mk in ("campo_0_requerimiento", "campo_1_componentes"):
+            _mv = _intake_v1_early.get(_mk, "").strip()
+            if _mv:
+                _mirror_parts.append(_mv)
+        if _mirror_parts:
+            proj_ctx = "\n".join(_mirror_parts)[:500]
 
     # ── Intake context injection ───────────────────────────────────────────
     _intake_v1 = (state.get("ledger") or {}).get("project_context", {}).get("intake_v1") or {}
@@ -489,7 +530,17 @@ def asr_node(state: GraphState) -> GraphState:
     else:
         prior_asr_section = ""
 
+    _asr_glossary = (
+        "GLOSARIO: En este contexto, ASR = Architecturally Significant Requirement (ADD 3.0). "
+        "NUNCA interpretes ASR como reconocimiento de voz ni como Automatic Speech Recognition."
+        if lang == "es" else
+        "GLOSSARY: In this context, ASR = Architecturally Significant Requirement (ADD 3.0). "
+        "NEVER interpret ASR as Automatic Speech Recognition or any voice/audio technology."
+    )
+
     prompt = f"""{directive}
+{_asr_glossary}
+
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
 Your job is to create EXACTLY ONE concrete Architecture Significant Requirement (ASR)
@@ -691,5 +742,13 @@ Rules:
     state["hasVisitedASR"] = True
     state["force_rag"] = False
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase so boot_node does not
+    # reset them on the next turn and the supervisor does not re-run ASR.
+    _done = list(state.get("completed_nodes") or [])
+    if "asr" not in _done:
+        _done.append("asr")
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "asr"
 
     return state

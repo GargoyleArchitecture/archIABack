@@ -7,16 +7,54 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
+# Layer A: broad architectural vocabulary (protocols, infra, patterns, domain actors)
 _TECHNICAL_TERMS = re.compile(
-    r"\b(módulo|servicio|api|componente|sistema|request|evento|endpoint|"
-    r"base de datos|microservicio|caché|cola|latencia|throughput|"
-    r"concurrencia|usuario|cliente|servidor)\b",
+    r"\b("
+    # original terms + plurals
+    r"módulos?|servicios?|api|apis|componentes?|sistemas?|requests?|eventos?|"
+    r"endpoints?|base de datos|bases de datos|microservicios?|cach[eé]s?|colas?|"
+    r"latencia|throughput|concurrencia|usuarios?|clientes?|servidores?|"
+    # protocols
+    r"rest(?:ful)?|grpc|https?|websockets?|webrtc|mqtt|soap|graphql|"
+    # infra / platforms
+    r"kafka|redis|postgres(?:ql)?|mongo(?:db)?|mysql|sqlite|s3|cdn|pop|sfu|mcu|"
+    r"gateways?|proxys?|proxies|broker|balanceador|nginx|docker|kubernetes|k8s|"
+    r"lambda|serverless|contenedores?|"
+    # security / compliance
+    r"oauth|jwt|tls|mtls|hipaa|gdpr|rbac|sso|autenticaci[oó]n|autorizaci[oó]n|"
+    r"cifrado|encriptaci[oó]n|"
+    # architecture patterns
+    r"monolito|event.driven|pub.?sub|cqrs|saga|circuit.?breaker|"
+    # domain entities that act as users/actors in telemedicine and typical projects
+    r"pacientes?|m[eé]dicos?|m[eé]dica|doctor(?:as?|es)?|operador(?:as?|es)?|administrador(?:as?|es)?|"
+    # generic system vocabulary
+    r"funciones?|aplicaci[oó]n|aplicaciones|integraci[oó]n|integraciones|"
+    r"notificaci[oó]n|notificaciones|videollamadas?|sesiones?|almacenamiento|"
+    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria"
+    r")\b",
     re.IGNORECASE,
 )
 
+# Layer B: bare uppercase acronyms not caught by Layer A word-boundary matching
+_TECHNICAL_ACRONYM_RE = re.compile(
+    r"\b(?:API|REST|HTTP|HTTPS|GRPC|RPC|SDK|UI|UX|DB|SQL|JSON|XML|YAML|UUID|"
+    r"IP|TCP|UDP|TLS|SSL|JWT|SSO|CDN|SLA|SLO|SFU|MCU|CI|CD|"
+    r"EHR|EMR|HIPAA|GDPR|RBAC|SAML|OIDC|CPU|RAM|VPN|DNS)\b",
+)
+
 _SOURCE_CATEGORIES = re.compile(
-    r"\b(usuario|user|sistema externo|external system|"
-    r"evento interno|internal event|tiempo|time|timer|schedule)\b",
+    r"\b("
+    # user / actor synonyms
+    r"usuario|user|pacientes?|m[eé]dicos?|m[eé]dica|doctor(?:as?|es)?|clientes?|"
+    r"actores?|operador(?:as?|es)?|administrador(?:as?|es)?|admin|"
+    # external system synonyms
+    r"sistema externo|external system|servicio externo|api externa|"
+    r"terceros?|integraci[oó]n externa|"
+    # internal event
+    r"evento interno|internal event|"
+    # time / schedule synonyms
+    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -126,10 +164,10 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
                 False,
                 "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
             )
-        if not _TECHNICAL_TERMS.search(value):
+        if not (_TECHNICAL_TERMS.search(value) or _TECHNICAL_ACRONYM_RE.search(value)):
             return (
                 False,
-                "No se detectó vocabulario técnico. Menciona al menos un término como: servicio, módulo, API, componente, sistema, endpoint, microservicio, etc.",
+                "No se detectó vocabulario técnico. Menciona al menos un término arquitectónico como: servicio, API, componente, microservicio, REST, gRPC, WebRTC, kafka, JWT, gateway, etc.",
             )
         return (True, "")
 
@@ -137,7 +175,7 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
         if not _SOURCE_CATEGORIES.search(value):
             return (
                 False,
-                "No se identificó la fuente del estímulo. Indica si proviene de: usuario, sistema externo, evento interno, tiempo/timer o schedule.",
+                "No se identificó la fuente del estímulo. Indica si proviene de: usuario/paciente/médico, sistema externo/API externa, evento interno, tiempo/timer/cron.",
             )
         return (True, "")
 
@@ -162,20 +200,20 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
 
 _REPROMPT_ERRORS: dict[int, dict[str, str]] = {
     0: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     1: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     2: {
-        "es": "No se identificó la fuente del estímulo. Indica si proviene de: usuario, sistema externo, evento interno, tiempo/timer o schedule.",
-        "en": "Stimulus source not identified. Indicate if it comes from: user, external system, internal event, time/timer or schedule.",
+        "es": "No se identificó la fuente del estímulo. Indica si proviene de: usuario/paciente/médico, sistema externo/API externa, evento interno, tiempo/timer/cron.",
+        "en": "Stimulus source not identified. Indicate if it comes from: user/patient/doctor, external system/external API, internal event, time/timer/cron.",
     },
     3: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     4: {
         "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",

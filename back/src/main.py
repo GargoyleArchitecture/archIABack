@@ -60,6 +60,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphRecursionError
 from src.graph import (
     build_graph,
     get_graph,
@@ -753,7 +754,8 @@ async def message(
             "turn_messages": [],
             "requested_nodes": [],
             "pending_nodes": [],
-            "completed_nodes": [],
+            # Do NOT reset completed_nodes here (BUG-013): boot_node now manages
+            # it phase-aware so overwriting it here would erase session progress.
             "current_asr": stored_current_asr,
         }})
     except Exception:
@@ -775,7 +777,8 @@ async def message(
         "nextNode": "supervisor",
         "requested_nodes": [],
         "pending_nodes": [],
-        "completed_nodes": [],
+        # completed_nodes is NOT reset here (BUG-013): boot_node manages it
+        # phase-aware so the checkpoint value must survive as the base state.
         "imagePath1": image_path1,
         "imagePath2": image_path2,
         "doc_only": doc_only,
@@ -785,7 +788,9 @@ async def message(
         "retrieved_docs": [],
         "memory_text": memory_text,
         "suggestions": [],
-        "language": user_lang,
+        # BUG-014: do NOT override language from main.py's simple detector.
+        # The checkpoint preserves the session language; classifier_node sets it
+        # correctly on the first turn and keeps it sticky for short retries.
         "intent": user_intent,
         "force_rag": force_rag,
         "topic_hint": topic_hint,
@@ -803,15 +808,10 @@ async def message(
         "user_style_hint":        arch_flow.get("user_style_hint", ""),
         "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
         "user_style_loaded":      bool(arch_flow.get("user_style_hint", "")),
-        # ADD 3.0 candidates and selections (M2 — initialized empty; populated by phase nodes)
-        "normal_operation_baseline": {},
-        "asr_candidates":            [],
-        "selected_asrs":             [],
-        "style_candidates":          [],
-        "selected_tactics":          [],
-        "tactics_candidates":        [],
-        "tech_candidates":           [],
-        "add_assumptions":           [],
+        # ADD 3.0 candidates and selections are NOT reset here (BUG-013):
+        # these are session-persistent fields managed by boot_node's
+        # preserve-if-not-None logic. Removing them from input_state lets
+        # LangGraph keep the checkpoint values across turns.
     }
 
     # Capture variables needed by the generator closure
@@ -888,6 +888,30 @@ async def message(
         except GeneratorExit:
             # Client disconnected mid-stream; let the generator close cleanly.
             raise
+        except GraphRecursionError:
+            # BUG-013: guard against infinite ASR loops when completed_nodes is
+            # stale. Emit a friendly message rather than a 500.
+            _lang = (input_state.get("language") or user_lang or "es")
+            _recovery = (
+                "Algo se enredó procesando tu mensaje. ¿Puedes repetir tu última instrucción?"
+                if _lang == "es"
+                else "Something tangled while processing your request. Could you repeat your last instruction?"
+            )
+            log.warning("GraphRecursionError hit — emitting recovery message for thread=%s", _thread_id)
+            yield _sse({
+                "type": "complete",
+                "endMessage": _recovery,
+                "diagram": {},
+                "messages": [],
+                "session_id": _session_id,
+                "message_id": _message_id,
+                "thread_id": _thread_id,
+                "suggestions": [],
+                "mode": mode,
+                "mode_suggestion": None,
+            })
+            yield "data: [DONE]\n\n"
+            return
         except Exception as exc:
             import traceback
             traceback.print_exc()

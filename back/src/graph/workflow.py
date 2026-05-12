@@ -82,6 +82,14 @@ async def boot_node(state: GraphState) -> GraphState:
             )
             user_profile = {}
 
+    # BUG-013: only reset ASR + completed_nodes when we are still in intake
+    # (i.e. no ASR has been produced yet). Once routing_phase advances past
+    # "intake", these are session-level state and must survive boot_node so the
+    # supervisor does not re-generate an ASR on the next turn.
+    _routing_phase = state.get("routing_phase") or "intake"
+    _asr_produced  = bool(state.get("selected_asrs")) or bool(state.get("current_asr")) or bool(state.get("last_asr"))
+    _asr_session_done = _routing_phase != "intake" or _asr_produced
+
     return {
         **state,
         "user_profile": user_profile,
@@ -89,7 +97,8 @@ async def boot_node(state: GraphState) -> GraphState:
         "turn_count_since_eval": (state.get("turn_count_since_eval") or 0) + 1,
         "hasVisitedInvestigator": False,
         "hasVisitedEvaluator": False,
-        "hasVisitedASR": False,
+        # Preserve hasVisitedASR and completed_nodes across turns once ASR is done.
+        "hasVisitedASR": False if not _asr_session_done else state.get("hasVisitedASR", False),
         "hasVisitedDiagram": False,
         "hasVisitedTech": False,
         "diagram": {},
@@ -97,7 +106,7 @@ async def boot_node(state: GraphState) -> GraphState:
         "phase_redirect_hint": "",
         "requested_nodes": [],
         "pending_nodes": [],
-        "completed_nodes": [],
+        "completed_nodes": [] if not _asr_session_done else list(state.get("completed_nodes") or []),
         # Intake defaults: initialize only when None (persists across turns otherwise)
         "intake_fields":        state.get("intake_fields")   if state.get("intake_fields")   is not None else {},
         "intake_current_field": _idx                         if _idx                         is not None else 0,

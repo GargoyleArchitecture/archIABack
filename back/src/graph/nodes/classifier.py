@@ -119,8 +119,13 @@ def classifier_node(state: GraphState) -> GraphState:
     if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         msg = state.get("userQuestion", "") or ""
         prior_lang = state.get("language") or "es"
-        detected = _detect_lang_fast(msg)
-        lang = detected if (detected == "es" or len(msg.split()) > 2) else prior_lang
+        # BUG-014: too few words → keep the prior language; only switch when the
+        # signal is strong enough (> 3 tokens) or the fast detector is confident.
+        if prior_lang and len(msg.split()) <= 3:
+            lang = prior_lang
+        else:
+            detected = _detect_lang_fast(msg)
+            lang = detected if (detected == "es" or len(msg.split()) > 2) else prior_lang
         return {**state, "language": lang}
 
     msg = state.get("userQuestion", "") or ""
@@ -171,10 +176,15 @@ def classifier_node(state: GraphState) -> GraphState:
         intent = "diagram"
 
 
-    # Always use the LLM's fresh classification for the CURRENT message.
-    # Stale state language is intentionally ignored so the language can switch
-    # if the user changes their language between turns.
-    lang = lang_raw or state.get("language") or "es"
+    # BUG-014: language is sticky for short, low-signal messages (e.g. "S2", "ok").
+    # Only switch when there are enough tokens to classify reliably, OR the user
+    # explicitly typed something that triggers the opposite-language detector.
+    prior_lang = state.get("language")
+    msg_word_count = len(msg.split())
+    if prior_lang and msg_word_count <= 3:
+        lang = prior_lang
+    else:
+        lang = lang_raw or prior_lang or "es"
 
     # QA primario clasificado junto al intent (misma invocación del classifier).
     qa_from_classifier = normalize_qa(qa_attr)
@@ -220,6 +230,15 @@ def classifier_node(state: GraphState) -> GraphState:
     # intencion de pedagogia/operatividad y el modo actual no coincide,
     # exponemos `mode_suggestion` para que el Frontend ofrezca el cambio.
     mode_suggestion = suggest_mode(msg, state.get("mode") or "professional")
+
+    # Defense-in-depth: if QA lock-in has not been reached yet, do not let an
+    # incidental mention of a quality attribute (e.g. "latencia") during a
+    # non-intake turn override the state before the user has explicitly chosen
+    # an ASR (BUG-006).  context_loader sets qa_locked_in=True once the phase
+    # advances past diagnosis, so this guard is a no-op in normal post-intake
+    # flow and only fires in edge cases where context_loader did not run.
+    if not state.get("qa_locked_in", True):
+        quality_attribute = "general"
 
     return {
         **state,

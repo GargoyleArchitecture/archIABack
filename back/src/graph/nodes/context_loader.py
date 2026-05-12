@@ -33,21 +33,27 @@ _LEGACY_PHASE_MAP: dict[str, str] = {
 }
 
 
-def _mirror_legacy(active: dict, updates: dict) -> None:
+def _mirror_legacy(active: dict, updates: dict, qa_locked_in: bool = True) -> None:
     """Copy active ledger decisions into legacy scalar fields.
 
     Only overwrites a scalar when the corresponding ledger decision exists
     and has a non-empty value. An empty ledger must not clear state already
     populated by worker nodes in earlier turns.
+
+    qa_locked_in controls whether quality_attribute may be written.  It is
+    False while the session is still in the intake (intro/diagnosis) phase so
+    that a stale ledger entry from a previous session cannot pre-set the QA
+    before the user has explicitly chosen one (BUG-006).
     """
     asr = active.get("asr")
     if asr:
         summary = (asr.get("payload") or {}).get("summary", "")
         if summary:
             updates["current_asr"] = summary
-        qa = prefer_specific_qa(asr.get("qa", ""), summary)
-        if qa != "general":
-            updates["quality_attribute"] = qa
+        if qa_locked_in:
+            qa = prefer_specific_qa(asr.get("qa", ""), summary)
+            if qa != "general":
+                updates["quality_attribute"] = qa
 
     style_dec = active.get("style")
     if style_dec:
@@ -147,7 +153,14 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             updates["ledger_phase_prompt"]    = render_phase_prompt(ledger, lang=lang)
             updates["ledger_pending_advance"] = ledger.get("pending_advance") or {}
 
-            _mirror_legacy(active, updates)
+            # qa_locked_in: True only once we have left the intake phases.
+            # Keeps quality_attribute at "general" until the user has
+            # completed the diagnostic and an ASR is about to be generated.
+            _phase = updates.get("current_phase") or state.get("current_phase") or "intro"
+            _qa_locked_in = _phase not in ("intro", "diagnosis")
+            updates["qa_locked_in"] = _qa_locked_in
+
+            _mirror_legacy(active, updates, _qa_locked_in)
 
             log.info(
                 "context_loader: ledger hydrated user=%s project=%s phase=%s decisions=%d",

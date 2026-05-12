@@ -617,5 +617,14 @@ Example shape (values are illustrative — adjust to your tactics):
     state["endMessage"] = md_only
     state["intent"] = "tactics"
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase across turns.
+    _done = list(state.get("completed_nodes") or [])
+    for _n in ("asr", "style", "tactics"):
+        if _n not in _done:
+            _done.append(_n)
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "tactics"
+
     prev_msgs = state.get("messages", [])
     return {**state, "messages": prev_msgs + msgs}
