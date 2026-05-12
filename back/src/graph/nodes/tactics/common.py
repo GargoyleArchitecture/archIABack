@@ -41,10 +41,10 @@ _tac_log = logging.getLogger("tactics_node")
 
 
 @lru_cache(maxsize=64)
-def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6) -> tuple:
+def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6, queries_override: tuple | None = None) -> tuple:
     """Returns (book_snippets: str, src_meta: tuple of (title, page_str, path)).
-    Cached by (qa, resolved_index, k). Cache hit skips all ChromaDB queries."""
-    queries = [
+    Cached by (qa, resolved_index, k, queries_override). Cache hit skips all ChromaDB queries."""
+    queries = list(queries_override) if queries_override else [
         f"{qa} architectural tactics",
         f"{qa} tactics performance scalability latency availability security modifiability",
         "Bass Clements Kazman performance and scalability tactics",
@@ -110,7 +110,7 @@ def _allowed_tactic_names_from_lines(lines: list) -> list:
     out: list = []
     for raw in lines or []:
         line = (raw or "").strip()
-        if not line:
+        if not line or line.startswith("#"):
             continue
         if " — " in line:
             out.append(line.split(" — ", 1)[0].strip())
@@ -331,6 +331,7 @@ def tactics_node_impl(
     preferred_tactics: list | None = None,
     preferred_group_label: str | None = None,
     restrict_to_preferred_tactics: bool = False,
+    rag_queries_override: list | None = None,
 ) -> GraphState:
     """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
@@ -371,10 +372,12 @@ def tactics_node_impl(
     if doc_only and ctx_doc:
         book_snippets = f"[DOC] {ctx_doc[:2000]}"
     else:
+        _rag_queries = tuple(rag_queries_override) if rag_queries_override else None
         book_snippets, src_meta = _fetch_tactics_rag(
             qa,
             qa,
             k=6,
+            queries_override=_rag_queries,
         )
         rag_trace_record(
             query=" | ".join([
@@ -389,10 +392,31 @@ def tactics_node_impl(
     allowed_names: list = []
     if preferred_tactics:
         group_label = (preferred_group_label or "Preferred tactics").strip()
-        items = "\n".join(f"- {t}" for t in preferred_tactics if str(t).strip())
+        _tac_items: list[str] = []
+        _has_groups = False
+        for _t in preferred_tactics:
+            _t_s = str(_t).strip()
+            if not _t_s:
+                continue
+            if _t_s.startswith("#"):
+                _tac_items.append(f"\n{_t_s[1:].strip()}:")
+                _has_groups = True
+            else:
+                _tac_items.append(f"  - {_t_s}")
+        items = "\n".join(_tac_items)
         allowed_names = _allowed_tactic_names_from_lines(preferred_tactics)
         if restrict_to_preferred_tactics and allowed_names:
             allowed_csv = ", ".join(f'"{n}"' for n in allowed_names)
+            _multi_group_guidance = ""
+            if _has_groups:
+                _multi_group_guidance = (
+                    "\nSELECTION GUIDANCE:\n"
+                    "An ASR has one primary stimulus → response chain. Identify which ONE group best matches this ASR:\n"
+                    "  * DETECT — The ASR's response is about knowing WHEN or WHETHER a failure is occurring.\n"
+                    "  * RECOVER — The ASR's response is about RESTORING service or state after a failure.\n"
+                    "  * PREVENT — The ASR's response is about ELIMINATING or REDUCING the probability of failure.\n"
+                    "Select ALL THREE tactics from ONLY that group. Do not mix groups.\n"
+                )
             preferred_block = (
                 f"\n\nALLOWED TACTICS ONLY ({group_label}):\n"
                 f"{items}\n\n"
@@ -400,8 +424,9 @@ def tactics_node_impl(
                 "- You MUST select EXACTLY THREE tactics for the TOP-3.\n"
                 "- EVERY tactic name in sections (1) and (2) MUST be one of the allowed canonical names "
                 f"listed above (before the em dash), exactly from this set: [{allowed_csv}].\n"
-                "- Do NOT introduce any other tactic names (no recovery/repair/redundancy tactics unless they appear in the allowed list).\n"
+                "- Do NOT introduce any other tactic names outside the allowed list above.\n"
                 "- If documentation grounding conflicts, still obey the allowed list; you may note doc limitations in prose.\n"
+                f"{_multi_group_guidance}"
             )
         else:
             preferred_block = (
