@@ -32,6 +32,11 @@ _NO_ASRS_RE = re.compile(
     r"\bno\b|ninguno\b|genera\b|prop[oó]n\b|propone\b|t[uú]\b|usted\b",
     re.IGNORECASE,
 )
+# Explicit negation: veto on _HAS_ASRS_RE to prevent "No tengo..." → YES branch
+_NEGATION_RE = re.compile(
+    r"\bno\b|\bnunca\b|\bningun[oa]?\b|\btodav[ií]a\s+no\b",
+    re.IGNORECASE,
+)
 
 # Digression detection: a message is a digression only when the *intent* is to
 # ask or request something off-topic from intake, NOT when architectural terms
@@ -425,7 +430,20 @@ async def intake_node(state: GraphState) -> GraphState:
         _project_id = (state.get("project_id") or "").strip() or None
         _ts = datetime.now(timezone.utc).isoformat()
 
-        if _HAS_ASRS_RE.search(uq):
+        # Evaluate intent signals: NO wins over YES when both match (handles "No tengo...").
+        # _NEGATION_RE vetoes _HAS_ASRS_RE so "No tengo ASRs" never fires the YES branch.
+        _no_match  = bool(_NO_ASRS_RE.search(uq))
+        _yes_match = bool(_HAS_ASRS_RE.search(uq)) and not bool(_NEGATION_RE.search(uq))
+        # Defense-in-depth: a message that looks like a request (contains imperative verbs or
+        # is very short) should never be treated as user-provided ASRs even if _yes_match fired.
+        if _yes_match and (
+            len(uq.strip()) < 40
+            or _NO_ASRS_RE.search(uq)
+            or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
+        ):
+            _yes_match = False
+
+        if _yes_match and not _no_match:
             # A1 — el arquitecto ya tiene ASRs propios
             if _user_id:
                 try:
@@ -476,7 +494,7 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
 
-        if _NO_ASRS_RE.search(uq):
+        if _no_match:
             # A2 — ArchIA propone los ASRs.
             # Persists intake_v1 in the ledger, mirrors current_phase="asr_table" in state,
             # and routes to asr_node in this same turn via the conditional intake edge.
