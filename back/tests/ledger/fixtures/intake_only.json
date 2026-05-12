@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "project_id": "test-project",
+  "user_id": "test-user",
+  "current_phase": "INTAKE",
+  "current_iteration": 0,
+  "phase_history": [],
+  "pending_advance": null,
+  "decisions": [
+    {
+      "id": "01FIXTURE0000CONSTRAINT001",
+      "kind": "constraint",
+      "phase": "INTAKE",
+      "iteration": 0,
+      "qa": "general",
+      "parents": [],
+      "payload": {
+        "tech_stack": ["Java", "Spring Boot", "Kafka"],
+        "business_rules": ["SLA 99.9%", "Regulación PCI-DSS"]
+      },
+      "rationale": "Stack tecnológico del equipo de pagos.",
+      "sources": [],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T10:00:00Z",
+      "created_by_node": "context_loader"
+    }
+  ],
+  "project_context": {},
+  "user_style_hint": ""
+}

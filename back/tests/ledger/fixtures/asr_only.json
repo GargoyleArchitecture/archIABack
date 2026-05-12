@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "project_id": "test-project",
+  "user_id": "test-user",
+  "current_phase": "ASR",
+  "current_iteration": 1,
+  "phase_history": [
+    {
+      "from_phase": "INTAKE",
+      "to_phase": "ASR",
+      "iteration": 1,
+      "triggered_by": "user_request",
+      "user_message": "necesito un ASR de latencia",
+      "skipped_phases": [],
+      "timestamp": "2024-01-15T10:00:00Z"
+    }
+  ],
+  "pending_advance": null,
+  "decisions": [
+    {
+      "id": "01FIXTURE000000000ASR00001",
+      "kind": "asr",
+      "phase": "ASR",
+      "iteration": 1,
+      "qa": "latencia",
+      "parents": [],
+      "payload": {
+        "summary": "Sistema de pagos con latencia inferior a 200ms bajo carga normal",
+        "source": "usuario final",
+        "stimulus": "solicitud de pago",
+        "environment": "producción bajo carga normal",
+        "artifact": "servicio de pagos",
+        "response": "procesar pago y retornar confirmación",
+        "response_measure": "p95 < 200ms @ 5k RPS",
+        "domain": "pagos financieros"
+      },
+      "rationale": "El equipo requiere alta velocidad en transacciones de pago para cumplir el SLA.",
+      "sources": [
+        {"title": "ADD 3.0 Patterns", "page": 42, "path": "add_3.0.pdf"}
+      ],
+      "status": "active",
+      "parent_status": "ok",
+      "superseded_by": null,
+      "rejection_reason": null,
+      "created_at": "2024-01-15T10:05:00Z",
+      "created_by_node": "asr_node"
+    }
+  ],
+  "project_context": {},
+  "user_style_hint": ""
+}

@@ -60,14 +60,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphRecursionError
 from src.graph import (
     build_graph,
-    build_routine_graph,
     get_graph,
     set_graph,
     set_store,
     make_inmemory_store,
-    set_routine_graph,
 )
 from src.rag_agent import create_or_load_vectorstore
 from src.memory import (
@@ -78,7 +77,9 @@ from src.memory import (
     save_arch_flow,
     project_key,
 )
+from src.graph.utils import is_explicit_asr_request
 from src.services.doc_ingest import extract_pdf_text
+from src.ledger.store import load_ledger as _load_ledger, compute_active_view as _compute_active_view
 memory_init()
 
 # ===================== Deteccion simple de idioma (ES/EN) ==========================
@@ -100,13 +101,6 @@ async def lifespan(app: FastAPI):
         compiled = build_graph(saver, store=store)
         set_graph(compiled)
         set_store(store)
-        # F5-T2: compilamos también el subgrafo de generación de retos.
-        try:
-            routine_g = build_routine_graph()
-            set_routine_graph(routine_g)
-            print("[startup] RoutineGenerator subgrafo compilado")
-        except Exception as e:
-            print(f"[startup] RoutineGenerator subgrafo NO compilado: {e}")
         try:
             create_or_load_vectorstore()
             print("[startup] RAG listo")
@@ -220,10 +214,7 @@ ASR_HEAD_RE = re.compile(
 )
 
 def _looks_like_make_asr(msg: str) -> bool:
-    if not msg: return False
-    low = msg.lower()
-    return bool(re.search(r"\b(create|make|draft|write|generate|produce|compose)\b.*\b(asr)\b", low)) \
-        or bool(re.search(r"\b(crea|haz|redacta|genera|produce)\b.*\b(asr)\b", low))
+    return is_explicit_asr_request(msg)
 
 def _extract_asr_from_message(msg: str) -> str:
     if not msg: return ""
@@ -267,18 +258,27 @@ def _wants_style(txt: str) -> bool:
         # EN
         "architecture style",
         "architectural style",
+        "architecture styles",
+        "architectural styles",
         "style for this asr",
         "styles for this asr",
         "style for the asr",
         "what style", "which style",
         # ES
         "estilo de arquitectura",
+        "estilos de arquitectura",
         "estilo arquitectonico", "estilo arquitect\u00f3nico",
+        "estilos arquitectonicos", "estilos arquitect\u00f3nicos",
         "estilos para este asr",
         "que estilo", "qu\u00e9 estilo",
     ]
     # Tambien capturamos frases donde se combinan "style" y "asr".
-    return any(k in low for k in keys) or ("style" in low and "asr" in low)
+    return (
+        any(k in low for k in keys)
+        or ("style" in low and "asr" in low)
+        or ("estilos" in low and "arquitect" in low)
+        or ("estilo" in low and "arquitect" in low)
+    )
 
 
 def _wants_tactics(txt: str) -> bool:
@@ -353,6 +353,7 @@ async def diagram_export(
     detail_level: str = Query("overview", regex="^(overview|detailed)$"),
     level: Optional[str] = Query(None, description="Diagram level: 1=overview, 2=medium, 3=detailed"),
     focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
+    project_id: Optional[str] = Query(None, description="Project scope for ledger lookup"),
 ):
     """Export the last generated architecture diagram in the requested format.
 
@@ -384,12 +385,26 @@ async def diagram_export(
         render_svg_async as render_svg_async_from_dot,
     )
 
-    # Retrieve the last diagram for this session from memory
+    # P5: read from ledger; fallback to arch_flow for pre-migration sessions
     user_id = session_id
-    arch_flow = load_arch_flow(user_id)
-    last_diagram = arch_flow.get("last_diagram") or {}
+    project_id = (project_id or "").strip() or None
 
-    dot_code = last_diagram.get("dot") or last_diagram.get("dot_raw") or ""
+    ledger = _load_ledger(user_id, project_id)
+    active = _compute_active_view(ledger)
+    diagram_decision = active.get("diagram")
+
+    if diagram_decision:
+        payload = diagram_decision.get("payload") or {}
+        dot_code = payload.get("dot") or payload.get("dot_raw") or ""
+        _detail_level_hint = payload.get("focus") or "overview"
+        _overview_mapping = payload.get("mapping") or {}
+    else:
+        arch_flow = load_arch_flow(user_id, project_id)
+        last_diagram = arch_flow.get("last_diagram") or {}
+        dot_code = last_diagram.get("dot") or last_diagram.get("dot_raw") or ""
+        _detail_level_hint = last_diagram.get("detail_level") or "overview"
+        _overview_mapping = last_diagram.get("overview_mapping") or {}
+
     if not dot_code:
         raise HTTPException(
             status_code=404,
@@ -414,7 +429,7 @@ async def diagram_export(
         detail_level_name = to_detail_level(requested_level).value
 
         if focus:
-            mapping_for_focus = last_diagram.get("overview_mapping") or level_mapping
+            mapping_for_focus = _overview_mapping or level_mapping
             ir_model = build_expanded_view(
                 detailed_model,
                 mapping_for_focus,
@@ -508,33 +523,35 @@ def _stream_post_process(
             "asr_context",
             arch_flow.get("add_context", "")
         )
-        arch_flow["stage"] = "ASR"
 
     style_text = (
         result.get("style")
         or result.get("selected_style")
         or result.get("last_style")
     )
-    if style_text and result.get("arch_stage") == "STYLE":
+    if style_text and result.get("current_phase") == "style_table":
         arch_flow["style"] = style_text
-        arch_flow["stage"] = "STYLE"
 
     tactics_json = result.get("tactics_struct") or None
     tactics_md   = result.get("tactics_md") or ""
     if user_intent == "tactics" and (tactics_json or tactics_md):
         arch_flow["tactics"] = tactics_json or []
-        arch_flow["stage"] = "TACTICS"
 
     diagram_obj = result.get("diagram") or {}
     if diagram_obj.get("ok") and diagram_obj.get("dot"):
-        arch_flow["last_diagram"] = {
-            "dot": diagram_obj.get("dot", ""),
-            "dot_raw": diagram_obj.get("dot_raw", ""),
-            "dot_drawio": diagram_obj.get("dot_drawio", ""),
-            "detail_level": diagram_obj.get("detail_level", "overview"),
-            "level": diagram_obj.get("level", 1),
-            "overview_mapping": diagram_obj.get("overview_mapping"),
-        }
+        # P5 guard: skip arch_flow write when ledger already captured the diagram
+        _diagram_in_ledger = bool(
+            (result.get("ledger_active") or {}).get("diagram")
+        )
+        if not _diagram_in_ledger:
+            arch_flow["last_diagram"] = {
+                "dot": diagram_obj.get("dot", ""),
+                "dot_raw": diagram_obj.get("dot_raw", ""),
+                "dot_drawio": diagram_obj.get("dot_drawio", ""),
+                "detail_level": diagram_obj.get("detail_level", "overview"),
+                "level": diagram_obj.get("level", 1),
+                "overview_mapping": diagram_obj.get("overview_mapping"),
+            }
 
     result_diagram_history = result.get("diagram_history") or {}
     if result_diagram_history:
@@ -669,11 +686,16 @@ async def message(
         save_arch_flow(user_id, af, project_id)
         arch_flow = af  # usarlo ya mismo
 
+    stored_current_asr = (
+        memory_get(user_id, asr_key, "")
+        or arch_flow.get("current_asr", "")
+    ).strip()
+
     memory_text = (
         f"Stage: {arch_flow.get('stage','')}\n"
         f"Quality Attribute: {arch_flow.get('quality_attribute','')}\n"
         f"Business / Context: {arch_flow.get('add_context','')}\n"
-        f"Current ASR:\n{arch_flow.get('current_asr','')}\n\n"
+        f"Current ASR:\n{stored_current_asr}\n\n"
         f"Architecture style: {arch_flow.get('style','')}\n"
         f"Tactics so far: {arch_flow.get('tactics', [])}\n"
         f"User last topic: {last_topic}"
@@ -690,12 +712,14 @@ async def message(
     user_lang = detect_lang(message)
 
     # --- Heuristicas locales ---
+    explicit_asr_request = is_explicit_asr_request(message)
     topic_hint = _extract_topic_from_text(message) or _extract_topic_from_text(last_topic)
     msg_low = message.lower()
     force_rag = (
+        explicit_asr_request or
         _needs_topic_hint(message) or
         bool(re.search(
-            r"\b(add|qas|asr|tactic|tactica|t\u00e1ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
+            r"\b(add|qas|tactic|tactica|t\u00e1ctica|latenc|scalab|throughput|rendim|availability|disponib|diagrama|diagram)\b",
             msg_low
         ))
     )
@@ -703,8 +727,12 @@ async def message(
     if doc_only:
         force_rag = False  # DOC-ONLY desactiva RAG
 
+    has_existing_asr = bool(stored_current_asr)
+
     user_intent = "general"
-    if not arch_flow.get("current_asr"):
+    if explicit_asr_request:
+        user_intent = "asr"
+    elif not has_existing_asr:
         # Si aún no hay ASR, cualquier cosa va a ASR primero
         user_intent = "asr"
     elif _wants_style(message):
@@ -726,8 +754,9 @@ async def message(
             "turn_messages": [],
             "requested_nodes": [],
             "pending_nodes": [],
-            "completed_nodes": [],
-            "current_asr": memory_get(user_id, asr_key, ""),
+            # Do NOT reset completed_nodes here (BUG-013): boot_node now manages
+            # it phase-aware so overwriting it here would erase session progress.
+            "current_asr": stored_current_asr,
         }})
     except Exception:
         pass
@@ -748,7 +777,8 @@ async def message(
         "nextNode": "supervisor",
         "requested_nodes": [],
         "pending_nodes": [],
-        "completed_nodes": [],
+        # completed_nodes is NOT reset here (BUG-013): boot_node manages it
+        # phase-aware so the checkpoint value must survive as the base state.
         "imagePath1": image_path1,
         "imagePath2": image_path2,
         "doc_only": doc_only,
@@ -758,16 +788,17 @@ async def message(
         "retrieved_docs": [],
         "memory_text": memory_text,
         "suggestions": [],
-        "language": user_lang,
+        # BUG-014: do NOT override language from main.py's simple detector.
+        # The checkpoint preserves the session language; classifier_node sets it
+        # correctly on the first turn and keeps it sticky for short retries.
         "intent": user_intent,
         "force_rag": force_rag,
         "topic_hint": topic_hint,
-        "current_asr": memory_get(user_id, asr_key, ""),
+        "current_asr": stored_current_asr,
         "style": arch_flow.get("style", ""),
         "selected_style": arch_flow.get("style", ""),
         "last_style": arch_flow.get("style", ""),
-        "arch_stage": arch_flow.get("stage", ""),
-        "quality_attribute": arch_flow.get("quality_attribute", ""),
+        "quality_attribute": arch_flow.get("quality_attribute", "") or topic_hint or last_topic,
         "add_context": arch_flow.get("add_context", ""),
         "tactics_list": arch_flow.get("tactics", []),
         "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
@@ -777,6 +808,10 @@ async def message(
         "user_style_hint":        arch_flow.get("user_style_hint", ""),
         "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
         "user_style_loaded":      bool(arch_flow.get("user_style_hint", "")),
+        # ADD 3.0 candidates and selections are NOT reset here (BUG-013):
+        # these are session-persistent fields managed by boot_node's
+        # preserve-if-not-None logic. Removing them from input_state lets
+        # LangGraph keep the checkpoint values across turns.
     }
 
     # Capture variables needed by the generator closure
@@ -853,6 +888,30 @@ async def message(
         except GeneratorExit:
             # Client disconnected mid-stream; let the generator close cleanly.
             raise
+        except GraphRecursionError:
+            # BUG-013: guard against infinite ASR loops when completed_nodes is
+            # stale. Emit a friendly message rather than a 500.
+            _lang = (input_state.get("language") or user_lang or "es")
+            _recovery = (
+                "Algo se enredó procesando tu mensaje. ¿Puedes repetir tu última instrucción?"
+                if _lang == "es"
+                else "Something tangled while processing your request. Could you repeat your last instruction?"
+            )
+            log.warning("GraphRecursionError hit — emitting recovery message for thread=%s", _thread_id)
+            yield _sse({
+                "type": "complete",
+                "endMessage": _recovery,
+                "diagram": {},
+                "messages": [],
+                "session_id": _session_id,
+                "message_id": _message_id,
+                "thread_id": _thread_id,
+                "suggestions": [],
+                "mode": mode,
+                "mode_suggestion": None,
+            })
+            yield "data: [DONE]\n\n"
+            return
         except Exception as exc:
             import traceback
             traceback.print_exc()
@@ -884,42 +943,6 @@ async def message(
 
 
 
-# ===================== /generate-routine (F5-T2) ============
-from pydantic import BaseModel as _BM
-from src.services.routine_generator import (
-    verify_internal_token as _verify_internal_token,
-    make_trace_id as _make_trace_id,
-    generate_routine_for_user as _generate_routine_for_user,
-)
-
-
-class GenerateRoutineRequest(_BM):
-    """F5-T2: body del endpoint POST /generate-routine."""
-    user_id: str
-    target_weakness: Optional[str] = None
-
-
-@app.post("/generate-routine")
-async def generate_routine_endpoint(request: Request, body: GenerateRoutineRequest):
-    """F5-T2: genera un reto pedagógico desde el perfil del usuario.
-
-    Auth: header `X-Internal-Token` (mismo token de F4-T2 / F3-T5).
-    Trace: usa `X-Trace-Id` si viene; si no, genera uno.
-
-    Devuelve `RoutineOutput` (title, target_weakness, expected_concepts,
-    difficulty 1..5, challenge_md, inverse_rag_snippet?). El ID y status
-    los pone Negocio al persistir (F4-T5).
-    """
-    _verify_internal_token(request)
-    trace_id = _make_trace_id(request)
-    final = await _generate_routine_for_user(
-        user_id=body.user_id,
-        target_weakness=body.target_weakness,
-        trace_id=trace_id,
-    )
-    return final.model_dump()
-
-
 # ===================== /feedback ========================
 @app.post("/feedback")
 async def feedback(
@@ -948,4 +971,67 @@ async def test_endpoint(message: str = Form(...), file: UploadFile = File(None))
     test_response = fix_utf8_recursive(test_response)
     return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
 
+
+# ===================== /sessions — ledger endpoints (P1) =====================
+from src.ledger import (
+    load_ledger as _load_ledger,
+    is_phase_complete as _is_phase_complete,
+    Phase as _LedgerPhase,
+    render_dossier as _render_dossier,
+    render_dossier_compact as _render_dossier_compact,
+)
+
+
+@app.get("/sessions/{session_id}/dossier")
+def get_session_dossier(
+    session_id: str,
+    lang: str = "es",
+    focus: Optional[str] = None,
+    compact: bool = False,
+    project_id: Optional[str] = None,
+):
+    """Render the design dossier as Markdown for a session."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    ledger = _load_ledger(user_id, pid)
+    if compact:
+        md = _render_dossier_compact(ledger, lang=lang)
+    else:
+        md = _render_dossier(ledger, lang=lang, focus=focus)
+    return Response(content=md, media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/sessions/{session_id}/ledger")
+def get_session_ledger(
+    session_id: str,
+    project_id: Optional[str] = None,
+):
+    """Return the raw Design Ledger JSON for a session."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    return _load_ledger(user_id, pid)
+
+
+@app.get("/sessions/{session_id}/phase")
+def get_session_phase(
+    session_id: str,
+    project_id: Optional[str] = None,
+):
+    """Return current phase, iteration, pending advance and per-phase completion flags."""
+    user_id = session_id
+    pid = (project_id or "").strip() or None
+    ledger = _load_ledger(user_id, pid)
+    return {
+        "current_phase":     ledger["current_phase"],
+        "current_iteration": ledger["current_iteration"],
+        "pending_advance":   ledger["pending_advance"],
+        "completion": {
+            p.value: _is_phase_complete(ledger, p)
+            for p in [
+                _LedgerPhase.DIAGNOSIS, _LedgerPhase.ASR_TABLE, _LedgerPhase.STYLE_TABLE,
+                _LedgerPhase.TACTICS_TABLE, _LedgerPhase.TECH_PROPOSALS,
+                _LedgerPhase.DIAGRAM, _LedgerPhase.ANALYSIS,
+            ]
+        },
+    }
 

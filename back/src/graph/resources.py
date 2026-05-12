@@ -120,9 +120,6 @@ builder = StateGraph(GraphState)
 # y se consumen via get_graph()/get_store() desde los call-sites.
 _graph_holder: dict = {"instance": None}
 _store_holder: dict = {"instance": None}
-# F5-T2: holder del subgrafo `RoutineGenerator`. Compilado una vez en el
-# lifespan; consumido por el endpoint /generate-routine.
-_routine_graph_holder: dict = {"instance": None}
 
 
 def set_graph(graph_instance) -> None:
@@ -163,21 +160,6 @@ def make_inmemory_store() -> InMemoryStore:
     `langgraph-checkpoint-postgres` tambien para Store), reemplazar aqui.
     """
     return InMemoryStore()
-
-
-def set_routine_graph(graph_instance) -> None:
-    """F5-T2: fija el subgrafo de generación de retos. Llamar desde el lifespan."""
-    _routine_graph_holder["instance"] = graph_instance
-
-
-def get_routine_graph():
-    """F5-T2: devuelve el subgrafo de generación de retos. Lanza si lifespan no corrió."""
-    g = _routine_graph_holder["instance"]
-    if g is None:
-        raise RuntimeError(
-            "Routine graph not initialized. The FastAPI lifespan must run first."
-        )
-    return g
 
 # Sesión HTTP con retries y timeouts
 def _make_http() -> requests.Session:

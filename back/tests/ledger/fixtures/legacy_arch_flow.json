@@ -1,0 +1,22 @@
+{
+  "stage": "STYLE",
+  "quality_attribute": "latencia",
+  "add_context": "Sistema bancario de pagos con alta demanda",
+  "current_asr": "ASR: Sistema de pagos con latencia inferior a 200ms\nSummary: El sistema debe procesar pagos en menos de 200ms p95\nSource: usuario final\nStimulus: solicitud de pago\nEnvironment: producción\nArtifact: servicio de pagos\nResponse: procesar pago exitosamente\nResponse Measure: p95 < 200ms @ 5k RPS",
+  "style": "CQRS + Event Sourcing",
+  "tactics": [
+    {
+      "name": "Cache Redis",
+      "purpose": "Reducir latencia de lecturas",
+      "rationale": "Redis sub-milisegundo",
+      "risks": "Consistencia eventual",
+      "tradeoffs": "Consistencia vs velocidad",
+      "traces_to_asr": "p95 < 200ms",
+      "expected_effect": "Reducir p95 en 50%",
+      "success_probability": "0.90",
+      "rank": 1
+    }
+  ],
+  "deployment_diagram_puml": "",
+  "deployment_diagram_svg_b64": ""
+}

@@ -86,6 +86,19 @@ def detect_explicit_qa(text: str) -> str:
     return normalize_qa(text)
 
 
+def prefer_specific_qa(*values: str) -> str:
+    """Devuelve el primer QA específico reconocido entre varios candidatos.
+
+    Útil cuando queremos preservar continuidad y evitar que un valor `general`
+    pise una señal más fuerte encontrada en otro campo (por ejemplo el ASR).
+    """
+    for value in values:
+        qa = normalize_qa(value)
+        if qa != "general":
+            return qa
+    return "general"
+
+
 def qa_to_focus_label(qa_id: str, default: str = "performance") -> str:
     """Convierte un QA canónico a etiqueta de foco para prompts en inglés.
 
@@ -139,3 +152,11 @@ def tactics_node_name_for_qa(qa_id: str) -> str:
     if qa == "general":
         return "tactics"
     return f"tactics_{qa_to_node_suffix(qa)}"
+
+
+def tech_node_name_for_qa(qa_id: str) -> str:
+    """Devuelve nombre de nodo tech para un QA canónico."""
+    qa = normalize_qa(qa_id)
+    if qa == "general":
+        return "tech"
+    return f"tech_{qa_to_node_suffix(qa)}"
