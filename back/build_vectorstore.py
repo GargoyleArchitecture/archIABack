@@ -123,7 +123,7 @@ def _load_docs() -> List:
             d.metadata = {
                 "title": Path(md.get("source") or fpath).name,   # nombre del archivo
                 "source_title": source_title,                    # título lógico del libro (para filtrar)
-                "source_path": str(fpath),                       # ruta absoluta
+                "source_path": str(fpath.relative_to(BASE_DIR)), # ruta relativa a back/
                 "page": md.get("page", md.get("page_number")),   # número de página (int)
                 "page_label": md.get("page_label"),              # etiqueta (si existe)
             }

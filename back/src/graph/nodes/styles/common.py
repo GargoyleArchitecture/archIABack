@@ -27,6 +27,21 @@ from src.ledger.types import Phase
 log = logging.getLogger("style_node")
 
 
+def _sanitize_md_cell(text: str, max_chars: int = 60) -> str:
+    """Sanitize a string for safe use inside a Markdown table cell.
+
+    Collapses whitespace, escapes pipe and backtick characters, and truncates
+    at a word boundary so the cell can never break table syntax.
+    """
+    text = (text or "").replace("\n", " ").replace("\r", " ")
+    text = text.replace("|", "\\|").replace("`", "'")
+    text = text.strip()
+    if len(text) > max_chars:
+        truncated = text[:max_chars].rsplit(" ", 1)[0]
+        text = (truncated or text[:max_chars]) + "…"
+    return text
+
+
 @lru_cache(maxsize=64)
 def _fetch_styles_rag(qa: str, resolved_index: str, k: int = 6) -> str:
     """Returns book_snippets string. Cached by (qa, resolved_index, k).
@@ -460,15 +475,16 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
         ]
 
     _ledger_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
-    _asr_name = (
-        (_ledger_asr_payload.get("summary") or "").strip()[:60]
+    _raw_asr_name = (
+        (_ledger_asr_payload.get("summary") or "").strip()
         or next(
-            (ln.strip()[:60] for ln in
+            (ln.strip() for ln in
              (state.get("current_asr") or state.get("last_asr") or "").splitlines()
              if ln.strip() and not ln.strip().startswith("#")),
             ("ASR activo" if lang == "es" else "Active ASR"),
         )
     )
+    _asr_name = _sanitize_md_cell(_raw_asr_name, max_chars=60)
     _col_style = "Estilo arquitectónico" if lang == "es" else "Architecture Style"
     _col_asr   = "ASR al que responde"   if lang == "es" else "ASR addressed"
     _col_just  = "Justificación"         if lang == "es" else "Justification"
@@ -508,5 +524,13 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     state["suggestions"] = followups
     state["endMessage"] = content
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase across turns.
+    _done = list(state.get("completed_nodes") or [])
+    for _n in ("asr", "style"):
+        if _n not in _done:
+            _done.append(_n)
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "style"
 
     return state

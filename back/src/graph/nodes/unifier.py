@@ -80,6 +80,24 @@ def _ensure_section(title: str, body: str) -> str:
         return body
     return f"{title}\n\n{body}"
 
+
+def _render_diagram_block(state: GraphState, lang: str) -> str:
+    """Build the diagram Markdown block for both single- and multi-intent paths.
+
+    Returns an embedded SVG image block when diagram data is available, or a
+    clear failure message so the user is never left with a false promise.
+    """
+    d = state.get("diagram") or {}
+    if not (d.get("ok") and d.get("svg_b64")):
+        return (
+            "## Diagrama\n\nNo se pudo renderizar el diagrama esta vez."
+            if lang == "es"
+            else "## Diagram\n\nThe diagram could not be rendered this time."
+        )
+    data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
+    head = "## Diagrama" if lang == "es" else "## Diagram"
+    return f"{head}\n\n![diagram]({data_url})"
+
 async def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
@@ -118,8 +136,6 @@ async def unifier_node(state: GraphState) -> GraphState:
             or ""
         ).strip()
 
-        has_diagram = bool((state.get("diagram") or {}).get("ok"))
-
         blocks = []
         if lang == "es":
             if asr_txt and "asr" in requested_set:
@@ -130,8 +146,8 @@ async def unifier_node(state: GraphState) -> GraphState:
                 blocks.append(_ensure_section("## Tácticas", tactics_txt))
             if tech_txt and "tech" in requested_set:
                 blocks.append(_ensure_section("## Tecnologías", tech_txt))
-            if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("## Diagrama\n\nRenderizado listo en esta misma respuesta.")
+            if "diagram_agent" in requested_set:
+                blocks.append(_render_diagram_block(state, lang))
             followups = [
                 "Refinar el ASR con métricas más estrictas.",
                 "Aterrizar estas tácticas en un plan de implementación por fases.",
@@ -145,8 +161,8 @@ async def unifier_node(state: GraphState) -> GraphState:
                 blocks.append(_ensure_section("## Tactics", tactics_txt))
             if tech_txt and "tech" in requested_set:
                 blocks.append(_ensure_section("## Technologies", tech_txt))
-            if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("## Diagram\n\nRendered output is included in this same response.")
+            if "diagram_agent" in requested_set:
+                blocks.append(_render_diagram_block(state, lang))
             followups = [
                 "Refine the ASR with stricter metrics.",
                 "Turn these tactics into a phased implementation plan.",
