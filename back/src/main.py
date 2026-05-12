@@ -897,7 +897,7 @@ async def message(
                 if _lang == "es"
                 else "Something tangled while processing your request. Could you repeat your last instruction?"
             )
-            log.warning("GraphRecursionError hit — emitting recovery message for thread=%s", _thread_id)
+            log.exception("GraphRecursionError hit — full trace for thread=%s", _thread_id)
             yield _sse({
                 "type": "complete",
                 "endMessage": _recovery,

@@ -422,10 +422,11 @@ async def intake_node(state: GraphState) -> GraphState:
         _pid = (state.get("project_id") or "").strip() or None
         if _uid:
             try:
+                _intro_ledger = load_ledger(_uid, _pid)
                 transition_phase(_uid, _pid, PhaseTransition(
                     from_phase="intro",
                     to_phase="diagnosis",
-                    iteration=1,
+                    iteration=_intro_ledger["current_iteration"] + 1,
                     triggered_by="user_request",
                     user_message=uq,
                     skipped_phases=[],
@@ -491,6 +492,7 @@ async def intake_node(state: GraphState) -> GraphState:
             # A1 — el arquitecto ya tiene ASRs propios
             if _user_id:
                 try:
+                    _a1_ledger = load_ledger(_user_id, _project_id)
                     append_decision(_user_id, _project_id, {
                         "id": "",
                         "kind": "constraint",
@@ -511,7 +513,7 @@ async def intake_node(state: GraphState) -> GraphState:
                     transition_phase(_user_id, _project_id, PhaseTransition(
                         from_phase="diagnosis",
                         to_phase="asr_table",
-                        iteration=1,
+                        iteration=_a1_ledger["current_iteration"] + 1,
                         triggered_by="user_request",
                         user_message=uq,
                         skipped_phases=[],
@@ -551,7 +553,7 @@ async def intake_node(state: GraphState) -> GraphState:
                     transition_phase(_user_id, _project_id, PhaseTransition(
                         from_phase="diagnosis",
                         to_phase="asr_table",
-                        iteration=1,
+                        iteration=_ledger["current_iteration"] + 1,
                         triggered_by="user_request",
                         user_message=uq,
                         skipped_phases=[],
