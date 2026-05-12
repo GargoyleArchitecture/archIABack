@@ -276,6 +276,13 @@ ASR:
 GROUNDING (use this context from architecture documentation; prefer it over general knowledge):
 {book_snippets or "(none)"}
 
+NAMING CONSTRAINT — style names MUST be canonical architecture style names
+(e.g. "Microservices", "Event-Driven", "Layered", "Broker", "Pipe-and-Filter",
+"CQRS", "Event Sourcing", "Service-Oriented", "Peer-to-Peer", "Publish-Subscribe").
+Technology products, deployment configurations, or infrastructure stacks are NOT valid style names
+(e.g. "Leader-Follower + Patroni", "Raft-based NewSQL", "CockroachDB" are INVALID).
+Mention specific technologies only inside the "impact" or "rationale" fields.
+
 You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:
 
 {{
