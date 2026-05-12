@@ -19,15 +19,11 @@ from src.rag_agent import get_indexed_retriever
 from src.graph.qa_registry import normalize_qa, qa_to_focus_label
 from src.ledger import (
     append_decision,
-    compute_active_view,
-    load_ledger,
-    render_dossier,
-    render_dossier_compact,
-    render_phase_prompt,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
 from src.ledger.types import Phase
+from src.graph.nodes._ledger_helpers import _refresh_ledger_state
 
 log = logging.getLogger("asr_node")
 
@@ -293,28 +289,6 @@ def _coerce_single_asr_markdown(content: str) -> str:
         text = text[first.start():end].strip()
         text = _ASR_HEADING_RE.sub("## ASR", text, count=1)
     return text
-
-
-def _refresh_ledger_state(
-    state: dict,
-    user_id: str,
-    project_id: str | None,
-    lang: str,
-) -> None:
-    """Refresh ledger-derived state fields in-place after a successful append_decision."""
-    try:
-        fresh  = load_ledger(user_id, project_id, auto_migrate=False)
-        active = compute_active_view(fresh)
-        state["ledger"]                 = fresh
-        state["ledger_active"]          = active
-        state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
-        state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
-        state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase") or "intro"
-        state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
-        log.debug("asr_node: ledger state refreshed phase=%s", state["current_phase"])
-    except Exception as exc:
-        log.warning("asr_node: state refresh failed (nonfatal): %s", exc)
 
 
 def asr_node(state: GraphState) -> GraphState:

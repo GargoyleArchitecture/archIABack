@@ -5,7 +5,7 @@ from langchain_core.messages import SystemMessage
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, supervisorSchema
 from src.graph.nodes.classifier import FOLLOWUP_PATTERNS
-from src.graph.utils import is_explicit_asr_request
+from src.graph.utils import is_explicit_asr_request, is_asr_regenerate_request
 from src.graph.consts import PHASE_INT, FUNNEL_INTENT_MIN_PHASE, PHASE_DISPLAY, PHASE_NEXT_TASK
 import logging
 
@@ -160,6 +160,8 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         explicit_asr_request
         or fu_intent == "make_asr"
         or (forced == "asr" and not has_existing_asr)
+        or forced == "asr_reject"
+        or is_asr_regenerate_request(uq)
     )
 
     explicit_chain = wants_asr or wants_style or wants_tactics or wants_tech or wants_diagram
@@ -266,6 +268,18 @@ def supervisor_node(state: GraphState):
 
     # Estado multi-intent del turno
     completed_nodes = _augment_completed_nodes(state, list(state.get("completed_nodes", []) or []))
+
+    if intent_raw == "asr_confirm":
+        return {
+            **state,
+            "nextNode": "asr_confirm",
+            "intent": "asr_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
     pending_nodes = list(state.get("pending_nodes", []) or [])
     requested_nodes = list(state.get("requested_nodes", []) or [])
 
@@ -292,7 +306,8 @@ def supervisor_node(state: GraphState):
         or _routing_phase in ("asr", "style", "tactics", "tech", "done")
     )
     _asr_already_done = ("asr" in completed_nodes) or _has_existing_asr
-    must_run_asr = ("asr" in requested_nodes) and not _asr_already_done
+    explicit_regen = is_asr_regenerate_request(uq) or (state.get("intent") == "asr_reject")
+    must_run_asr = ("asr" in requested_nodes) and (explicit_regen or not _asr_already_done)
 
     if must_run_asr:
         next_node = "asr"

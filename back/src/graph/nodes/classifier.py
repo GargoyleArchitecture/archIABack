@@ -5,6 +5,7 @@ from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, ClassifyOut
 from src.graph.index_resolver import resolve_quality_attribute
 from src.graph.qa_registry import detect_explicit_qa, normalize_qa, supported_qas
+from src.graph.utils import is_asr_regenerate_request
 
 # Fast regex-based language detector — used during INTAKE to skip the LLM call
 # while still updating language on every turn.
@@ -175,6 +176,28 @@ def classifier_node(state: GraphState) -> GraphState:
     if any(k in low for k in diagram_keywords) and intent not in ("asr", "style", "tactics"):
         intent = "diagram"
 
+    # Confirmación / rechazo de ASR: solo aplican si ya hay un ASR vigente y la
+    # fase actual del ledger es asr_table. Sin esa precondición, "confirmo" no
+    # tiene referente y debe seguir el flujo normal.
+    _has_existing_asr = bool(state.get("current_asr") or state.get("last_asr"))
+    _in_asr_phase = (state.get("current_phase") or "") == "asr_table"
+    if _has_existing_asr and _in_asr_phase:
+        asr_confirm_triggers = [
+            "confirmo", "lo confirmo", "acepto este asr", "acepto ese asr",
+            "ese asr está bien", "ese asr esta bien", "está bien ese asr", "esta bien ese asr",
+            "ese asr me sirve", "me sirve ese asr",
+            "confirm", "i confirm", "approve",
+            "looks good", "yes that asr", "sí ese asr", "si ese asr",
+        ]
+        asr_reject_triggers = [
+            "rechazo", "ese no", "no me convence", "otro asr", "otro distinto",
+            "reject", "another asr", "different asr", "not that one",
+        ]
+        if any(k in low for k in asr_confirm_triggers):
+            intent = "asr_confirm"
+        elif any(k in low for k in asr_reject_triggers) or is_asr_regenerate_request(msg):
+            intent = "asr_reject"
+
 
     # BUG-014: language is sticky for short, low-signal messages (e.g. "S2", "ok").
     # Only switch when there are enough tokens to classify reliably, OR the user
@@ -249,6 +272,8 @@ def classifier_node(state: GraphState) -> GraphState:
         "architecture",
         "diagram",
         "asr",
+        "asr_confirm",
+        "asr_reject",
         "tactics",
         "style",
         "tech",
