@@ -55,6 +55,14 @@ def is_explicit_asr_request(text: str) -> bool:
     )
 
 
+def is_asr_regenerate_request(text: str) -> bool:
+    """True when the user asks to REGENERATE/REWRITE the ASR (not create new)."""
+    txt = (text or "").strip()
+    if not txt:
+        return False
+    return bool(_ASR_REPLAN_RE.search(txt) or _ASR_MISALIGNED_RE.search(txt))
+
+
 # ========== Token utils (soft) ==========
 try:
     _enc = tiktoken.encoding_for_model("gpt-4o")

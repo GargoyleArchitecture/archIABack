@@ -69,6 +69,25 @@
       ]
     },
     {
+      "id": "tecnologias",
+      "display_name": "Tecnologías y Herramientas",
+      "keywords": [
+        "technology", "framework", "library", "tool",
+        "infrastructure", "platform", "runtime",
+        "database", "message broker", "cache",
+        "container", "orchestration", "cloud service",
+        "API gateway", "load balancer", "CDN",
+        "monitoring", "observability", "logging",
+        "CI/CD", "deployment", "Kubernetes", "Docker",
+        "Redis", "Kafka", "RabbitMQ", "PostgreSQL",
+        "MongoDB", "Elasticsearch", "Nginx", "Envoy",
+        "Spring Boot", "Node.js", "Django", "FastAPI",
+        "React", "Angular", "Vue",
+        "tecnología", "herramienta", "biblioteca",
+        "plataforma", "servicio en la nube"
+      ]
+    },
+    {
       "id": "tacticas",
       "display_name": "Tácticas Arquitectónicas",
       "keywords": [

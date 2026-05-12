@@ -14,6 +14,7 @@ from src.graph.utils import _dedupe_snippets
 from src.ledger import (
     append_decision,
     compute_active_view,
+    get_all_active_asrs,
     load_ledger,
     render_dossier,
     render_dossier_compact,
@@ -24,6 +25,21 @@ from src.ledger import (
 from src.ledger.types import Phase
 
 log = logging.getLogger("style_node")
+
+
+def _sanitize_md_cell(text: str, max_chars: int = 60) -> str:
+    """Sanitize a string for safe use inside a Markdown table cell.
+
+    Collapses whitespace, escapes pipe and backtick characters, and truncates
+    at a word boundary so the cell can never break table syntax.
+    """
+    text = (text or "").replace("\n", " ").replace("\r", " ")
+    text = text.replace("|", "\\|").replace("`", "'")
+    text = text.strip()
+    if len(text) > max_chars:
+        truncated = text[:max_chars].rsplit(" ", 1)[0]
+        text = (truncated or text[:max_chars]) + "…"
+    return text
 
 
 @lru_cache(maxsize=64)
@@ -143,6 +159,62 @@ def _build_asr_parent_ref(ledger_active: dict) -> list:
     return [{"id": asr["id"], "kind": "asr", "iteration": asr.get("iteration", 0)}]
 
 
+def _build_multi_asr_constraint_block(all_asrs: list[dict], lang: str) -> str:
+    """Prompt block listing all active ASRs with priority — #1 is highest."""
+    if not all_asrs or len(all_asrs) < 2:
+        return ""
+    lines = []
+    for i, asr in enumerate(all_asrs, 1):
+        qa = asr.get("qa", "")
+        payload = asr.get("payload") or {}
+        rm = payload.get("response_measure", "")
+        summary = (payload.get("summary") or "")[:100]
+        lines.append(f"  {i}. [{asr.get('id','')}] QA={qa} | RM={rm} | {summary}")
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'ALL ACTIVE ASRs (ordered by priority, #1 = highest):\n'
+            + "\n".join(lines) + "\n\n"
+            f'CONSTRAINT: Do NOT propose any style that degrades the quality '
+            f'attribute of ASR #1 ({all_asrs[0].get("qa","")}).\n'
+            f'If a style benefits a lower-priority ASR but harms ASR #1, '
+            f'EXCLUDE it from candidates.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'TODOS LOS ASRs ACTIVOS (ordenados por prioridad, #1 = máxima):\n'
+        + "\n".join(lines) + "\n\n"
+        f'RESTRICCIÓN: NO propongas ningún estilo que degrade el atributo de '
+        f'calidad del ASR #1 ({all_asrs[0].get("qa","")}).\n'
+        f'Si un estilo beneficia un ASR de menor prioridad pero perjudica al '
+        f'ASR #1, EXCLÚYELO de los candidatos.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _check_style_conflicts(data: dict, all_asrs: list[dict]) -> str:
+    """Return the name of a conflicting style if its impact mentions
+    degrading the highest-priority ASR's QA. Returns '' if clean."""
+    if not all_asrs:
+        return ""
+    top_qa = (all_asrs[0].get("qa") or "").lower()
+    if not top_qa:
+        return ""
+    negative_indicators = [
+        "degrad", "harm", "sacrifice", "reduce", "worsen",
+        "perjudic", "degrada", "sacrific", "afect", "comprom",
+    ]
+    for style_key in ("style_1", "style_2"):
+        style = data.get(style_key) or {}
+        impact = (style.get("impact") or "").lower()
+        if top_qa not in impact:
+            continue
+        if any(neg in impact for neg in negative_indicators):
+            return style.get("name", style_key)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Ledger state refresh (Step 2 — P4)
 # ---------------------------------------------------------------------------
@@ -161,7 +233,7 @@ def _refresh_ledger_state(
         state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
         state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
         state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
         state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
         log.debug("style_node: ledger state refreshed phase=%s", state["current_phase"])
     except Exception as exc:
@@ -255,6 +327,11 @@ the specific technologies listed. Business rules must be respected in all trade-
         state.get("ledger_active") or {}, lang
     )
 
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────���──
+    _ledger = state.get("ledger") or {}
+    _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
+    multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
+
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
 
@@ -264,6 +341,7 @@ and then recommend which of them is BETTER to satisfy this ASR,
 explaining the recommendation in terms of its impact on the system and the quality attribute.
 {proj_ctx_block}
 {dossier_binding_block}
+{multi_asr_block}
 Quality attribute focus (e.g., availability, performance, latency, security, etc.):
 {qa}
 
@@ -281,18 +359,19 @@ You MUST respond with a VALID JSON object ONLY, with NO extra text, in the follo
 {{
   "style_1": {{
     "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
+    "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
+    "tradeoff": "One sentence (max 15 words) stating the main trade-off."
   }},
   "style_2": {{
     "name": "Short name of style 2",
-    "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
+    "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
+    "tradeoff": "One sentence (max 15 words) stating the main trade-off."
   }},
-  "best_style": "style_1 or style_2 (choose ONE)",
-  "rationale": "Explain why the chosen style is better for this ASR, based on its impact."
+  "best_style": "style_1 or style_2 (choose ONE)"
 }}
 
 Do NOT add comments or any text outside of this JSON object.
-All string values in the JSON (name, impact, rationale) MUST be written in {"English" if lang == "en" else "español"}.
+All string values in the JSON (name, justification, tradeoff) MUST be written in {"English" if lang == "en" else "español"}.
 """
 
     result = llm.invoke(apply_mode_prompt(state, prompt))
@@ -306,7 +385,6 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
         state["style"] = fallback_style
         state["selected_style"] = fallback_style
         state["last_style"] = fallback_style
-        state["arch_stage"] = "STYLE"
         state["quality_attribute"] = qa
         state["endMessage"] = raw
         state["nextNode"] = "unifier"
@@ -316,8 +394,10 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
     style2 = data.get("style_2", {}) or {}
     style1_name = style1.get("name", "").strip() or "Style 1"
     style2_name = style2.get("name", "").strip() or "Style 2"
-    style1_impact = style1.get("impact", "").strip()
-    style2_impact = style2.get("impact", "").strip()
+    style1_justification = style1.get("justification", "").strip()
+    style1_tradeoff = style1.get("tradeoff", "").strip()
+    style2_justification = style2.get("justification", "").strip()
+    style2_tradeoff = style2.get("tradeoff", "").strip()
     best_key = (data.get("best_style") or "").strip()
     rationale = data.get("rationale", "").strip()
 
@@ -327,7 +407,6 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
     state["style"] = chosen_name
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
-    state["arch_stage"] = "STYLE"
     state["quality_attribute"] = qa
 
     # ── Ledger write-back (P4) ───────────────────────────────────────────────
@@ -341,7 +420,7 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "style",
-                "phase":            Phase.STYLE.value,
+                "phase":            Phase.STYLE_TABLE.value,
                 "iteration":        0,
                 "qa":               qa,
                 "parents":          _parents,
@@ -395,17 +474,49 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
             "Compare these two styles in more depth for this ASR.",
         ]
 
-    content = (
-        f"{header}\n\n"
-        f"### 1. {style1_name}\n\n"
-        f"- **{impact_label}:** {style1_impact}\n\n"
-        f"### 2. {style2_name}\n\n"
-        f"- **{impact_label}:** {style2_impact}\n\n"
-        f"---\n\n"
-        f"{rec_label}\n\n"
-        f"**{chosen_name}** {because}:\n\n"
-        f"{rationale}\n"
+    _ledger_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
+    _raw_asr_name = (
+        (_ledger_asr_payload.get("summary") or "").strip()
+        or next(
+            (ln.strip() for ln in
+             (state.get("current_asr") or state.get("last_asr") or "").splitlines()
+             if ln.strip() and not ln.strip().startswith("#")),
+            ("ASR activo" if lang == "es" else "Active ASR"),
+        )
     )
+    _asr_name = _sanitize_md_cell(_raw_asr_name, max_chars=60)
+    _col_style = "Estilo arquitectónico" if lang == "es" else "Architecture Style"
+    _col_asr   = "ASR al que responde"   if lang == "es" else "ASR addressed"
+    _col_just  = "Justificación"         if lang == "es" else "Justification"
+    _col_trade = "Trade-off principal"   if lang == "es" else "Main trade-off"
+    _prompt_q  = (
+        "¿Cuál estilo quieres usar? Indícame el ID."
+        if lang == "es"
+        else "Which style do you want to use? Give me the ID."
+    )
+
+    content = (
+        f"| ID | {_col_style} | {_col_asr} | {_col_just} | {_col_trade} |\n"
+        f"|---|---|---|---|---|\n"
+        f"| S1 | {style1_name} | {_asr_name} | {style1_justification} | {style1_tradeoff} |\n"
+        f"| S2 | {style2_name} | {_asr_name} | {style2_justification} | {style2_tradeoff} |\n"
+        f"\n{_prompt_q}\n"
+    )
+
+    # ── Post-LLM consistency check (P7) ────────────────────────────────────
+    _conflict_style = _check_style_conflicts(data, _all_asrs)
+    if _conflict_style:
+        _top_qa = _all_asrs[0].get("qa", "")
+        if lang == "es":
+            content += (
+                f"\n\n---\n⚠️ **Nota de consistencia:** El estilo \"{_conflict_style}\" "
+                f"podría afectar el ASR de mayor prioridad ({_top_qa})."
+            )
+        else:
+            content += (
+                f"\n\n---\n⚠️ **Consistency note:** Style \"{_conflict_style}\" "
+                f"may affect the highest-priority ASR ({_top_qa})."
+            )
 
     state["turn_messages"] = state.get("turn_messages", []) + [
         {"role": "assistant", "name": "style_recommender", "content": content}
@@ -413,5 +524,13 @@ All string values in the JSON (name, impact, rationale) MUST be written in {"Eng
     state["suggestions"] = followups
     state["endMessage"] = content
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase across turns.
+    _done = list(state.get("completed_nodes") or [])
+    for _n in ("asr", "style"):
+        if _n not in _done:
+            _done.append(_n)
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "style"
 
     return state

@@ -6,6 +6,7 @@ from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, supervisorSchema
 from src.graph.nodes.classifier import FOLLOWUP_PATTERNS
 from src.graph.utils import is_explicit_asr_request
+from src.graph.consts import PHASE_INT, FUNNEL_INTENT_MIN_PHASE, PHASE_DISPLAY, PHASE_NEXT_TASK
 import logging
 
 log = logging.getLogger("graph")
@@ -24,7 +25,12 @@ def _looks_like_eval(text: str) -> bool:
     t = (text or "").lower()
     return any(k in t for k in EVAL_TRIGGERS)
 
-def detect_lang(text: str) -> str:
+def detect_lang(text: str) -> str | None:
+    """Detect language from text. Returns None when there is no clear signal.
+
+    Returning None (instead of a default) lets callers that already hold a
+    prior language preserve it via `state.get("language") or detect_lang(uq) or "es"`.
+    """
     t = (text or "").lower()
     es_hits = sum(w in t for w in [
         "qué","que","cómo","como","por qué","porque","cuál","cual",
@@ -45,7 +51,7 @@ def detect_lang(text: str) -> str:
     ])
     if es_hits > en_hits: return "es"
     if en_hits > es_hits: return "en"
-    return "es"  # default to Spanish — this app's primary language
+    return None  # BUG-014: no signal — caller uses prior state language
 
 def classify_followup(question: str) -> str | None:
     q = (question or "").lower().strip()
@@ -66,13 +72,47 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
     }
     if state.get("hasVisitedASR"):
         _append_unique(out, "asr")
+    # BUG-013: also mark asr as done when routing_phase shows we've already passed it,
+    # so completed_nodes stays consistent across turns even if hasVisitedASR was reset.
+    _routing_phase = state.get("routing_phase") or "intake"
+    if _routing_phase in ("asr", "style", "tactics", "tech", "done"):
+        _append_unique(out, "asr")
+    if bool(state.get("selected_asrs")) or bool(state.get("current_asr")) or bool(state.get("last_asr")):
+        _append_unique(out, "asr")
     if "style_recommender" in turn_names:
         _append_unique(out, "style")
     if "tactics_advisor" in turn_names:
         _append_unique(out, "tactics")
+    if state.get("hasVisitedTech") or "tech_advisor" in turn_names:
+        _append_unique(out, "tech")
     if state.get("hasVisitedDiagram"):
         _append_unique(out, "diagram_agent")
     return out
+
+def _build_block_message(current_phase: str, requested_phase: str, lang: str) -> str:
+    cur_display = PHASE_DISPLAY.get(current_phase, {}).get(lang, current_phase)
+    req_display = PHASE_DISPLAY.get(requested_phase, {}).get(lang, requested_phase)
+    cur_task    = PHASE_NEXT_TASK.get(current_phase, {}).get(lang, "")
+
+    if lang == "es":
+        lines = [
+            f"Estamos en la fase de **{cur_display}**.",
+            f"Para llegar a **{req_display}** primero necesitamos completar la fase actual.",
+        ]
+        if cur_task:
+            lines.append(f"La tarea pendiente ahora es: *{cur_task}*.")
+        lines.append("¿Continuamos?")
+    else:
+        lines = [
+            f"We are currently in the **{cur_display}** phase.",
+            f"To reach **{req_display}** we need to complete the current phase first.",
+        ]
+        if cur_task:
+            lines.append(f"The pending task right now is: *{cur_task}*.")
+        lines.append("Shall we continue?")
+
+    return "\n\n".join(lines)
+
 
 def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> list[str]:
     low = (uq or "").lower()
@@ -106,13 +146,23 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
     if forced == "diagram" and has_diagram_terms:
         wants_diagram = True
 
+    tech_terms = [
+        "tecnología", "tecnologias", "tecnologías", "technology", "tech stack",
+        "framework", "library", "librería", "herramienta", "tool", "tools",
+        "implementación", "implementacion", "implementation",
+        "qué usar", "que usar", "what to use", "which library", "which framework",
+        "propón tecnologías", "propón tecnologias", "propose technologies",
+        "stack tecnológico", "stack tecnologico",
+    ]
+    wants_tech = any(t in low for t in tech_terms) or forced == "tech"
+
     wants_asr = (
         explicit_asr_request
         or fu_intent == "make_asr"
         or (forced == "asr" and not has_existing_asr)
     )
 
-    explicit_chain = wants_asr or wants_style or wants_tactics or wants_diagram
+    explicit_chain = wants_asr or wants_style or wants_tactics or wants_tech or wants_diagram
     if not explicit_chain:
         return []
 
@@ -131,6 +181,11 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
             _append_unique(plan, "asr")
         _append_unique(plan, "tactics")
 
+    if wants_tech:
+        if (not has_existing_asr) and ("asr" not in plan):
+            _append_unique(plan, "asr")
+        _append_unique(plan, "tech")
+
     if wants_diagram:
         _append_unique(plan, "diagram_agent")
 
@@ -147,7 +202,9 @@ def makeSupervisorPrompt(state: GraphState) -> str:
     proj_ctx = (state.get("project_context_text") or "").strip()
     project_block = f"\n{proj_ctx}\n" if proj_ctx else ""
 
-    return f"""You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and ASR advisor.
+    return f"""GLOSSARY: In this system "ASR" ALWAYS means Architecturally Significant Requirement (ADD 3.0). NEVER interpret "ASR" as Automatic Speech Recognition or any audio/voice technology.
+
+You are a supervisor orchestrating: investigator, diagram_agent (diagrams via DOT/Graphviz), evaluator, and asr (Architecturally Significant Requirements advisor — ADD 3.0).
 Choose the next worker and craft a specific sub-question.
 
 Rules:
@@ -155,7 +212,7 @@ Rules:
 - If DOC-ONLY is ON: DO NOT call or suggest any retrieval tool (no local_RAG). Answers MUST rely only on the PROJECT DOCUMENT context provided.
 - If DOC-ONLY is OFF and user asks about ADD/architecture, prefer investigator (and it may call local_RAG).
 - If user asks for a diagram, route to diagram_agent.
-- If user asks for an ASR or a QAS, route to asr.
+- If user asks for an ASR or a QAS (Architecturally Significant Requirement), route to asr.
 - If two images are provided, evaluator may compare/analyze.
 - Do not go directly to unifier unless at least one worker has produced output.
 {project_block}
@@ -172,7 +229,7 @@ def supervisor_node(state: GraphState):
         state.get("current_phase"), state.get("intent"), state.get("nextNode"),
     )
 
-    if (state.get("current_phase") or "") == "INTAKE" and (state.get("mode") or "professional") != "tutor":
+    if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         return {**state, "nextNode": "intake", "localQuestion": ""}
 
     # si ya hay un SVG listo en este turno, vamos directo al unifier
@@ -180,9 +237,32 @@ def supervisor_node(state: GraphState):
     if d.get("ok") and d.get("svg_b64"):
         return {**state, "nextNode": "unifier", "intent": "diagram"}
 
-    # idioma: usa el detectado en el último mensaje del usuario
-    state_lang = state.get("language") or detect_lang(uq)
+    # BUG-014: preserve prior language when detect_lang has no signal (returns None).
+    state_lang = state.get("language") or detect_lang(uq) or "es"
     state_lang = "es" if state_lang == "es" else "en"
+
+    # ─── M1: Gate de fase ADD 3.0 ───────────────────────────────────────────
+    current_phase = (state.get("current_phase") or "intro")
+    intent_raw = (state.get("intent") or "")
+    min_phase_key = FUNNEL_INTENT_MIN_PHASE.get(intent_raw)
+
+    if min_phase_key and PHASE_INT.get(current_phase, 0) < PHASE_INT[min_phase_key]:
+        block_text = _build_block_message(current_phase, min_phase_key, state_lang)
+        _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
+        _sugs_en = ["Yes, let's continue", "I want to change the system context"]
+        return {
+            **state,
+            "endMessage": block_text,
+            "nextNode": "unifier",
+            "intent": "intake",
+            "language": state_lang,
+            "suggestions": _sugs_es if state_lang == "es" else _sugs_en,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": [],
+            "phase_redirect_hint": "",
+        }
+    # ────────────────────────────────────────────────────────────────────────
 
     # Estado multi-intent del turno
     completed_nodes = _augment_completed_nodes(state, list(state.get("completed_nodes", []) or []))
@@ -204,8 +284,15 @@ def supervisor_node(state: GraphState):
                 "completed_nodes": completed_nodes}
 
     # Scheduler multi-intent
-    # If ASR is part of the plan and still missing, prioritize it before style/tactics.
-    must_run_asr = ("asr" in requested_nodes) and ("asr" not in completed_nodes)
+    # BUG-013: gate ASR with all available signals to prevent re-running after a failed turn.
+    _routing_phase = state.get("routing_phase") or "intake"
+    _has_existing_asr = (
+        bool((state.get("current_asr") or state.get("last_asr") or "").strip())
+        or bool(state.get("selected_asrs"))
+        or _routing_phase in ("asr", "style", "tactics", "tech", "done")
+    )
+    _asr_already_done = ("asr" in completed_nodes) or _has_existing_asr
+    must_run_asr = ("asr" in requested_nodes) and not _asr_already_done
 
     if must_run_asr:
         next_node = "asr"
@@ -229,7 +316,7 @@ def supervisor_node(state: GraphState):
     else:
         next_node = "investigator"
 
-    if next_node in ("asr", "style", "tactics", "diagram_agent", "style_tactics_parallel"):
+    if next_node in ("asr", "style", "tactics", "tech", "diagram_agent", "style_tactics_parallel"):
         if next_node == "diagram_agent":
             intent_val = "diagram"
         elif next_node == "style_tactics_parallel":
@@ -242,7 +329,11 @@ def supervisor_node(state: GraphState):
         intent_val = state.get("intent", "general")
 
     if next_node == "asr":
-        local_q = f"Create a concrete QAS (ASR) for: {uq}"
+        local_q = (
+            "GLOSSARY: ASR = Architecturally Significant Requirement (ADD 3.0)."
+            " NEVER interpret ASR as Automatic Speech Recognition.\n\n"
+            f"Create a concrete Architecturally Significant Requirement (ASR/QAS) for: {uq}"
+        )
     elif next_node == "style":
         local_q = uq or (
             "Selecciona el estilo arquitectónico más adecuado para el ASR actual."
@@ -260,6 +351,12 @@ def supervisor_node(state: GraphState):
             if state_lang == "es"
             else "Select the architecture style and propose tactics for the current ASR."
         )
+    elif next_node == "tech":
+        local_q = (
+            "Propón tecnologías concretas para implementar las tácticas confirmadas."
+            if state_lang == "es"
+            else "Propose concrete technologies to implement the confirmed tactics."
+        )
     else:
         local_q = uq
 
@@ -270,7 +367,7 @@ def supervisor_node(state: GraphState):
             resp = llm.with_structured_output(supervisorSchema).invoke(sys_messages)
             next_node = resp.get("nextNode", "investigator")
             local_q = resp.get("localQuestion", uq)
-            if next_node in ("asr", "style", "tactics", "diagram_agent"):
+            if next_node in ("asr", "style", "tactics", "tech", "diagram_agent"):
                 intent_val = "diagram" if next_node == "diagram_agent" else next_node
             elif next_node == "evaluator":
                 intent_val = "architecture"
@@ -281,10 +378,22 @@ def supervisor_node(state: GraphState):
     if next_node == "unifier" and not (
         state.get("hasVisitedInvestigator") or
         state.get("hasVisitedEvaluator") or state.get("hasVisitedASR") or
-        state.get("hasVisitedDiagram") or completed_nodes
+        state.get("hasVisitedDiagram") or state.get("hasVisitedTech") or
+        completed_nodes
     ):
         next_node = "investigator"
         intent_val = "architecture"
+
+    # M1: redirect hint para respuestas de smalltalk/general (unifier lo añade al final)
+    free_intents = {"smalltalk", "general", "greeting", "architecture"}
+    phase_redirect = ""
+    if intent_raw in free_intents:
+        task = PHASE_NEXT_TASK.get(current_phase, {}).get(state_lang, "")
+        if task:
+            if state_lang == "es":
+                phase_redirect = f"> **Nota:** Cuando quieras, podemos continuar con: *{task}*."
+            else:
+                phase_redirect = f"> **Note:** Whenever you're ready, we can continue with: *{task}*."
 
     return {
         **state,
@@ -295,4 +404,5 @@ def supervisor_node(state: GraphState):
         "requested_nodes": requested_nodes,
         "pending_nodes": pending_nodes,
         "completed_nodes": completed_nodes,
+        "phase_redirect_hint": phase_redirect,
     }

@@ -32,6 +32,28 @@ _NO_ASRS_RE = re.compile(
     r"\bno\b|ninguno\b|genera\b|prop[oó]n\b|propone\b|t[uú]\b|usted\b",
     re.IGNORECASE,
 )
+# Explicit negation: veto on _HAS_ASRS_RE to prevent "No tengo..." → YES branch
+_NEGATION_RE = re.compile(
+    r"\bno\b|\bnunca\b|\bningun[oa]?\b|\btodav[ií]a\s+no\b",
+    re.IGNORECASE,
+)
+# Strong "propose ASRs for me" signal — forces A2 regardless of _HAS_ASRS_RE.
+# Covers: propón, propone, proponer, genera, generar, sugiere, sugerir, recomienda, etc.
+_PROPOSE_RE = re.compile(
+    r"\b(prop[oó]n|propone|propones|proponer|proponga[ns]?|"
+    r"genera[r]?|generen|"
+    r"sugier[ae]|sugieras|sugerir|"
+    r"recomienda[sr]?|recomendar|"
+    r"crea[r]?|elabora[r]?|"
+    r"propose|suggest|generate|create)\b",
+    re.IGNORECASE,
+)
+# A line that looks like an actual ASR entry (not a plain request sentence).
+# Required for A1 to prevent saving bare request text as "existing ASRs".
+_ASR_LIST_LINE_RE = re.compile(
+    r"^\s*(?:ASR\s*\d|[-*•]\s+\S|\d+[.)]\s+\S)",
+    re.MULTILINE,
+)
 
 # Digression detection: a message is a digression only when the *intent* is to
 # ask or request something off-topic from intake, NOT when architectural terms
@@ -68,6 +90,131 @@ def _is_digression(uq: str) -> bool:
         return False
     return bool(_DIGRESSION_QUESTION_RE.search(uq)) or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
 
+# ---------------------------------------------------------------------------
+# Baseline extraction: parse campo_4_ambientes into structured metrics
+# ---------------------------------------------------------------------------
+
+_BASELINE_METRIC_RE = re.compile(
+    r"(?P<metric>latenci[ay]|latency|p\d{1,2}|throughput|rps|tps|"
+    r"disponibilidad|availability|usuarios?|users?|"
+    r"error\s*rate|tasa\s*de\s*error|uptime|"
+    r"concurrent|concurrentes?|requests?)"
+    r"\s*(?P<op>[<>]=?|[=:])\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>%|ms|s|rps|tps|k|m)?",
+    re.IGNORECASE,
+)
+
+_BASELINE_BARE_METRIC_RE = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>ms|rps|tps|%)\b",
+    re.IGNORECASE,
+)
+
+_BASELINE_VALUE_FIRST_RE = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s+"
+    r"(?P<metric>usuarios?|users?|concurrent|concurrentes?|requests?|rps|tps)\b",
+    re.IGNORECASE,
+)
+
+_NORMAL_LABEL_RE = re.compile(
+    r"\b(normal|carga\s+normal|normal\s+load|operaci[oó]n\s+normal|baseline)\b",
+    re.IGNORECASE,
+)
+_OVERLOAD_LABEL_RE = re.compile(
+    r"\b(sobrecarga|overload|pico|peak|spike|burst|estr[eé]s|stress)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_metrics_from_segment(text: str) -> list[dict]:
+    """Extract metric dicts from a text segment."""
+    results: list[dict] = []
+    matched_spans: set[tuple[int, int]] = set()
+
+    for m in _BASELINE_METRIC_RE.finditer(text):
+        raw_metric = m.group("metric").lower().strip()
+        val_str = m.group("value").replace(",", ".")
+        results.append({
+            "metric": raw_metric,
+            "value": float(val_str),
+            "unit": (m.group("unit") or "").lower(),
+            "operator": m.group("op").replace(":", "=").replace("=", "<") if m.group("op") in (":", "=") else m.group("op"),
+        })
+        matched_spans.add((m.start(), m.end()))
+
+    for m in _BASELINE_BARE_METRIC_RE.finditer(text):
+        if any(s <= m.start() < e for s, e in matched_spans):
+            continue
+        val_str = m.group("value").replace(",", ".")
+        unit = m.group("unit").lower()
+        metric = "latency" if unit == "ms" else ("latency_s" if unit == "s" else "throughput" if unit in ("rps", "tps") else "percent")
+        results.append({
+            "metric": metric,
+            "value": float(val_str),
+            "unit": unit,
+            "operator": "<" if unit in ("ms", "s") else ">=",
+        })
+
+    if not results:
+        for m in _BASELINE_VALUE_FIRST_RE.finditer(text):
+            val_str = m.group("value").replace(",", ".")
+            raw_metric = m.group("metric").lower().strip()
+            results.append({
+                "metric": raw_metric,
+                "value": float(val_str),
+                "unit": "",
+                "operator": ">=",
+            })
+    return results
+
+
+def _extract_baseline(campo_4: str) -> dict:
+    """Parse campo_4_ambientes into a structured baseline dict.
+
+    Tries to split the text into normal/overload segments and extract
+    numeric metrics from each. Falls back to raw text if parsing fails.
+    """
+    if not campo_4 or not campo_4.strip():
+        return {"raw": "", "parsed": False}
+
+    text = campo_4.strip()
+
+    segments = re.split(r"[;|]|\n", text)
+
+    normal_metrics: list[dict] = []
+    overload_metrics: list[dict] = []
+    unclassified_metrics: list[dict] = []
+
+    for seg in segments:
+        seg_clean = seg.strip()
+        if not seg_clean:
+            continue
+        metrics = _parse_metrics_from_segment(seg_clean)
+        if not metrics:
+            continue
+        if _OVERLOAD_LABEL_RE.search(seg_clean):
+            overload_metrics.extend(metrics)
+        elif _NORMAL_LABEL_RE.search(seg_clean):
+            normal_metrics.extend(metrics)
+        else:
+            unclassified_metrics.extend(metrics)
+
+    if not normal_metrics and not overload_metrics and not unclassified_metrics:
+        return {"raw": text, "parsed": False}
+
+    if not normal_metrics and unclassified_metrics:
+        normal_metrics = unclassified_metrics
+        unclassified_metrics = []
+
+    return {
+        "parsed": True,
+        "normal_load": normal_metrics,
+        "overload": overload_metrics,
+        "raw": text,
+    }
+
+
 _ASR_QUESTION_ES = (
     "Ya tengo toda la información necesaria. "
     "¿Quieres que proponga los ASRs o ya tienes alguno definido?"
@@ -97,6 +244,19 @@ _WELCOME_EN = (
     "Hi! I'm ArchIA. Before generating the Architecture Significant Requirements (ASRs) "
     "I need to understand your project. I'll ask you 8 short questions about the system context.\n\n"
     "Let's start with the first one:"
+)
+
+_INTRO_ADD30_ES = (
+    "Soy ArchIA, tu guía para el proceso de diseño arquitectónico siguiendo ADD 3.0 del SEI.\n\n"
+    "Te voy a entregar estilos arquitectónicos y tácticas priorizadas asociadas a los ASRs de tu proyecto.\n\n"
+    "Lo haremos en fases secuenciales: diagnóstico → ASRs → estilo → tácticas → tecnologías.\n\n"
+    "Empecemos con la primera pregunta del diagnóstico:"
+)
+_INTRO_ADD30_EN = (
+    "I'm ArchIA, your guide for architectural design following ADD 3.0 from the SEI.\n\n"
+    "I will deliver architectural styles and prioritized tactics associated with your project's ASRs.\n\n"
+    "We'll work through sequential phases: diagnosis → ASRs → style → tactics → technologies.\n\n"
+    "Let's begin with the first diagnostic question:"
 )
 
 
@@ -136,7 +296,11 @@ def _build_feedback(
         repair_prompt = str(priority.get("repair_prompt") or "").strip()
         if reason:
             parts.append(f"→ {_FIELD_LABELS[i][lang]}: {reason}")
-        parts.append(repair_prompt or build_repair_prompt(i, lang, reason))
+        rp = repair_prompt or build_repair_prompt(i, lang)
+        # Only append repair prompt if it doesn't already start with the reason
+        # (guards against LLM-returned repair_prompts that duplicate the error text).
+        if rp and rp.strip() != reason.strip():
+            parts.append(rp)
     elif next_index < 8:
         q_key = "question_es" if lang == "es" else "question_en"
         parts.append(INTAKE_SCRIPT[next_index][q_key])
@@ -154,7 +318,10 @@ def _semantic_default_reason(lang: str) -> str:
 
 def _failed_entry(index: int, lang: str, reason: str, repair_prompt: str = "") -> dict:
     clean_reason = (reason or "").strip() or _semantic_default_reason(lang)
-    clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang, clean_reason)
+    # Do NOT pass clean_reason to build_repair_prompt — _build_feedback already
+    # emits reason as a separate line, so embedding it inside repair_prompt too
+    # would print the same error text twice (BUG-002).
+    clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang)
     return {
         "index": index,
         "reason": clean_reason,
@@ -186,14 +353,14 @@ async def _process_intake_turn(
     failed: list[dict] = []
 
     if result is None:
-        # Fail-open: determinista únicamente, campo activo únicamente
-        det_ok, _ = validate_field(current_index, uq)
-        if det_ok:
-            intake_fields = dict(intake_fields)
-            intake_fields[INTAKE_SCRIPT[current_index]["field"]] = uq
-            saved.append(current_index)
-        # Si det falla → saved=[], failed=[] → caller usa reprompt_message
-        return intake_fields, saved, failed
+        # Fail-open: determinista en todos los campos pendientes
+        updated = dict(intake_fields)
+        for i in pending_indices:
+            det_ok, _ = validate_field(i, uq)
+            if det_ok:
+                updated[INTAKE_SCRIPT[i]["field"]] = uq
+                saved.append(i)
+        return updated, saved, failed
 
     for i in pending_indices:
         field_name = INTAKE_SCRIPT[i]["field"]
@@ -218,14 +385,15 @@ async def _process_intake_turn(
 
         # Segunda línea: semántica ADD 3.0 (ya computada en el LLM call)
         if assessment.status == "answered_invalid":
-            failed.append(
-                _failed_entry(
-                    i,
-                    lang,
-                    assessment.reason or _semantic_default_reason(lang),
-                    assessment.repair_prompt,
+            if not any(f["index"] == i for f in failed):
+                failed.append(
+                    _failed_entry(
+                        i,
+                        lang,
+                        assessment.reason or _semantic_default_reason(lang),
+                        assessment.repair_prompt,
+                    )
                 )
-            )
             continue
 
         intake_fields = dict(intake_fields)
@@ -248,20 +416,85 @@ async def intake_node(state: GraphState) -> GraphState:
 
     asr_question = _ASR_QUESTION_ES if lang == "es" else _ASR_QUESTION_EN
 
+    # Advance ledger from "intro" to "diagnosis" on first entry (M6 has not been implemented yet).
+    if (state.get("current_phase") or "") == "intro":
+        _uid = (state.get("user_id_for_prefs") or "").strip()
+        _pid = (state.get("project_id") or "").strip() or None
+        if _uid:
+            try:
+                transition_phase(_uid, _pid, PhaseTransition(
+                    from_phase="intro",
+                    to_phase="diagnosis",
+                    iteration=1,
+                    triggered_by="user_request",
+                    user_message=uq,
+                    skipped_phases=[],
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ))
+            except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                log.warning("intake_node: intro→diagnosis transition failed (nonfatal): %s", _exc)
+
+    # M6: Auto-introducción ADD 3.0 — ocurre exactamente una vez
+    if (state.get("current_phase") or "") == "intro":
+        _intro = _INTRO_ADD30_ES if lang == "es" else _INTRO_ADD30_EN
+        _q0 = INTAKE_SCRIPT[0][f"question_{lang}"]
+        return {
+            **state,
+            "current_phase": "diagnosis",  # advance state even if ledger write failed
+            "intake_fields": intake_fields,
+            "intake_current_field": 0,
+            "intake_complete": False,
+            "endMessage": f"{_intro}\n\n{_q0}",
+            "nextNode": "unifier",
+            "intent": "intake",
+        }
+
     # Rama A: intake completo — procesar respuesta del arquitecto sobre ASRs
     if intake_complete:
         _user_id    = (state.get("user_id_for_prefs") or "").strip()
         _project_id = (state.get("project_id") or "").strip() or None
         _ts = datetime.now(timezone.utc).isoformat()
 
-        if _HAS_ASRS_RE.search(uq):
+        # Three-way intent classification for the post-intake ASR question:
+        #   WANT_PROPOSE → user wants ArchIA to generate ASRs  (→ A2)
+        #   HAVE_ASRS    → user is providing their own ASRs     (→ A1)
+        #   AMBIGUOUS    → clarify before acting                (→ A3)
+        #
+        # Priority (highest to lowest):
+        #   1. Any explicit "propose/generate" verb (_PROPOSE_RE) → WANT_PROPOSE
+        #   2. Explicit negation (_NEGATION_RE) → WANT_PROPOSE
+        #   3. _NO_ASRS_RE keyword → WANT_PROPOSE
+        #   4. Affirmative + message ≥80 chars + real ASR-list lines → HAVE_ASRS
+        #   5. Default → AMBIGUOUS
+        _propose_match  = bool(_PROPOSE_RE.search(uq))
+        _negation_match = bool(_NEGATION_RE.search(uq))
+        _no_match       = bool(_NO_ASRS_RE.search(uq))
+        _yes_match      = bool(_HAS_ASRS_RE.search(uq)) and not _negation_match and not _propose_match
+        _asr_list_match = bool(_ASR_LIST_LINE_RE.search(uq))
+
+        # Extra defense: short or imperative messages are never HAVE_ASRS
+        if _yes_match and (
+            len(uq.strip()) < 40
+            or _no_match
+            or bool(_DIGRESSION_IMPERATIVE_RE.search(uq))
+        ):
+            _yes_match = False
+
+        if _propose_match or _negation_match or _no_match:
+            _intent_class = "WANT_PROPOSE"
+        elif _asr_list_match and len(uq.strip()) >= 80:
+            _intent_class = "HAVE_ASRS"
+        else:
+            _intent_class = "AMBIGUOUS"
+
+        if _intent_class == "HAVE_ASRS":
             # A1 — el arquitecto ya tiene ASRs propios
             if _user_id:
                 try:
                     append_decision(_user_id, _project_id, {
                         "id": "",
                         "kind": "constraint",
-                        "phase": Phase.INTAKE.value,
+                        "phase": Phase.DIAGNOSIS.value,
                         "iteration": 0,
                         "qa": "",
                         "parents": [],
@@ -276,8 +509,8 @@ async def intake_node(state: GraphState) -> GraphState:
                         "created_by_node": "intake_node",
                     })
                     transition_phase(_user_id, _project_id, PhaseTransition(
-                        from_phase="INTAKE",
-                        to_phase="ASR",
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
                         iteration=1,
                         triggered_by="user_request",
                         user_message=uq,
@@ -305,9 +538,9 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
 
-        if _NO_ASRS_RE.search(uq):
+        elif _intent_class == "WANT_PROPOSE":
             # A2 — ArchIA propone los ASRs.
-            # Persists intake_v1 in the ledger, mirrors current_phase="ASR" in state,
+            # Persists intake_v1 in the ledger, mirrors current_phase="asr_table" in state,
             # and routes to asr_node in this same turn via the conditional intake edge.
             _updated_ledger = None
             if _user_id:
@@ -316,8 +549,8 @@ async def intake_node(state: GraphState) -> GraphState:
                     _ledger["project_context"]["intake_v1"] = intake_fields
                     save_ledger(_user_id, _ledger, _project_id)
                     transition_phase(_user_id, _project_id, PhaseTransition(
-                        from_phase="INTAKE",
-                        to_phase="ASR",
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
                         iteration=1,
                         triggered_by="user_request",
                         user_message=uq,
@@ -328,12 +561,15 @@ async def intake_node(state: GraphState) -> GraphState:
                 except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
                     log.warning("intake_node: ledger error (nonfatal): %s", _exc)
 
+            _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+
             _a2: dict = {
                 **state,
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
-                "current_phase": "ASR",  # mirror ledger transition so supervisor skips INTAKE gate
+                "current_phase": "asr_table",  # mirror ledger transition so supervisor skips diagnosis gate
+                "normal_operation_baseline": _baseline,
                 "endMessage": "",         # asr_node will set the real response
                 "nextNode": "asr",
                 "intent": "asr",
@@ -344,24 +580,25 @@ async def intake_node(state: GraphState) -> GraphState:
                 _a2["ledger"] = _updated_ledger
             return _a2
 
-        # A3 — respuesta ambigua: repregunta con más claridad
-        _clarify_es = (
-            "No estoy seguro de entenderte. ¿Ya tienes ASRs definidos que quieras compartir, "
-            "o prefieres que yo los proponga basándome en el contexto que me diste?"
-        )
-        _clarify_en = (
-            "I'm not sure I understood. Do you already have ASRs defined that you'd like to share, "
-            "or would you prefer that I propose them based on the context you provided?"
-        )
-        return {
-            **state,
-            "intake_fields": intake_fields,
-            "intake_current_field": 8,
-            "intake_complete": True,
-            "endMessage": _clarify_es if lang == "es" else _clarify_en,
-            "nextNode": "unifier",
-            "intent": "intake",
-        }
+        else:
+            # A3 — respuesta ambigua: repregunta con más claridad
+            _clarify_es = (
+                "No estoy seguro de entenderte. ¿Ya tienes ASRs definidos que quieras compartir, "
+                "o prefieres que yo los proponga basándome en el contexto que me diste?"
+            )
+            _clarify_en = (
+                "I'm not sure I understood. Do you already have ASRs defined that you'd like to share, "
+                "or would you prefer that I propose them based on the context you provided?"
+            )
+            return {
+                **state,
+                "intake_fields": intake_fields,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "endMessage": _clarify_es if lang == "es" else _clarify_en,
+                "nextNode": "unifier",
+                "intent": "intake",
+            }
 
     # Rama B: todos los campos validados en este turno
     if current_index >= 8:

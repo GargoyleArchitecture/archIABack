@@ -178,7 +178,7 @@ def _refresh_ledger_state(state: GraphState, user_id: str, project_id: str | Non
     state["ledger"] = ledger
     state["ledger_active"] = active
     state["design_dossier_md"] = render_dossier(ledger, lang=lang)
-    state["current_phase"] = ledger.get("current_phase", "INTAKE")
+    state["current_phase"] = ledger.get("current_phase") or "intro"
     state["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
     state["ledger_phase_prompt"] = render_phase_prompt(ledger, lang=lang)
     state["ledger_pending_advance"] = ledger.get("pending_advance") or {}
@@ -341,7 +341,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
             append_decision(_user_id, _project_id, {
                 "id": "",
                 "kind": "diagram",
-                "phase": state.get("current_phase") or Phase.DIAGRAM,
+                "phase": state.get("current_phase") or Phase.DIAGRAM.value,
                 "iteration": 0,
                 "qa": _qa,
                 "parents": _parent_refs,

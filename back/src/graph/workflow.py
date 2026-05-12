@@ -19,6 +19,7 @@ from src.graph.nodes.unifier import unifier_node
 from src.graph.nodes.asr import asr_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
+from src.graph.nodes.tech import tech_node, make_tech_qa_node
 from src.graph.nodes.style_tactics_parallel import style_tactics_parallel_node
 from src.graph.nodes.intake_node import intake_node
 from src.graph.qa_registry import (
@@ -26,6 +27,7 @@ from src.graph.qa_registry import (
     supported_qas,
     style_node_name_for_qa,
     tactics_node_name_for_qa,
+    tech_node_name_for_qa,
 )
 
 
@@ -34,6 +36,7 @@ from src.graph.qa_registry import (
 _SUPPORTED_QAS = supported_qas()
 _STYLE_QA_NODE_NAMES = {style_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 _TACTICS_QA_NODE_NAMES = {tactics_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
+_TECH_QA_NODE_NAMES = {tech_node_name_for_qa(qa) for qa in _SUPPORTED_QAS}
 
 _boot_log = logging.getLogger("boot")
 
@@ -79,6 +82,14 @@ async def boot_node(state: GraphState) -> GraphState:
             )
             user_profile = {}
 
+    # BUG-013: only reset ASR + completed_nodes when we are still in intake
+    # (i.e. no ASR has been produced yet). Once routing_phase advances past
+    # "intake", these are session-level state and must survive boot_node so the
+    # supervisor does not re-generate an ASR on the next turn.
+    _routing_phase = state.get("routing_phase") or "intake"
+    _asr_produced  = bool(state.get("selected_asrs")) or bool(state.get("current_asr")) or bool(state.get("last_asr"))
+    _asr_session_done = _routing_phase != "intake" or _asr_produced
+
     return {
         **state,
         "user_profile": user_profile,
@@ -86,17 +97,29 @@ async def boot_node(state: GraphState) -> GraphState:
         "turn_count_since_eval": (state.get("turn_count_since_eval") or 0) + 1,
         "hasVisitedInvestigator": False,
         "hasVisitedEvaluator": False,
-        "hasVisitedASR": False,
+        # Preserve hasVisitedASR and completed_nodes across turns once ASR is done.
+        "hasVisitedASR": False if not _asr_session_done else state.get("hasVisitedASR", False),
         "hasVisitedDiagram": False,
+        "hasVisitedTech": False,
         "diagram": {},
         "endMessage": "",
+        "phase_redirect_hint": "",
         "requested_nodes": [],
         "pending_nodes": [],
-        "completed_nodes": [],
+        "completed_nodes": [] if not _asr_session_done else list(state.get("completed_nodes") or []),
         # Intake defaults: initialize only when None (persists across turns otherwise)
         "intake_fields":        state.get("intake_fields")   if state.get("intake_fields")   is not None else {},
         "intake_current_field": _idx                         if _idx                         is not None else 0,
         "intake_complete":      state.get("intake_complete") if state.get("intake_complete") is not None else False,
+        # ADD 3.0 candidates and selections: same pattern — preserve across turns.
+        "normal_operation_baseline": state.get("normal_operation_baseline") if state.get("normal_operation_baseline") is not None else {},
+        "asr_candidates":            state.get("asr_candidates")            if state.get("asr_candidates")            is not None else [],
+        "selected_asrs":             state.get("selected_asrs")             if state.get("selected_asrs")             is not None else [],
+        "style_candidates":          state.get("style_candidates")          if state.get("style_candidates")          is not None else [],
+        "selected_tactics":          state.get("selected_tactics")          if state.get("selected_tactics")          is not None else [],
+        "tactics_candidates":        state.get("tactics_candidates")        if state.get("tactics_candidates")        is not None else [],
+        "tech_candidates":           state.get("tech_candidates")           if state.get("tech_candidates")           is not None else [],
+        "add_assumptions":           state.get("add_assumptions")           if state.get("add_assumptions")           is not None else [],
     }
 
 def router(state: GraphState) -> str:
@@ -134,6 +157,11 @@ def router(state: GraphState) -> str:
         if tactics_target in _TACTICS_QA_NODE_NAMES:
             return tactics_target
         return "tactics"
+    elif state["nextNode"] == "tech":
+        tech_target = tech_node_name_for_qa(qa)
+        if tech_target in _TECH_QA_NODE_NAMES:
+            return tech_target
+        return "tech"
     elif state["nextNode"] == "investigator" and not state["hasVisitedInvestigator"]:
         return "investigator"
     elif state["nextNode"] == "diagram_agent" and not state.get("hasVisitedDiagram", False):
@@ -154,6 +182,7 @@ builder.add_node("unifier", unifier_node)
 builder.add_node("asr", asr_node)
 builder.add_node("style", style_node)
 builder.add_node("tactics", tactics_node)
+builder.add_node("tech", tech_node)
 builder.add_node("style_tactics_parallel", style_tactics_parallel_node)
 
 # Registro dinámico de nodos style/tactics por QA.
@@ -162,11 +191,14 @@ builder.add_node("style_tactics_parallel", style_tactics_parallel_node)
 for qa_id in _SUPPORTED_QAS:
     style_name = style_node_name_for_qa(qa_id)
     tactics_name = tactics_node_name_for_qa(qa_id)
+    tech_name = tech_node_name_for_qa(qa_id)
 
     if style_name != "style":
         builder.add_node(style_name, make_style_qa_node(qa_id))
     if tactics_name != "tactics":
         builder.add_node(tactics_name, make_tactics_qa_node(qa_id))
+    if tech_name != "tech":
+        builder.add_node(tech_name, make_tech_qa_node(qa_id))
 
 
 builder.add_node("boot", boot_node)
@@ -190,6 +222,7 @@ builder.add_edge("evaluator", "supervisor")
 builder.add_edge("asr", "supervisor")
 builder.add_edge("style", "supervisor")
 builder.add_edge("tactics", "supervisor")
+builder.add_edge("tech", "supervisor")
 builder.add_edge("style_tactics_parallel", "supervisor")
 
 # Edges de retorno de nodos QA-específicos.
@@ -198,6 +231,9 @@ for node_name in sorted(_STYLE_QA_NODE_NAMES):
         builder.add_edge(node_name, "supervisor")
 for node_name in sorted(_TACTICS_QA_NODE_NAMES):
     if node_name != "tactics":
+        builder.add_edge(node_name, "supervisor")
+for node_name in sorted(_TECH_QA_NODE_NAMES):
+    if node_name != "tech":
         builder.add_edge(node_name, "supervisor")
 
 builder.add_edge("unifier", END)

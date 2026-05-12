@@ -7,10 +7,11 @@ from src.graph.resources import llm, retriever, _HAS_VERTEX, Image, GenerativeMo
 from src.rag_agent import get_indexed_retriever
 from src.graph.state import investigatorSchema, evaluatorSchema
 from src.graph.consts import (
-    EVAL_THEORY_PREFIX, EVAL_VIABILITY_PREFIX, 
+    EVAL_THEORY_PREFIX, EVAL_VIABILITY_PREFIX,
     EVAL_NEEDS_PREFIX, ANALYZE_PREFIX
 )
 from src.graph.utils import _clip_text
+from src.graph.nodes._rag_format import _safe_doc_label
 
 @tool
 def LLM(prompt: str) -> dict:
@@ -85,11 +86,10 @@ def local_RAG(prompt: str, quality_attribute: str = "general") -> str:
     # fuentes máximo 6
     src_lines = []
     for d in docs_all[:6]:
-        title = d.metadata.get("title") or Path(d.metadata.get("source_path", "")).stem or "doc"
+        label = _safe_doc_label(d.metadata)
         page = d.metadata.get("page_label") or d.metadata.get("page")
-        src = d.metadata.get("source_path") or d.metadata.get("source") or ""
         page_str = f" (p.{page})" if page is not None else ""
-        line = f"- {title}{page_str} — {src}"
+        line = f"- {label}{page_str}"
         src_lines.append(_clip_text(line, 60))
 
     return "\n\n".join(preview) + "\n\nSOURCES:\n" + "\n".join(src_lines)

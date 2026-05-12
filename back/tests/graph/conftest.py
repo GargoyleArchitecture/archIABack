@@ -11,11 +11,11 @@ def mock_ledger_empty():
 @pytest.fixture
 def mock_ledger_with_asr(mock_ledger_empty):
     ledger = dict(mock_ledger_empty)
-    ledger["current_phase"] = "ASR"
+    ledger["current_phase"] = "asr_table"
     ledger["current_iteration"] = 1
     ledger["decisions"] = [{
         "id": "01TEST000000000000ASR0001",
-        "kind": "asr", "phase": "ASR", "iteration": 1,
+        "kind": "asr", "phase": "asr_table", "iteration": 1,
         "qa": "latencia",
         "parents": [],
         "payload": {
@@ -38,7 +38,7 @@ def mock_ledger_full(mock_ledger_with_asr):
     ledger["decisions"] = list(ledger["decisions"]) + [
         {
             "id": "01TEST000000000000STY0001",
-            "kind": "style", "phase": "STYLE", "iteration": 2,
+            "kind": "style", "phase": "style_table", "iteration": 2,
             "qa": "latencia",
             "parents": [{"id": "01TEST000000000000ASR0001", "kind": "asr"}],
             "payload": {"chosen": "Event-Driven"},
@@ -49,7 +49,7 @@ def mock_ledger_full(mock_ledger_with_asr):
         },
         {
             "id": "01TEST000000000000TAC0001",
-            "kind": "tactic", "phase": "TACTICS", "iteration": 3,
+            "kind": "tactic", "phase": "tactics_table", "iteration": 3,
             "qa": "latencia",
             "parents": [
                 {"id": "01TEST000000000000ASR0001", "kind": "asr"},
@@ -80,12 +80,12 @@ def tmp_db(monkeypatch, tmp_path):
 def mock_ledger_with_superseded_asr(mock_ledger_empty):
     """Ledger with one superseded ASR — used for history-injection tests."""
     ledger = dict(mock_ledger_empty)
-    ledger["current_phase"] = "ASR"
+    ledger["current_phase"] = "asr_table"
     ledger["current_iteration"] = 1
     ledger["decisions"] = [
         {
             "id": "01TEST000000000000ASR0001",
-            "kind": "asr", "phase": "ASR", "iteration": 1,
+            "kind": "asr", "phase": "asr_table", "iteration": 1,
             "qa": "latencia", "parents": [],
             "payload": {
                 "summary": "p95 < 200ms at 5k RPS",
@@ -110,11 +110,11 @@ def mock_ledger_with_superseded_asr(mock_ledger_empty):
 def mock_ledger_with_style(mock_ledger_with_asr):
     """Ledger with one active ASR + one active style — for tactics tests."""
     ledger = dict(mock_ledger_with_asr)
-    ledger["current_phase"] = "STYLE"
+    ledger["current_phase"] = "style_table"
     asr_id = ledger["decisions"][0]["id"]
     ledger["decisions"] = list(ledger["decisions"]) + [{
         "id": "01TEST000000000000STY0001",
-        "kind": "style", "phase": "STYLE", "iteration": 1,
+        "kind": "style", "phase": "style_table", "iteration": 1,
         "qa": "latencia",
         "parents": [{"id": asr_id, "kind": "asr", "iteration": 1}],
         "payload": {
@@ -142,7 +142,7 @@ def mock_ledger_with_rejected_style(mock_ledger_with_asr):
     asr_id = ledger["decisions"][0]["id"]
     ledger["decisions"] = list(ledger["decisions"]) + [{
         "id": "01TEST000000000000STY0002",
-        "kind": "style", "phase": "STYLE", "iteration": 1,
+        "kind": "style", "phase": "style_table", "iteration": 1,
         "qa": "latencia",
         "parents": [{"id": asr_id, "kind": "asr", "iteration": 1}],
         "payload": {
@@ -179,7 +179,7 @@ def base_state():
         "ledger": {},
         "ledger_active": {},
         "design_dossier_md": "",
-        "current_phase": "",
+        "current_phase": "intro",
         "ledger_dossier_compact": "",
         "ledger_phase_prompt": "",
         "ledger_pending_advance": {},

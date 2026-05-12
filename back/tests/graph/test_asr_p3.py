@@ -94,7 +94,7 @@ def _state(**kw):
         "turn_messages":     [],
         "ledger":            {},
         "ledger_active":     {},
-        "current_phase":     "INTAKE",
+        "current_phase":     "diagnosis",
         "ledger_dossier_compact": "",
         "ledger_phase_prompt":    "",
         "ledger_pending_advance": {},
@@ -235,7 +235,6 @@ def test_scalar_writes_always_set():
     result, _, _, _ = _run(_state())
     assert result["current_asr"]        != ""
     assert result["quality_attribute"]  == "latencia"
-    assert result["arch_stage"]         == "ASR"
     assert result["hasVisitedASR"]      is True
     assert result["nextNode"]           == "unifier"
     assert result["memory_text"]        != ""
@@ -325,7 +324,6 @@ def test_validation_error_is_nonfatal():
     result, _, _, _ = _run(_state(), append_raises=LedgerValidationError("bad"))
     assert result["current_asr"]       != ""
     assert result["quality_attribute"] == "latencia"
-    assert result["arch_stage"]        == "ASR"
 
 
 def test_concurrency_error_is_nonfatal():
@@ -338,7 +336,6 @@ def test_generic_exception_is_nonfatal():
     result, _, _, _ = _run(_state(), append_raises=RuntimeError("db down"))
     assert result["current_asr"]       != ""
     assert result["quality_attribute"] == "latencia"
-    assert result["arch_stage"]        == "ASR"
 
 
 def test_no_user_id_skips_ledger_write():
@@ -375,7 +372,6 @@ def test_state_refresh_failure_is_nonfatal():
     # scalar writes must still be present despite refresh failure
     assert result["current_asr"]       != ""
     assert result["quality_attribute"] == "latencia"
-    assert result["arch_stage"]        == "ASR"
 
 
 # ===========================================================================

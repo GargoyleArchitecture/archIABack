@@ -40,7 +40,7 @@ def test_hydrates_ledger_fields_on_empty_ledger(base_state, mock_ledger_empty):
 
     assert result["ledger"] == mock_ledger_empty
     assert result["ledger_active"] == {}
-    assert result["current_phase"] == "INTAKE"
+    assert result["current_phase"] == "intro"
     assert result["ledger_pending_advance"] == {}
     # Legacy scalars untouched (empty ledger has no active decisions)
     assert result["current_asr"] == ""
@@ -105,7 +105,7 @@ def test_ledger_load_failure_is_nonfatal(base_state, caplog):
     # Should not raise; ledger fields not updated; prior state preserved
     assert result["ledger"] == {}
     assert result["ledger_active"] == {}
-    assert result["current_phase"] == ""
+    assert result["current_phase"] == "intro"
     assert any("ledger hydration failed" in r.message for r in caplog.records)
 
 
@@ -155,7 +155,7 @@ def test_pending_advance_stored_as_empty_dict_when_none(base_state, mock_ledger_
 
 
 def test_pending_advance_stored_when_present(base_state, mock_ledger_empty):
-    advance = {"from_phase": "INTAKE", "to_phase": "ASR", "iteration": 2, "skipped_phases": []}
+    advance = {"from_phase": "intro", "to_phase": "diagnosis", "iteration": 2, "skipped_phases": []}
     ledger = dict(mock_ledger_empty)
     ledger["pending_advance"] = advance
     result, _, _ = _run(base_state, ledger_return=ledger)

@@ -34,7 +34,7 @@ import src.memory as _mem
 
 def _asr_decision(qa="latencia", parents=None):
     return {
-        "id": "", "kind": "asr", "phase": "ASR", "iteration": 0,
+        "id": "", "kind": "asr", "phase": "asr_table", "iteration": 0,
         "qa": qa, "parents": parents or [],
         "payload": {"summary": "test ASR", "source": "", "stimulus": "", "environment": "", "artifact": "", "response": "", "response_measure": "p95<200ms", "domain": ""},
         "rationale": "test", "sources": [], "status": "active",
@@ -45,7 +45,7 @@ def _asr_decision(qa="latencia", parents=None):
 
 def _style_decision(qa="latencia", parents=None):
     return {
-        "id": "", "kind": "style", "phase": "STYLE", "iteration": 0,
+        "id": "", "kind": "style", "phase": "style_table", "iteration": 0,
         "qa": qa, "parents": parents or [],
         "payload": {"chosen": "CQRS", "candidates": [], "tradeoffs": ""},
         "rationale": "test", "sources": [], "status": "active",
@@ -68,9 +68,9 @@ def _make_transition(from_p, to_p, iteration):
 
 def test_load_ledger_returns_empty_when_missing(tmp_db):
     ledger = load_ledger("u1", "p1", auto_migrate=False)
-    assert ledger["current_phase"] == Phase.INTAKE.value
+    assert ledger["current_phase"] == Phase.INTRO.value
     assert ledger["decisions"] == []
-    assert ledger["version"] == LEDGER_SCHEMA_VERSION
+    assert ledger["version"] == 0  # empty_ledger returns 0 (never persisted)
 
 
 def test_save_then_load_round_trip(tmp_db):
@@ -82,24 +82,24 @@ def test_save_then_load_round_trip(tmp_db):
 
 def test_save_increments_version(tmp_db):
     L = empty_ledger("p", "u")
-    assert L["version"] == 1
+    assert L["version"] == 0  # empty_ledger starts at 0 (never persisted)
     saved = save_ledger("u", L, "p")
-    assert saved["version"] == 2
+    assert saved["version"] == 1  # first save increments 0 → 1
 
 
 def test_save_with_expected_version_ok(tmp_db):
     L = empty_ledger("p", "u")
-    saved = save_ledger("u", L, "p")          # version → 2
-    saved2 = save_ledger("u", saved, "p", expected_version=2)  # version → 3
-    assert saved2["version"] == 3
+    saved = save_ledger("u", L, "p")          # version → 1
+    saved2 = save_ledger("u", saved, "p", expected_version=1)  # version → 2
+    assert saved2["version"] == 2
 
 
 def test_optimistic_concurrency_conflict_raises(tmp_db):
     L = empty_ledger("p", "u")
-    saved = save_ledger("u", L, "p")      # version → 2
-    save_ledger("u", saved, "p")          # version → 3 (another write)
+    saved = save_ledger("u", L, "p")      # version → 1
+    save_ledger("u", saved, "p")          # version → 2 (another write)
     with pytest.raises(LedgerConcurrencyError):
-        save_ledger("u", saved, "p", expected_version=2)   # expects 2, stored 3
+        save_ledger("u", saved, "p", expected_version=1)   # expects 1, stored 2
 
 
 def test_load_no_project_id(tmp_db):
@@ -161,7 +161,7 @@ def test_reject_walks_descendants_and_flags_orphans(tmp_db):
 
     # Now add a tactic parented to the style
     tactic_d_raw = {
-        "id": "", "kind": "tactic", "phase": "TACTICS", "iteration": 0,
+        "id": "", "kind": "tactic", "phase": "tactics_table", "iteration": 0,
         "qa": "latencia",
         "parents": [
             {"id": asr_d["id"], "kind": "asr",   "iteration": asr_d["iteration"]},
@@ -242,22 +242,22 @@ def test_compute_active_view_empty_for_no_decisions(sample_ledger):
 
 def test_is_phase_complete_per_phase(sample_ledger):
     ledger = sample_ledger("asr_style_tactic")
-    assert is_phase_complete(ledger, Phase.INTAKE)   is False  # no constraint
-    assert is_phase_complete(ledger, Phase.ASR)      is True
-    assert is_phase_complete(ledger, Phase.STYLE)    is True
-    assert is_phase_complete(ledger, Phase.TACTICS)  is True
-    assert is_phase_complete(ledger, Phase.DIAGRAM)  is False
-    assert is_phase_complete(ledger, Phase.ANALYSIS) is False
+    assert is_phase_complete(ledger, Phase.DIAGNOSIS)     is False  # no constraint
+    assert is_phase_complete(ledger, Phase.ASR_TABLE)     is True
+    assert is_phase_complete(ledger, Phase.STYLE_TABLE)   is True
+    assert is_phase_complete(ledger, Phase.TACTICS_TABLE) is True
+    assert is_phase_complete(ledger, Phase.DIAGRAM)       is False
+    assert is_phase_complete(ledger, Phase.ANALYSIS)      is False
 
 
-def test_is_intake_complete_with_constraint(sample_ledger):
+def test_is_diagnosis_complete_with_constraint(sample_ledger):
     ledger = sample_ledger("intake_only")
-    assert is_phase_complete(ledger, Phase.INTAKE) is True
+    assert is_phase_complete(ledger, Phase.DIAGNOSIS) is True
 
 
 def test_asr_incomplete_when_empty(sample_ledger):
     ledger = sample_ledger("empty")
-    assert is_phase_complete(ledger, Phase.ASR) is False
+    assert is_phase_complete(ledger, Phase.ASR_TABLE) is False
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +267,12 @@ def test_asr_incomplete_when_empty(sample_ledger):
 def test_stage_and_clear_pending_advance(tmp_db):
     L = empty_ledger("p", "u")
     save_ledger("u", L, "p")
-    t = _make_transition("INTAKE", "ASR", 1)
+    t = _make_transition("intro", "diagnosis", 1)
     stage_pending_advance("u", "p", t)
 
     ledger = load_ledger("u", "p", auto_migrate=False)
     assert ledger["pending_advance"] is not None
-    assert ledger["pending_advance"]["to_phase"] == "ASR"
+    assert ledger["pending_advance"]["to_phase"] == "diagnosis"
 
     clear_pending_advance("u", "p")
     ledger = load_ledger("u", "p", auto_migrate=False)
@@ -282,10 +282,10 @@ def test_stage_and_clear_pending_advance(tmp_db):
 def test_transition_phase_commits(tmp_db):
     L = empty_ledger("p", "u")
     save_ledger("u", L, "p")
-    t = _make_transition("INTAKE", "ASR", 1)
+    t = _make_transition("intro", "diagnosis", 1)
     transition_phase("u", "p", t)
 
     ledger = load_ledger("u", "p", auto_migrate=False)
-    assert ledger["current_phase"] == "ASR"
+    assert ledger["current_phase"] == "diagnosis"
     assert ledger["current_iteration"] == 1
     assert len(ledger["phase_history"]) == 1

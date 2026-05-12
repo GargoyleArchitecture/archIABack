@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import re
 from typing import Literal, Tuple
@@ -6,16 +7,54 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
+# Layer A: broad architectural vocabulary (protocols, infra, patterns, domain actors)
 _TECHNICAL_TERMS = re.compile(
-    r"\b(módulo|servicio|api|componente|sistema|request|evento|endpoint|"
-    r"base de datos|microservicio|caché|cola|latencia|throughput|"
-    r"concurrencia|usuario|cliente|servidor)\b",
+    r"\b("
+    # original terms + plurals
+    r"módulos?|servicios?|api|apis|componentes?|sistemas?|requests?|eventos?|"
+    r"endpoints?|base de datos|bases de datos|microservicios?|cach[eé]s?|colas?|"
+    r"latencia|throughput|concurrencia|usuarios?|clientes?|servidores?|"
+    # protocols
+    r"rest(?:ful)?|grpc|https?|websockets?|webrtc|mqtt|soap|graphql|"
+    # infra / platforms
+    r"kafka|redis|postgres(?:ql)?|mongo(?:db)?|mysql|sqlite|s3|cdn|pop|sfu|mcu|"
+    r"gateways?|proxys?|proxies|broker|balanceador|nginx|docker|kubernetes|k8s|"
+    r"lambda|serverless|contenedores?|"
+    # security / compliance
+    r"oauth|jwt|tls|mtls|hipaa|gdpr|rbac|sso|autenticaci[oó]n|autorizaci[oó]n|"
+    r"cifrado|encriptaci[oó]n|"
+    # architecture patterns
+    r"monolito|event.driven|pub.?sub|cqrs|saga|circuit.?breaker|"
+    # domain entities that act as users/actors in telemedicine and typical projects
+    r"pacientes?|m[eé]dicos?|m[eé]dica|doctor(?:as?|es)?|operador(?:as?|es)?|administrador(?:as?|es)?|"
+    # generic system vocabulary
+    r"funciones?|aplicaci[oó]n|aplicaciones|integraci[oó]n|integraciones|"
+    r"notificaci[oó]n|notificaciones|videollamadas?|sesiones?|almacenamiento|"
+    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria"
+    r")\b",
     re.IGNORECASE,
 )
 
+# Layer B: bare uppercase acronyms not caught by Layer A word-boundary matching
+_TECHNICAL_ACRONYM_RE = re.compile(
+    r"\b(?:API|REST|HTTP|HTTPS|GRPC|RPC|SDK|UI|UX|DB|SQL|JSON|XML|YAML|UUID|"
+    r"IP|TCP|UDP|TLS|SSL|JWT|SSO|CDN|SLA|SLO|SFU|MCU|CI|CD|"
+    r"EHR|EMR|HIPAA|GDPR|RBAC|SAML|OIDC|CPU|RAM|VPN|DNS)\b",
+)
+
 _SOURCE_CATEGORIES = re.compile(
-    r"\b(usuario|user|sistema externo|external system|"
-    r"evento interno|internal event|tiempo|time|timer|schedule)\b",
+    r"\b("
+    # user / actor synonyms
+    r"usuario|user|pacientes?|m[eé]dicos?|m[eé]dica|doctor(?:as?|es)?|clientes?|"
+    r"actores?|operador(?:as?|es)?|administrador(?:as?|es)?|admin|"
+    # external system synonyms
+    r"sistema externo|external system|servicio externo|api externa|"
+    r"terceros?|integraci[oó]n externa|"
+    # internal event
+    r"evento interno|internal event|"
+    # time / schedule synonyms
+    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -125,10 +164,10 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
                 False,
                 "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
             )
-        if not _TECHNICAL_TERMS.search(value):
+        if not (_TECHNICAL_TERMS.search(value) or _TECHNICAL_ACRONYM_RE.search(value)):
             return (
                 False,
-                "No se detectó vocabulario técnico. Menciona al menos un término como: servicio, módulo, API, componente, sistema, endpoint, microservicio, etc.",
+                "No se detectó vocabulario técnico. Menciona al menos un término arquitectónico como: servicio, API, componente, microservicio, REST, gRPC, WebRTC, kafka, JWT, gateway, etc.",
             )
         return (True, "")
 
@@ -136,7 +175,7 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
         if not _SOURCE_CATEGORIES.search(value):
             return (
                 False,
-                "No se identificó la fuente del estímulo. Indica si proviene de: usuario, sistema externo, evento interno, tiempo/timer o schedule.",
+                "No se identificó la fuente del estímulo. Indica si proviene de: usuario/paciente/médico, sistema externo/API externa, evento interno, tiempo/timer/cron.",
             )
         return (True, "")
 
@@ -161,20 +200,20 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
 
 _REPROMPT_ERRORS: dict[int, dict[str, str]] = {
     0: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     1: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     2: {
-        "es": "No se identificó la fuente del estímulo. Indica si proviene de: usuario, sistema externo, evento interno, tiempo/timer o schedule.",
-        "en": "Stimulus source not identified. Indicate if it comes from: user, external system, internal event, time/timer or schedule.",
+        "es": "No se identificó la fuente del estímulo. Indica si proviene de: usuario/paciente/médico, sistema externo/API externa, evento interno, tiempo/timer/cron.",
+        "en": "Stimulus source not identified. Indicate if it comes from: user/patient/doctor, external system/external API, internal event, time/timer/cron.",
     },
     3: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, module, API, component, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
+        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     4: {
         "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
@@ -234,7 +273,7 @@ _ADD3_CRITERIA: dict[int, str] = {
     0: "Must describe a concrete system requirement — not generic. Needs objective, quality expectation, or involved components. 'A system that handles requests' is NOT sufficient.",
     1: "Must name specific system components with at least one characteristic each. 'Frontend and backend' is NOT sufficient. Needs actual services, APIs, modules, or databases.",
     2: "Must explicitly identify the source category (user / external system / internal event / time/timer) AND contextualize it to the actual system. Just 'usuario' with no context is NOT sufficient.",
-    3: "Must describe the specific triggering event AND mention which components from campo_1 it interacts with. Generic responses like 'when user sends a request' are NOT sufficient.",
+    3: "Two-tier rule — diagnosis level only, not solution design. (A) Triggers WITH performance metrics (latency, TPM, concurrent users, timeouts): identify the system component that receives the event, indicate sync or async interaction, reference the endpoint or event name (approximate is acceptable), and include the associated metric (p95, TPM, timeout). (B) Triggers WITHOUT metrics (timers, webhooks, deployments, security events, internal events): sufficient to name the trigger and the component that processes it — no exact endpoint, retry policy, or cooldown required. The validator must NOT require in any case: autoscaling policies (threshold, cooldown, min/max replicas), HTTP response codes, retry or backoff policies, detailed failover mechanisms, or rollback behavior. These are solution details, not diagnosis details.",
     4: "Must cover ALL THREE operational conditions: normal, overload, AND maintenance. Each needs numeric metrics (rps, ms, %, intervals). Covering only normal operation is NOT sufficient.",
     5: "Must list quality attributes with concrete numeric values. 'High availability' without a percentage is NOT sufficient. Needs availability %, latency ms, throughput rps, or similar.",
     6: "Must list concrete technical constraints or explicit negation (ninguna/none/n/a). Vague mention of constraints is NOT sufficient.",
@@ -314,15 +353,18 @@ async def extract_and_validate_fields(
         project_context_text=context_snippet,
         pending_fields_spec=pending_fields_spec,
         criteria_spec=criteria_spec,
-        user_message=user_message[:600],
+        user_message=user_message[:5000],
         lang=_lang,
     )
 
     try:
-        result = await llm.with_structured_output(
-            MultiFieldAssessmentResult, method="function_calling"
-        ).ainvoke(prompt)
-        return result
+        response = await llm.ainvoke(prompt)
+        raw = getattr(response, "content", str(response)).strip()
+        # Strip markdown code fences some models add around JSON
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
+        raw = re.sub(r"```\s*$", "", raw, flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+        return MultiFieldAssessmentResult(**data)
     except Exception as exc:
         log.warning("extract_and_validate_fields: LLM call failed (fail-open): %s", exc)
         return None
@@ -337,7 +379,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
             0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
             1: "Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas.",
             2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
-            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento y con qué componente interactúa.",
+            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si ese trigger tiene métricas asociadas (latencia, TPM, usuarios concurrentes, timeouts), indica también con qué componente interactúa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta y reconocible.",
             4: "Reescribe tu respuesta cubriendo carga normal, sobrecarga y mantenimiento, e incluye métricas numéricas en cada caso, por ejemplo ms, rps o porcentajes.",
             5: "Reescribe tu respuesta listando los atributos de calidad prioritarios con valores concretos, por ejemplo disponibilidad 99.9%, latencia <100ms o throughput 1000rps.",
             6: "Reescribe tu respuesta indicando restricciones técnicas concretas, o escribe 'ninguna' si realmente no aplica.",
@@ -348,7 +390,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
             0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
             1: "Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues.",
             2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
-            3: "Rewrite your answer describing the specific event that triggers the behavior and which component it interacts with.",
+            3: "Rewrite your answer describing the specific event that triggers the behavior. If that trigger has associated metrics (latency, TPM, concurrent users, timeouts), also indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically and recognizably is sufficient.",
             4: "Rewrite your answer covering normal load, overload, and maintenance, and include numeric metrics for each case, such as ms, rps, or percentages.",
             5: "Rewrite your answer listing the priority quality attributes with concrete values, for example availability 99.9%, latency <100ms, or throughput 1000rps.",
             6: "Rewrite your answer stating concrete technical constraints, or write 'none' if there are truly none.",

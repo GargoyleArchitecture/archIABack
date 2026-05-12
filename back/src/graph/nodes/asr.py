@@ -11,6 +11,7 @@ from src.graph.utils import (
     _clip_text,
     _dedupe_snippets,
     is_explicit_asr_request,
+    is_asr_regenerate_request,
     _sanitize_response,
     _strip_tactics_sections,
 )
@@ -58,6 +59,156 @@ _ASR_FIELD_RE: dict[str, re.Pattern] = {
 }
 
 _NONE_MARKER_RE = re.compile(r"_\((?:ninguna aún|none yet)\)_", re.IGNORECASE)
+
+_RESPONSE_MEASURE_RE = re.compile(
+    r"-\s*\*\*Response\s+Measure\s*:\*\*\s*(.+)", re.IGNORECASE
+)
+
+_RM_METRIC_RE = re.compile(
+    r"(?P<metric>latenci[ay]|latency|p\d{1,2}|throughput|rps|tps|"
+    r"disponibilidad|availability|error\s*rate|tasa\s*de\s*error|uptime|"
+    r"usuarios?|users?|concurrent|concurrentes?|requests?)"
+    r"\s*(?:[<>]=?|[=:≤≥])\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>%|ms|s|rps|tps|k|m)?",
+    re.IGNORECASE,
+)
+
+_RM_BARE_METRIC_RE = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>ms|rps|tps|%)\b",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# Baseline validation helpers (Punto 4 — ADD 3.0)
+# ---------------------------------------------------------------------------
+
+def _parse_response_measure_metrics(content: str) -> list[dict]:
+    """Extract numeric metrics from the Response Measure field of an ASR."""
+    m = _RESPONSE_MEASURE_RE.search(content)
+    if not m:
+        return []
+    rm_text = m.group(1)
+    metrics: list[dict] = []
+    for match in _RM_METRIC_RE.finditer(rm_text):
+        val_str = match.group("value").replace(",", ".")
+        metrics.append({
+            "metric": match.group("metric").lower().strip(),
+            "value": float(val_str),
+            "unit": (match.group("unit") or "").lower(),
+        })
+    if not metrics:
+        for match in _RM_BARE_METRIC_RE.finditer(rm_text):
+            val_str = match.group("value").replace(",", ".")
+            unit = match.group("unit").lower()
+            metric = "latency" if unit in ("ms", "s") else "throughput" if unit in ("rps", "tps") else "percent"
+            metrics.append({"metric": metric, "value": float(val_str), "unit": unit})
+    return metrics
+
+
+def _is_within_normal_operation(asr_metrics: list[dict], baseline: dict) -> bool:
+    """Return True if the ASR's response measure falls within normal operation.
+
+    Logic: for latency-like metrics (lower is more demanding), the ASR is trivial
+    if its threshold is >= the baseline (less demanding or equal).
+    For throughput-like metrics (higher is more demanding), the ASR is trivial
+    if its threshold is <= the baseline.
+    """
+    normal_load = baseline.get("normal_load") or []
+    if not normal_load or not asr_metrics:
+        return False
+
+    _LATENCY_TERMS = {"latency", "latencia", "latenci", "p50", "p90", "p95", "p99", "p999"}
+    _THROUGHPUT_TERMS = {"throughput", "rps", "tps", "requests", "request", "concurrent", "concurrentes", "concurrente", "usuarios", "usuario", "users", "user"}
+
+    matched_any = False
+    all_within = True
+
+    for asr_m in asr_metrics:
+        asr_metric = asr_m["metric"]
+        asr_value = asr_m["value"]
+        asr_unit = asr_m["unit"]
+
+        for bl_m in normal_load:
+            bl_metric = bl_m["metric"]
+            bl_unit = bl_m["unit"]
+            bl_value = bl_m["value"]
+
+            if asr_unit and bl_unit and asr_unit != bl_unit:
+                if asr_unit == "s" and bl_unit == "ms":
+                    asr_value = asr_value * 1000
+                elif asr_unit == "ms" and bl_unit == "s":
+                    asr_value = asr_value / 1000
+                else:
+                    continue
+
+            same_family = False
+            if asr_metric in _LATENCY_TERMS and bl_metric in _LATENCY_TERMS:
+                same_family = True
+            elif asr_metric in _THROUGHPUT_TERMS and bl_metric in _THROUGHPUT_TERMS:
+                same_family = True
+            elif asr_metric == bl_metric:
+                same_family = True
+
+            if not same_family:
+                continue
+
+            matched_any = True
+            if asr_metric in _LATENCY_TERMS or asr_unit in ("ms", "s"):
+                if asr_value < bl_value:
+                    all_within = False
+            elif asr_metric in _THROUGHPUT_TERMS or asr_unit in ("rps", "tps"):
+                if asr_value > bl_value:
+                    all_within = False
+            else:
+                if asr_value > bl_value:
+                    all_within = False
+
+    return matched_any and all_within
+
+
+def _format_baseline_for_prompt(baseline: dict, lang: str) -> str:
+    """Format the baseline dict as a readable prompt section."""
+    if not baseline.get("parsed"):
+        return ""
+    normal = baseline.get("normal_load") or []
+    if not normal:
+        return ""
+
+    lines = []
+    for m in normal:
+        op = m.get("operator", "<")
+        lines.append(f"  {m['metric']} {op} {m['value']}{m.get('unit', '')}")
+
+    overload = baseline.get("overload") or []
+    ov_lines = []
+    for m in overload:
+        op = m.get("operator", "<")
+        ov_lines.append(f"  {m['metric']} {op} {m['value']}{m.get('unit', '')}")
+
+    if lang == "en":
+        header = "NORMAL OPERATION BASELINE (from architect's diagnosis):"
+        section = f"\n{header}\n" + "\n".join(lines)
+        if ov_lines:
+            section += "\nOverload envelope:\n" + "\n".join(ov_lines)
+        section += (
+            "\n\nIMPORTANT: Do NOT propose ASRs whose Response Measure falls within "
+            "the normal operation envelope above. An ASR must describe behavior BEYOND "
+            "normal operation — stress conditions, failure modes, or peak scenarios.\n"
+        )
+    else:
+        header = "BASELINE DE OPERACIÓN NORMAL (del diagnóstico del arquitecto):"
+        section = f"\n{header}\n" + "\n".join(lines)
+        if ov_lines:
+            section += "\nEnvolvente de sobrecarga:\n" + "\n".join(ov_lines)
+        section += (
+            "\n\nIMPORTANTE: NO propongas ASRs cuya Medida de Respuesta caiga dentro "
+            "de la envolvente de operación normal de arriba. Un ASR debe describir "
+            "comportamiento FUERA de operación normal — condiciones de estrés, modos "
+            "de fallo, o escenarios pico.\n"
+        )
+    return section
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +310,7 @@ def _refresh_ledger_state(
         state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
         state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
         state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
-        state["current_phase"]          = fresh.get("current_phase", "INTAKE")
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
         state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
         log.debug("asr_node: ledger state refreshed phase=%s", state["current_phase"])
     except Exception as exc:
@@ -176,15 +327,54 @@ def asr_node(state: GraphState) -> GraphState:
     explicit_asr_request = is_explicit_asr_request(uq)
 
     if existing_asr and not explicit_asr_request:
-        log.info("asr_node: preserving existing ASR for non-ASR follow-up")
+        log.info("asr_node: re-rendering existing ASR (no explicit request to change)")
         requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
         pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
         return {
             **state,
             "requested_nodes": requested_nodes,
             "pending_nodes": pending_nodes,
-            "endMessage": "",
+            "endMessage": existing_asr,
             "nextNode": "unifier",
+        }
+
+    # ── Regeneration: clear downstream state (P8) ─────────────────────────
+    _is_regenerate = is_asr_regenerate_request(uq)
+    if _is_regenerate:
+        log.info("asr_node: regeneration requested — clearing downstream state")
+        state["asr_candidates"] = []
+        state["selected_asrs"] = []
+        state["style_candidates"] = []
+        state["selected_style"] = ""
+        state["selected_tactics"] = []
+        state["tactics_candidates"] = []
+        state["tech_candidates"] = []
+        state["current_phase"] = "asr_table"
+
+    # ── Early context reads for precondition + domain derivation ─────────
+    _proj_ctx_early = (state.get("project_context_text") or "").strip()
+    _intake_v1_early = (
+        (state.get("ledger") or {}).get("project_context", {}).get("intake_v1") or {}
+    )
+
+    # Hard precondition: refuse ASR generation when no domain context exists.
+    # Both sources must be empty to trigger; either one is enough to proceed.
+    if not _proj_ctx_early and not _intake_v1_early:
+        _no_ctx_msg = (
+            "Necesito completar el diagnóstico antes de generar ASRs. "
+            "Por favor responde las preguntas del diagnóstico para que pueda "
+            "generar ASRs relevantes para tu sistema."
+            if lang == "es" else
+            "I need to complete the diagnostic before generating ASRs. "
+            "Please answer the diagnostic questions so I can generate "
+            "ASRs relevant to your system."
+        )
+        log.warning("asr_node: no domain context — refusing to generate ASR")
+        return {
+            **state,
+            "endMessage": _no_ctx_msg,
+            "nextNode": "unifier",
+            "current_phase": "diagnosis",
         }
 
     # Heurística del atributo
@@ -202,16 +392,22 @@ def asr_node(state: GraphState) -> GraphState:
     qa_pipeline = qa_from_classifier if qa_from_classifier != "general" else qa_from_text
     qa_focus = qa_to_focus_label(qa_pipeline, default=concern)
 
-    # Dominio típico si el usuario no lo da
+    # Domain derived from intake/project context — avoids hard-coded domain bias.
+    # Priority: intake main requirement > project context header > uq keywords > neutral fallback.
+    _intake_req = _intake_v1_early.get("campo_0_requerimiento", "").strip()
     low = uq.lower()
-    if any(k in low for k in ["e-comm", "commerce", "shop", "checkout"]):
-        domain = "e-commerce flash sale"
+    if _intake_req:
+        domain = _intake_req[:120]
+    elif _proj_ctx_early:
+        domain = _proj_ctx_early.split("\n")[0][:120]
+    elif any(k in low for k in ["e-comm", "commerce", "shop", "checkout"]):
+        domain = "e-commerce platform"
     elif "api" in low:
-        domain = "public REST API with burst traffic"
+        domain = "public REST API"
     elif any(k in low for k in ["stream", "kafka"]):
         domain = "event streaming pipeline"
     else:
-        domain = "e-commerce flash sale"
+        domain = "general software system"
 
     # === RAG (saltable) ===
     docs_list = []
@@ -248,6 +444,15 @@ def asr_node(state: GraphState) -> GraphState:
         ctx_doc if (doc_only and ctx_doc) else (state.get("add_context") or "")
     ).strip()[:2000]
     proj_ctx = (state.get("project_context_text") or "").strip()
+    # Mirror intake main requirement + components into proj_ctx when no project context exists.
+    if not proj_ctx and _intake_v1_early:
+        _mirror_parts = []
+        for _mk in ("campo_0_requerimiento", "campo_1_componentes"):
+            _mv = _intake_v1_early.get(_mk, "").strip()
+            if _mv:
+                _mirror_parts.append(_mv)
+        if _mirror_parts:
+            proj_ctx = "\n".join(_mirror_parts)[:500]
 
     # ── Intake context injection ───────────────────────────────────────────
     _intake_v1 = (state.get("ledger") or {}).get("project_context", {}).get("intake_v1") or {}
@@ -294,6 +499,10 @@ def asr_node(state: GraphState) -> GraphState:
     else:
         intake_context_section = ""
 
+    # ── Baseline prompt section (Punto 4) ────────────────────────────────────
+    _baseline = state.get("normal_operation_baseline") or {}
+    baseline_prompt_section = _format_baseline_for_prompt(_baseline, lang)
+
     # ── Dossier history injection (P3) ─────────────────────────────────────
     history_block = _extract_dossier_history(
         (state.get("design_dossier_md") or "").strip()
@@ -321,7 +530,17 @@ def asr_node(state: GraphState) -> GraphState:
     else:
         prior_asr_section = ""
 
+    _asr_glossary = (
+        "GLOSARIO: En este contexto, ASR = Architecturally Significant Requirement (ADD 3.0). "
+        "NUNCA interpretes ASR como reconocimiento de voz ni como Automatic Speech Recognition."
+        if lang == "es" else
+        "GLOSSARY: In this context, ASR = Architecturally Significant Requirement (ADD 3.0). "
+        "NEVER interpret ASR as Automatic Speech Recognition or any voice/audio technology."
+    )
+
     prompt = f"""{directive}
+{_asr_glossary}
+
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
 Your job is to create EXACTLY ONE concrete Architecture Significant Requirement (ASR)
@@ -341,7 +560,7 @@ IMPORTANT: If a tech stack is listed above, the ASR's Artifact and Response MUST
 those specific technologies. If business rules are listed, the ASR scenario MUST be coherent
 with them. Do NOT use generic placeholders like "the system" when a real stack is provided.
 {"=" * 60}
-{intake_context_section}{prior_asr_section}
+{intake_context_section}{baseline_prompt_section}{prior_asr_section}
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 
@@ -392,6 +611,39 @@ Rules:
     content = _strip_tactics_sections(content)
     content = _coerce_single_asr_markdown(content)
 
+    # ── Punto 4: validate ASR against normal operation baseline ───────────
+    _asr_discarded = False
+    if _baseline.get("parsed"):
+        asr_metrics = _parse_response_measure_metrics(content)
+        if _is_within_normal_operation(asr_metrics, _baseline):
+            _asr_discarded = True
+            _summary = _clip_text(content.strip().split("\n")[0], 120)
+            _bl_raw = _baseline.get("raw", "")
+            state["add_assumptions"] = (state.get("add_assumptions") or []) + [
+                f"ASR descartado: '{_summary}' — cae dentro de operación normal (baseline: {_bl_raw})"
+            ]
+            if lang == "es":
+                content = (
+                    "Con el contexto proporcionado, el escenario descrito cae dentro de tu "
+                    f"operación normal ({_bl_raw}). No identifiqué un requerimiento "
+                    "arquitectónicamente significativo.\n\n"
+                    "¿Puedes describir condiciones de estrés, picos de carga, o restricciones "
+                    "críticas que excedan la operación normal?"
+                )
+            else:
+                content = (
+                    "Based on the context provided, the described scenario falls within your "
+                    f"normal operation ({_bl_raw}). I did not identify an architecturally "
+                    "significant requirement.\n\n"
+                    "Can you describe stress conditions, load spikes, or critical constraints "
+                    "that exceed normal operation?"
+                )
+            log.info("asr_node: ASR discarded — within normal operation baseline")
+    elif not _baseline.get("parsed") and _baseline.get("raw"):
+        state["add_assumptions"] = (state.get("add_assumptions") or []) + [
+            "Baseline no numérico — validación de operación normal omitida."
+        ]
+
     # === Fuentes (si hubo RAG) ===
     src_lines = []
     for d in docs_list or []:
@@ -433,23 +685,23 @@ Rules:
 
     # Metadatos
     state["quality_attribute"] = qa_pipeline
-    state["arch_stage"] = "ASR"
     state["current_asr"] = content
 
-    # ── Ledger write-back (P3) ────────────────────────────────────────────
+    # ── Ledger write-back (P3) — skip if ASR was discarded ──────────────────
     _user_id    = (state.get("user_id_for_prefs") or "").strip()
     _project_id = (state.get("project_id") or "").strip() or None
 
-    if _user_id:
+    if _user_id and not _asr_discarded:
         try:
+            _asr_payload = _build_asr_payload(content, domain)
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "asr",
-                "phase":            Phase.ASR.value,
+                "phase":            Phase.ASR_TABLE.value,
                 "iteration":        0,
                 "qa":               qa_pipeline,
                 "parents":          [],
-                "payload":          _build_asr_payload(content, domain),
+                "payload":          _asr_payload,
                 "rationale":        "",
                 "sources":          _build_sources_from_docs(docs_list),
                 "status":           "active",
@@ -465,6 +717,19 @@ Rules:
                 _saved["id"], qa_pipeline, _project_id,
             )
             _refresh_ledger_state(state, _user_id, _project_id, lang)
+
+            # ── Populate asr_candidates (P8) ───────────────────────────────
+            _asr_entry = {
+                "id": _saved["id"],
+                "qa": qa_pipeline,
+                "scenario": _clip_text(content.strip().split("\n")[0], 200),
+                "payload": _asr_payload,
+            }
+            if _is_regenerate:
+                state["asr_candidates"] = [_asr_entry]
+            else:
+                state["asr_candidates"] = (state.get("asr_candidates") or []) + [_asr_entry]
+
         except LedgerValidationError as _exc:
             log.warning("asr_node: ledger validation error (nonfatal): %s", _exc)
         except LedgerConcurrencyError as _exc:
@@ -477,5 +742,13 @@ Rules:
     state["hasVisitedASR"] = True
     state["force_rag"] = False
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase so boot_node does not
+    # reset them on the next turn and the supervisor does not re-run ASR.
+    _done = list(state.get("completed_nodes") or [])
+    if "asr" not in _done:
+        _done.append("asr")
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "asr"
 
     return state
