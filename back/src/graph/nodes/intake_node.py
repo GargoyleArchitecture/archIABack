@@ -362,8 +362,12 @@ async def _process_intake_turn(
     Returns: (updated_intake_fields, saved_indices, failed_list[dict])
     Fail-open: si LLM falla, intenta determinista solo en current_index.
     """
+    # BUG-039: skip optional fields (campo_2_fuente, campo_3_estimulo) from the
+    # LLM extraction request so they never produce "answered_invalid" entries
+    # that would push the next-question target back onto an optional field.
     pending_indices = [
-        i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields
+        i for i, s in enumerate(INTAKE_SCRIPT)
+        if s["field"] not in intake_fields and not s.get("optional")
     ]
 
     result = await extract_and_validate_fields(
@@ -607,6 +611,11 @@ async def intake_node(state: GraphState) -> GraphState:
 
             _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
 
+            _autoadvance_msg = (
+                "Diagnóstico completo. Generando candidatos ASR…"
+                if lang == "es" else
+                "Diagnosis complete. Generating ASR candidates…"
+            )
             _a2: dict = {
                 **state,
                 "intake_fields": intake_fields,
@@ -614,7 +623,8 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intake_complete": True,
                 "current_phase": "asr_table",  # bypass supervisor diagnosis gate regardless of ledger outcome
                 "normal_operation_baseline": _baseline,
-                "endMessage": "",         # asr_node will set the real response
+                # BUG-041: explicit confirmation; asr_node may overwrite later
+                "endMessage": _autoadvance_msg,
                 "nextNode": "asr",
                 "intent": "asr",
             }
@@ -682,6 +692,11 @@ async def intake_node(state: GraphState) -> GraphState:
                 log.warning("intake_node: Rama B ledger error (nonfatal): %s", _exc)
 
         _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+        _autoadvance_msg = (
+            "Diagnóstico completo. Generando candidatos ASR…"
+            if lang == "es" else
+            "Diagnosis complete. Generating ASR candidates…"
+        )
         _rb: dict = {
             **state,
             "intake_fields": intake_fields,
@@ -689,7 +704,8 @@ async def intake_node(state: GraphState) -> GraphState:
             "intake_complete": True,
             "current_phase": "asr_table",
             "normal_operation_baseline": _baseline,
-            "endMessage": "",
+            # BUG-041: explicit confirmation; asr_node may overwrite later
+            "endMessage": _autoadvance_msg,
             "nextNode": "asr",
             "intent": "asr",
         }
@@ -723,14 +739,26 @@ async def intake_node(state: GraphState) -> GraphState:
         intake_fields, saved, failed = await _process_intake_turn(
             uq, intake_fields, 0, project_context_text, lang
         )
+        # BUG-039: skip optional fields (campo_2_fuente, campo_3_estimulo) so
+        # they never become the "next" field to ask. Optional fields can still
+        # be captured opportunistically inside _process_intake_turn.
         new_index = next(
-            (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
+            (i for i, s in enumerate(INTAKE_SCRIPT)
+             if s["field"] not in intake_fields and not s.get("optional")),
+            8,
         )
         target_index = min((int(item["index"]) for item in failed), default=new_index)
 
         if not saved and not failed:
-            # Nada extraído (saludo, etc.) → bienvenida suave
-            end_msg = f"{_welcome_message(lang)}\n\n{INTAKE_SCRIPT[0][f'question_{lang}']}"
+            # BUG-036: only emit the welcome banner during the INTRO phase. After
+            # the M6 block has already greeted the user, current_phase is
+            # "diagnosis"; emitting the welcome again on Turn 2 leaks an
+            # "¡Hola! Soy ArchIA…" line that the spec forbids (INTRO is once-per-session).
+            _first_q = INTAKE_SCRIPT[0][f"question_{lang}"]
+            if (state.get("current_phase") or "") == "intro":
+                end_msg = f"{_welcome_message(lang)}\n\n{_first_q}"
+            else:
+                end_msg = _first_q
         elif saved and new_index >= 8:
             # Todo respondido en el primer mensaje
             return {
@@ -774,8 +802,11 @@ async def intake_node(state: GraphState) -> GraphState:
     intake_fields, saved, failed = await _process_intake_turn(
         uq, intake_fields, current_index, project_context_text, lang
     )
+    # BUG-039: skip optional fields when computing the next field to ask.
     new_index = next(
-        (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields), 8
+        (i for i, s in enumerate(INTAKE_SCRIPT)
+         if s["field"] not in intake_fields and not s.get("optional")),
+        8,
     )
     target_index = min((int(item["index"]) for item in failed), default=new_index)
 

@@ -294,6 +294,40 @@ def _coerce_single_asr_markdown(content: str) -> str:
     return text
 
 
+# BUG-042/043/044: candidate-table parser
+# A row looks like:
+#   | A1 | Latencia | p95 ≤ 800ms con 600 CCU | H | H |
+_ASR_TABLE_ROW_RE = re.compile(
+    r"^\s*\|\s*(?P<id>A\d+)\s*\|\s*(?P<qa>[^|]+?)\s*\|\s*(?P<scenario>[^|]+?)\s*"
+    r"\|\s*(?P<business>[HMLhml]|alta|media|baja|high|med|low)\s*"
+    r"\|\s*(?P<risk>[HMLhml]|alta|media|baja|high|med|low)\s*\|?\s*$",
+    re.MULTILINE,
+)
+
+
+def _parse_asr_table_rows(content: str) -> list[dict]:
+    """Extract candidate rows from the ASR table the LLM produced.
+
+    Returns a list of dicts: {id, qa, scenario, business, risk}.
+    Rows are deduplicated by ID; the order returned matches the LLM output.
+    """
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for m in _ASR_TABLE_ROW_RE.finditer(content or ""):
+        rid = (m.group("id") or "").strip().upper()
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        rows.append({
+            "id":       rid,
+            "qa":       m.group("qa").strip(),
+            "scenario": m.group("scenario").strip(),
+            "business": m.group("business").strip().upper()[:1] or "M",
+            "risk":     m.group("risk").strip().upper()[:1] or "M",
+        })
+    return rows
+
+
 def asr_node(state: GraphState) -> GraphState:
     """Genera ASR y deja QA coherente para nodos siguientes (style/tactics)."""
     lang = state.get("language", "es")
@@ -522,36 +556,54 @@ def asr_node(state: GraphState) -> GraphState:
         "NEVER interpret ASR as Automatic Speech Recognition or any voice/audio technology."
     )
 
+    # BUG-042/043/044: produce a prioritized CANDIDATE TABLE (one row per QA),
+    # not a single 6-part ASR. The 6-part detail is reserved for AFTER the user
+    # selects an ID. The Response cell must describe WHAT the system must do
+    # (the measurable target) — never tactics like backpressure / circuit
+    # breaker / autoscaling.
+    if lang == "es":
+        _col_header = "| ID | Atributo de calidad | Descripción del escenario | Importancia negocio | Riesgo técnico |"
+        _table_sep  = "|----|--------------------|----------------------------|---------------------|----------------|"
+        _row_hint   = "| A1 | Latencia           | p95 ≤ 800ms con 600 CCU    | H                   | H              |"
+        _select_q   = "Escribe el ID (A1, A2…) del ASR que quieras profundizar."
+        _final_rmd  = "RECORDATORIO FINAL: responde completamente en español."
+    else:
+        _col_header = "| ID | Quality attribute | Scenario description       | Business importance | Technical risk |"
+        _table_sep  = "|----|-------------------|----------------------------|---------------------|----------------|"
+        _row_hint   = "| A1 | Latency           | p95 ≤ 800ms with 600 CCU   | H                   | H              |"
+        _select_q   = "Type the ID (A1, A2…) of the ASR you want to expand."
+        _final_rmd  = "FINAL REMINDER: answer entirely in English."
+
     prompt = f"""{directive}
 {_asr_glossary}
 
 You are an expert software architect following Attribute-Driven Design 3.0 (ADD 3.0).
 
-Your job is to create EXACTLY ONE concrete Architecture Significant Requirement (ASR)
-that will be used as the architectural driver for this turn.
+Your job is to produce a PRIORITIZED TABLE of candidate Architecture Significant
+Requirements (ASRs). The architect will pick one ID to expand later — do NOT
+expand them now.
 
-Each ASR MUST:
-- Follow the classic QAS structure: Source, Stimulus, Environment, Artifact, Response, Response Measure.
-- Be measurable, with a clear SINGLE Response Measure (SLO/SLA, e.g. p95 < X ms under Y load, error rate, availability, etc.).
-- Be realistic for production systems in the given domain.
-- Follow a single quality attribute focus (e.g. latency, scalability, availability) inferred from the user question.
+Generate between 2 and 4 candidate rows, ONE row per identified quality attribute
+(latency, scalability, availability, security, modifiability, etc.). Read the
+intake context below and infer which QAs are problematic for THIS system. Each
+row must use IDs A1, A2, A3, A4 (in that order).
 
 {"=" * 60}
 PROJECT CONTEXT — YOU MUST RESPECT THESE CONSTRAINTS:
 {proj_ctx if proj_ctx else "(none — no project configured)"}
 
-IMPORTANT: If a tech stack is listed above, the ASR's Artifact and Response MUST reference
-those specific technologies. If business rules are listed, the ASR scenario MUST be coherent
-with them. Do NOT use generic placeholders like "the system" when a real stack is provided.
+IMPORTANT: If a tech stack is listed above, scenario descriptions MUST reference
+those specific technologies. If business rules are listed, scenarios MUST be
+coherent with them.
 {"=" * 60}
 {intake_context_section}{baseline_prompt_section}{prior_asr_section}
 Relevant domain or workload (you must stay coherent with this):
 {domain}
 
-Quality attribute focus inferred from the user message:
+Primary quality attribute inferred from the user message (use it for at least one row):
 {qa_focus}
 
-User input to ground this ASR:
+User input to ground these candidates:
 {uq}
 
 Additional session context (if any):
@@ -560,73 +612,76 @@ Additional session context (if any):
 OPTIONAL BOOK CONTEXT (only if not in DOC-ONLY mode):
 {book_snippets or "None"}
 
-OUTPUT FORMAT (MANDATORY):
+OUTPUT FORMAT (MANDATORY) — output ONLY the Markdown table below, then the
+selection question, and nothing else. No prose before or after.
 
-Use this Markdown structure:
+{_col_header}
+{_table_sep}
+{_row_hint}
 
-## ASR
-
-**ASR complete:** <one single sentence that concisely states Source, Stimulus, Environment, Artifact, Response and Response Measure in natural language>
-
-### Scenario
-
-- **Source:** <who initiates the stimulus>
-- **Stimulus:** <what happens / event that triggers the behavior>
-- **Environment:** <when / in which operating conditions this happens>
-- **Artifact:** <what part of the system is stimulated>
-- **Response:** <what the system must do>
-- **Response Measure:** <how success is measured with clear numeric thresholds>
-
-Rules:
-- The line that starts with "**ASR complete:**" MUST be a single sentence.
-- Then the section "### Scenario" with each of the six fields as bold-labeled list items.
-- Do NOT add any other sections (no 'Architectural Driver Summary', no 'Summary', no 'Context' headings).
-- Do NOT talk about tactics, styles or next steps here.
-- Keep the numbers realistic and measurable (p95 / p99, RPS, error rate, availability, etc.).
+Hard rules:
+- Each row's "Scenario description" cell MUST contain a single sentence ≤ 120 characters
+  with a concrete, measurable threshold (p95/p99, RPS, error rate, availability %, etc.).
+- "Business importance" and "Technical risk" are EXACTLY one of: H, M, L.
+- The Scenario describes WHAT the system must do under stress — NOT how. NEVER mention
+  tactics: backpressure, circuit breaker, bulkhead, load shedding, retries, timeouts,
+  autoscaling, replication, caching, queueing, throttling, rate limiting, sharding.
+  These belong to a later phase.
+- NEVER emit code blocks, YAML, JSON, k6 scripts, Go snippets, checklists, or any
+  section headings (## …). ONLY the table and the selection question.
+- One row per distinct QA; do not duplicate QAs.
 - Answer entirely in the requested language.
 {MARKDOWN_FORMAT_DIRECTIVE}
 
-{"RECORDATORIO FINAL: responde completamente en español." if lang == "es" else "FINAL REMINDER: answer entirely in English."}
+After the table, on a new line, write EXACTLY this selection prompt:
+{_select_q}
+
+{_final_rmd}
 """
 
     result = llm.invoke(apply_mode_prompt(state, prompt))
     content_raw = getattr(result, "content", str(result))
     content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)
-    content = _coerce_single_asr_markdown(content)
 
-    # ── Punto 4: validate ASR against normal operation baseline ───────────
+    # BUG-042/043/044: parse the candidate table. If parsing fails (no rows
+    # detected) fall back to the single-ASR coercion to keep degraded mode.
+    _table_rows = _parse_asr_table_rows(content)
+    _is_candidate_table = len(_table_rows) >= 1
     _asr_discarded = False
-    if _baseline.get("parsed"):
-        asr_metrics = _parse_response_measure_metrics(content)
-        if _is_within_normal_operation(asr_metrics, _baseline):
-            _asr_discarded = True
-            _summary = _clip_text(content.strip().split("\n")[0], 120)
-            _bl_raw = _baseline.get("raw", "")
+    if not _is_candidate_table:
+        content = _coerce_single_asr_markdown(content)
+        # Single-ASR fallback path: validate against baseline as before.
+        if _baseline.get("parsed"):
+            asr_metrics = _parse_response_measure_metrics(content)
+            if _is_within_normal_operation(asr_metrics, _baseline):
+                _asr_discarded = True
+                _summary = _clip_text(content.strip().split("\n")[0], 120)
+                _bl_raw = _baseline.get("raw", "")
+                state["add_assumptions"] = (state.get("add_assumptions") or []) + [
+                    f"ASR descartado: '{_summary}' — cae dentro de operación normal (baseline: {_bl_raw})"
+                ]
+                if lang == "es":
+                    content = (
+                        "Con el contexto proporcionado, el escenario descrito cae dentro de tu "
+                        f"operación normal ({_bl_raw}). No identifiqué un requerimiento "
+                        "arquitectónicamente significativo.\n\n"
+                        "¿Puedes describir condiciones de estrés, picos de carga, o restricciones "
+                        "críticas que excedan la operación normal?"
+                    )
+                else:
+                    content = (
+                        "Based on the context provided, the described scenario falls within your "
+                        f"normal operation ({_bl_raw}). I did not identify an architecturally "
+                        "significant requirement.\n\n"
+                        "Can you describe stress conditions, load spikes, or critical constraints "
+                        "that exceed normal operation?"
+                    )
+                log.info("asr_node: ASR discarded — within normal operation baseline")
+        elif not _baseline.get("parsed") and _baseline.get("raw"):
             state["add_assumptions"] = (state.get("add_assumptions") or []) + [
-                f"ASR descartado: '{_summary}' — cae dentro de operación normal (baseline: {_bl_raw})"
+                "Baseline no numérico — validación de operación normal omitida."
             ]
-            if lang == "es":
-                content = (
-                    "Con el contexto proporcionado, el escenario descrito cae dentro de tu "
-                    f"operación normal ({_bl_raw}). No identifiqué un requerimiento "
-                    "arquitectónicamente significativo.\n\n"
-                    "¿Puedes describir condiciones de estrés, picos de carga, o restricciones "
-                    "críticas que excedan la operación normal?"
-                )
-            else:
-                content = (
-                    "Based on the context provided, the described scenario falls within your "
-                    f"normal operation ({_bl_raw}). I did not identify an architecturally "
-                    "significant requirement.\n\n"
-                    "Can you describe stress conditions, load spikes, or critical constraints "
-                    "that exceed normal operation?"
-                )
-            log.info("asr_node: ASR discarded — within normal operation baseline")
-    elif not _baseline.get("parsed") and _baseline.get("raw"):
-        state["add_assumptions"] = (state.get("add_assumptions") or []) + [
-            "Baseline no numérico — validación de operación normal omitida."
-        ]
 
     # === Fuentes (si hubo RAG) ===
     src_lines = []
@@ -683,29 +738,97 @@ Rules:
 
     if _user_id and not _asr_discarded:
         try:
-            _asr_payload = _build_asr_payload(content, domain)
-            _new_decision: dict = {
-                "id":               "",
-                "kind":             "asr",
-                "phase":            Phase.ASR_TABLE.value,
-                "iteration":        0,
-                "qa":               qa_pipeline,
-                "parents":          [],
-                "payload":          _asr_payload,
-                "rationale":        "",
-                "sources":          _build_sources_from_docs(docs_list),
-                "status":           "active",
-                "parent_status":    "ok",
-                "superseded_by":    None,
-                "rejection_reason": None,
-                "created_at":       "",
-                "created_by_node":  "asr_node",
-            }
-            _saved = append_decision(_user_id, _project_id, _new_decision)
-            log.info(
-                "asr_node: ledger ok id=%s qa=%s project=%s",
-                _saved["id"], qa_pipeline, _project_id,
-            )
+            _sources = _build_sources_from_docs(docs_list)
+            _candidates_for_state: list[dict] = []
+
+            if _is_candidate_table:
+                # BUG-042/043: persist ONE ledger decision per candidate row so
+                # downstream nodes (style, tactics) can resolve any selected ID
+                # via get_all_active_asrs / selected_asrs.
+                _last_saved_id = ""
+                for _row in _table_rows:
+                    _qa_row = normalize_qa(_row.get("qa", "")) or qa_pipeline
+                    _payload = {
+                        "candidate_id":   _row["id"],
+                        "summary":        _row["scenario"],
+                        "scenario":       _row["scenario"],
+                        "qa":             _row["qa"],
+                        "business":       _row["business"],
+                        "risk":           _row["risk"],
+                        "domain":         domain or "",
+                        # Six-part fields stay empty until the user selects an
+                        # ID and the post-selection detail pass populates them.
+                        "source":           "",
+                        "stimulus":         "",
+                        "environment":      "",
+                        "artifact":         "",
+                        "response":         "",
+                        "response_measure": "",
+                    }
+                    _new_decision: dict = {
+                        "id":               "",
+                        "kind":             "asr",
+                        "phase":            Phase.ASR_TABLE.value,
+                        "iteration":        0,
+                        "qa":               _qa_row,
+                        "parents":          [],
+                        "payload":          _payload,
+                        "rationale":        "",
+                        "sources":          _sources,
+                        "status":           "active",
+                        "parent_status":    "ok",
+                        "superseded_by":    None,
+                        "rejection_reason": None,
+                        "created_at":       "",
+                        "created_by_node":  "asr_node",
+                    }
+                    _saved = append_decision(_user_id, _project_id, _new_decision)
+                    _last_saved_id = _saved["id"]
+                    _candidates_for_state.append({
+                        "id":            _saved["id"],
+                        "candidate_id": _row["id"],
+                        "qa":            _row["qa"],
+                        "scenario":      _row["scenario"],
+                        "business":      _row["business"],
+                        "risk":          _row["risk"],
+                        "payload":       _payload,
+                    })
+                log.info(
+                    "asr_node: ledger ok rows=%d last_id=%s project=%s",
+                    len(_table_rows), _last_saved_id, _project_id,
+                )
+            else:
+                # Legacy single-ASR fallback: keep behaviour intact.
+                _asr_payload = _build_asr_payload(content, domain)
+                _new_decision_one: dict = {
+                    "id":               "",
+                    "kind":             "asr",
+                    "phase":            Phase.ASR_TABLE.value,
+                    "iteration":        0,
+                    "qa":               qa_pipeline,
+                    "parents":          [],
+                    "payload":          _asr_payload,
+                    "rationale":        "",
+                    "sources":          _sources,
+                    "status":           "active",
+                    "parent_status":    "ok",
+                    "superseded_by":    None,
+                    "rejection_reason": None,
+                    "created_at":       "",
+                    "created_by_node":  "asr_node",
+                }
+                _saved = append_decision(_user_id, _project_id, _new_decision_one)
+                _candidates_for_state.append({
+                    "id":       _saved["id"],
+                    "qa":       qa_pipeline,
+                    "scenario": _clip_text(content.strip().split("\n")[0], 200),
+                    "payload":  _asr_payload,
+                })
+                log.info(
+                    "asr_node: ledger ok (single) id=%s qa=%s project=%s",
+                    _saved["id"], qa_pipeline, _project_id,
+                )
+
             _refresh_ledger_state(state, _user_id, _project_id, lang)
 
             # ── Fix A: self-heal phase if intake's transition_phase failed ─
@@ -736,16 +859,10 @@ Rules:
             # ─────────────────────────────────────────────────────────────
 
             # ── Populate asr_candidates (P8) ───────────────────────────────
-            _asr_entry = {
-                "id": _saved["id"],
-                "qa": qa_pipeline,
-                "scenario": _clip_text(content.strip().split("\n")[0], 200),
-                "payload": _asr_payload,
-            }
-            if _is_regenerate:
-                state["asr_candidates"] = [_asr_entry]
+            if _is_regenerate or _is_candidate_table:
+                state["asr_candidates"] = _candidates_for_state
             else:
-                state["asr_candidates"] = (state.get("asr_candidates") or []) + [_asr_entry]
+                state["asr_candidates"] = (state.get("asr_candidates") or []) + _candidates_for_state
 
         except LedgerValidationError as _exc:
             log.warning("asr_node: ledger validation error (nonfatal): %s", _exc)

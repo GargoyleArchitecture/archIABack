@@ -570,6 +570,459 @@ The intake prompt template, when requesting missing field data, appends a boiler
 
 ---
 
+## BUG-036 — `intake_node` re-introduces ArchIA on Turn 2 — INTRO fires more than once per session
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | INTRO → DIAGNÓSTICO transition |
+| **File** | `back/src/graph/nodes/intake_node.py` (intake response template / system prompt) |
+| **Trigger** | User sends "Hola" (Turn 1) → Archia gives INTRO → User sends rich project description (Turn 2) → Archia opens its Turn 2 response with "¡Hola! Soy ArchIA..." |
+
+### Observed Behavior
+Turn 1: User sends "Hola". Archia correctly gives the ADD 3.0 introduction (Phase 0 — INTRO). ✅
+
+Turn 2: User provides full project description. Archia's response opens with:
+> "¡Hola! Soy ArchIA. Antes de generar los Atributos de Calidad y Escenarios de Calidad (ASRs) necesito conocer bien tu proyecto."
+
+ArchIA re-introduces itself as if it's the first turn of the session.
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, Phase 0 — INTRO, **Regla clave**:
+> "Esta introducción ocurre **una sola vez**. En turnos posteriores dentro de la misma sesión, ArchIA no vuelve a presentarse."
+
+Turn 2 and beyond must never re-introduce ArchIA.
+
+### Root Cause (hypothesis)
+The intake node's Step A1 response template likely includes a greeting/intro prefix ("¡Hola! Soy ArchIA...") hardcoded in its prompt — either as part of `_UNIFIED_PROMPT_V2` or the `build_repair_prompt` template. The A1 handler never checks `add_phase` to determine whether the INTRO has already been delivered. Since `add_phase = "diagnosis"` on Turn 2, the node should know INTRO is past.
+
+### Fix Direction
+Remove the "¡Hola! Soy ArchIA..." prefix from any intake step that fires after Phase 0. The INTRO node/handler is responsible for self-introduction — not the intake step handlers.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-037 — Intake A1 fires generic "describe your system" re-ask after user already provided full context — BUG-027 fix scope was incomplete
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | DIAGNÓSTICO (Step A1) |
+| **File** | `back/src/graph/nodes/intake_node.py` (Step A1 / `_process_intake_turn` routing) |
+| **Trigger** | User provides full system description in Turn 2 (the turn AFTER the INTRO was given on Turn 1); intake ignores all provided context |
+
+### Observed Behavior
+Turn 2 user message contains:
+- ✅ System name: "Cámara de Compensación en Tiempo Real"
+- ✅ Purpose: real-time interbank transfers, ISO 20022, TLS mutual
+- ✅ Quality attributes: latency (p99 ≤ 8s), availability (24/7/365), financial integrity (no double-debit/credit)
+- ✅ Constraints: USD 2M/year, multi-cloud, SFC Circular 007
+- ❌ `normal_operation_baseline`: deliberately omitted
+
+Archia's response ignores all of this and asks:
+> "¿Cuál es el requerimiento principal del sistema que deseas diseñar? Describe el objetivo principal, los componentes involucrados y las expectativas de calidad."
+
+This is a verbatim re-request of all the information just provided.
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, **Regla de preguntas inteligentes**:
+> "ArchIA no repregunta información que el usuario ya proporcionó."
+
+The intake must parse Turn 2's message, populate `system_name`, `quality_attribute`, `constraints`, identify `normal_operation_baseline` as the ONLY missing field, and ask for it specifically. Given the baseline is the only missing field, the correct response is:
+> "Entendido — Cámara de Compensación en Tiempo Real, latencia p99≤8s + disponibilidad 24/7 + integridad financiera, consorcio 12 bancos bajo Circular 007 SFC. Para continuar necesito saber: ¿cuál es el baseline de operación normal hoy? ¿Cuántas transacciones por segundo/minuto maneja el sistema en condiciones normales?"
+
+### Root Cause
+**BUG-027 fix was scoped to the M6 intro handler only** — i.e., when rich context arrives in the SAME message that triggers the INTRO (Turn 1 = rich context). The `_process_intake_turn` pre-extraction pass was added to the M6 branch. However:
+
+- If Turn 1 = "Hola" (triggers INTRO)
+- Then Turn 2 = rich description (arrives AFTER INTRO is delivered)
+
+...the Turn 2 message reaches the Step A1 handler via the normal intake path, NOT the M6 branch. Step A1 still unconditionally fires its generic "describe your system" question without calling `_process_intake_turn` first.
+
+### Impact
+- Every session that starts with "Hola" + rich context on Turn 2 wastes one round-trip.
+- The no-repeguntar rule is violated.
+- The CRITICAL baseline test cannot be evaluated until this is fixed — the intake never reaches the point of asking for baseline because it's stuck re-asking for already-provided context.
+
+### Fix Direction
+`_process_intake_turn` (or equivalent field-extraction logic) must be called at the TOP of every intake step handler — including Step A1 — not only inside the M6 branch. If the user's current message satisfies one or more required fields, those fields must be mapped before deciding which question to ask next.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-038 — Intake vocabulary validator rejects technically rich response — keyword list is hardcoded and case-sensitive
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | DIAGNÓSTICO — `requerimiento` field validation |
+| **File** | `back/src/graph/nodes/intake_validators.py` (vocabulary heuristic for `campo_0_requerimiento` or equivalent) |
+| **Trigger** | User provides: "Gateway ISO 20022", "Motor de Liquidación Bruta (RTGS core)", "Módulo de Gestión de Posiciones", "Bus de Eventos de Confirmación", "API de Conciliación", "mTLS", "ISO 20022" — all legitimate architectural terms |
+
+### Observed Behavior
+Archia responds:
+> "→ requerimiento: No se detectó vocabulario técnico. Menciona al menos un término arquitectónico como: servicio, API, componente, microservicio, REST, gRPC, WebRTC, kafka, JWT, gateway, etc."
+
+The user's message contained: `Gateway`, `API`, `componentes`, `RTGS`, `ISO 20022`, `mTLS`, `Bus de Eventos` — at minimum 3 terms from the suggested list (`Gateway`, `API`, `componentes`). The validator still rejects.
+
+Additionally, Archia only reports saving `restricciones` — it did NOT extract `system_name`, `quality_attribute`, `components`, or `purpose` from a message that contained all of them in plain text.
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, **Regla de preguntas inteligentes**:
+> "ArchIA no repregunta información que el usuario ya proporcionó."
+
+The vocabulary heuristic must:
+1. Be case-insensitive (`Gateway` = `gateway`, `API` = `api`)
+2. Include domain-specific terms beyond the web-dev list (RTGS, ISO 20022, mTLS, clearing, settlement, ledger, throughput)
+3. Not be the sole gate — if the response contains architectural components described in natural language, the LLM semantic check must override the keyword heuristic
+
+### Root Cause (hypothesis)
+The intake validator applies a pre-LLM keyword check using a hardcoded lowercase list (`{"servicio", "api", "componente", "microservicio", "rest", "grpc", "websocket", "kafka", "jwt", "gateway"}`). The check likely uses `word in response.lower().split()` or similar token matching. Terms like `"API de Conciliación"` may fail because `"api"` is not a standalone token after lowercasing a mixed-case sentence, OR the term list is matched before stripping punctuation.
+
+The field extraction failure (only `restricciones` saved, not `system_name`, `quality_attribute`, `purpose`) suggests the extractor only parsed the last paragraph (the constraint list) and treated the rest as unparsed free text.
+
+### Severity
+🔴 High — the validator actively blocks correct, domain-appropriate technical answers. Any fintech, healthcare, or industrial system will fail this check because its vocabulary doesn't match the web-dev keyword list.
+
+### Fix Direction
+1. Make keyword matching case-insensitive and punctuation-agnostic.
+2. Expand the domain keyword list with financial/clearing terms: `rtgs`, `iso20022`, `mtls`, `clearing`, `settlement`, `liquidación`, `gateway`, `throughput`, `sla`, `circuit breaker`.
+3. Fall back to LLM semantic validation when no hardcoded keyword matches — if the LLM judges the response as containing architectural content, accept it.
+4. Fix multi-field extraction: a single message should populate ALL matching fields, not just the last recognized one.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-039 — BUG-028 Regression: "fuente del estímulo" (ASR 6-part field) still asked during DIAGNOSIS — fix never took effect
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | DIAGNÓSTICO (Phase 1) — field belongs to ASR_TABLE (Phase 2) |
+| **File** | `back/src/graph/nodes/intake_validators.py` (`INTAKE_SCRIPT` index 2, `campo_2_fuente`) |
+| **Regression of** | BUG-028 (marked ✅ Fixed — fix clearly not in effect) |
+
+### Observed Behavior
+After user provides system description with technical vocabulary, intake responds:
+> "→ fuente del estímulo: No se identificó la fuente del estímulo. Indica si proviene de: usuario/paciente/médico, sistema externo/API externa, evento interno, tiempo/timer/cron."
+
+The healthcare bleed ("usuario/paciente/médico") from BUG-028 is also still present — confirming the fix was not applied or was reverted.
+
+Additionally, Archia reports saving: `"requerimiento, componentes, estímulo, prioridad QA, decisiones previas"` — it has already extracted `estímulo` from the user's message, but then asks for `fuente del estímulo` as the NEXT field. This means the INTAKE_SCRIPT is still iterating through all 6 ASR fields sequentially.
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, Phase 1 — DIAGNÓSTICO:
+> DIAGNÓSTICO collects: system name, stakeholders, quality attributes, constraints, **normal_operation_baseline**.
+
+`fuente del estímulo` is field 1 of the ASR 6-part canonical format. It belongs exclusively to Phase 2 — ASR_TABLE, generated by the ASR node FROM the context collected in DIAGNOSIS. The intake node must not ask for it.
+
+At this point in the session, the intake has NOT yet asked for `normal_operation_baseline` — the only genuinely missing required field — but IS asking for an ASR sub-field. The phase gate criterion (`normal_operation_baseline` populated before ASR_TABLE) is being bypassed entirely.
+
+### Root Cause
+BUG-028's fix marked `campo_2_fuente` and `campo_3_estimulo` as `"optional": True` and updated `current_index` to skip them. Either:
+(a) The fix was not deployed (different branch or file than what's running), or
+(b) A subsequent merge reverted the change, or
+(c) The `optional` flag check has a logic error — e.g., `if not field.get("optional")` evaluates wrong when the key is absent vs. `False`
+
+### Severity
+🔴 High — DIAGNOSIS phase is permanently blocked from reaching `normal_operation_baseline`. The critical ADD 3.0 phase gate cannot be tested until this is resolved. The system is iterating through all 6 ASR fields before ever asking for baseline.
+
+### Resolution Status
+🔴 Pending (regression — BUG-028 fix must be re-applied and verified)
+
+---
+
+## BUG-040 — BUG-032 Partial Regression: environment question text still demands maintenance window — fix applied to validator but not to prompt
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | DIAGNÓSTICO — `campo_4` (ambiente/entorno) |
+| **File** | `back/src/graph/nodes/intake_validators.py` (question prompt text for `campo_4`) |
+| **Regression of** | BUG-032 (validator criteria fixed, prompt text was not) |
+
+### Observed Behavior
+Archia asks:
+> "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas: carga normal, sobrecarga, **mantenimiento** (ej: p95<200ms, 500rps)."
+
+The word "mantenimiento" is still explicitly listed as a required example alongside "carga normal" and "sobrecarga".
+
+### Expected Behavior
+Per BUG-032 resolution: maintenance is **explicitly optional**. The question prompt must reflect this:
+> "¿Cuál es el baseline de operación normal del sistema? Incluye: carga normal y escenario de pico/sobrecarga (ej: 1,200 TPS normal / 3,000 TPS en pico, p99 < 800ms). Mantenimiento es opcional."
+
+### Root Cause
+BUG-032's fix updated `_ADD3_CRITERIA[4]` (the validation logic) but the question prompt string — the text actually shown to the user — was not updated. The user still sees maintenance as required even if the validator no longer enforces it.
+
+### Additional Note
+This field ("¿En qué ambientes opera el sistema?") is the closest the intake comes to collecting `normal_operation_baseline`. However it is framed as an ASR scenario environment question rather than the spec-defined baseline question ("qué se considera funcionamiento aceptable HOY"). The distinction matters: if this field is treated as the baseline by `context_loader`, the gate may work; if not, baseline will never be captured.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-041 — BUG-033 Regression: Intake still asks permission to generate ASRs instead of auto-transitioning
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | DIAGNÓSTICO → ASR_TABLE transition |
+| **File** | `back/src/graph/nodes/intake_node.py` (Rama B, `current_index >= 8` block) |
+| **Regression of** | BUG-033 (marked ✅ Fixed) |
+
+### Observed Behavior
+After saving "ambientes", intake responds:
+> "Ya tengo toda la información necesaria. ¿Quieres que proponga los ASRs o ya tienes alguno definido?"
+
+User must reply "Propon los ASRs" before ASR generation begins — wasting an unnecessary turn.
+
+### Expected Behavior
+Per spec, `normal_operation_baseline` populated → auto-advance to ASR_TABLE. No permission required, no "ya tienes alguno definido?" option.
+
+### Resolution Status
+🔴 Pending (BUG-033 fix not in effect)
+
+---
+
+## BUG-042 — ASR_TABLE presents single ASR in full prose — violates table format and "detalle bajo demanda" rule
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | ASR_TABLE (Phase 2) |
+| **File** | `back/src/graph/nodes/asr.py` (ASR output formatter) |
+
+### Observed Behavior
+Archia delivers ONE ASR in full 6-part prose detail, including:
+- A k6 load testing script: `k6 run --vus 3500 --duration 1h script_iso20022.js`
+- A 5-item operational checklist
+- Tactical decisions (backpressure, load shedding, bulkhead, circuit breakers)
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, ASR_TABLE must present a **prioritized table of candidates**:
+
+| ID | Atributo de calidad | Descripción del escenario | Importancia negocio | Riesgo técnico |
+|----|---------------------|--------------------------|---------------------|----------------|
+
+Full 6-part detail is delivered ONLY after the user selects an ASR ID. Before selection: tables, not paragraphs.
+
+### Severity
+🔴 High — the output format is completely inverted relative to the spec. The user gets full detail before making any selection, removing the selection step entirely.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-043 — ASR node generates only ONE candidate despite THREE identified quality attributes
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | ASR_TABLE (Phase 2) |
+| **File** | `back/src/graph/nodes/asr.py` |
+
+### Observed Behavior
+User explicitly identified three quality attributes during DIAGNOSIS:
+- **Latencia:** p99 ≤ 8s end-to-end
+- **Disponibilidad:** 99.999%, 24/7/365, zero maintenance windows
+- **Integridad financiera:** no double-debit/credit under any failure condition
+
+Archia generated ONE ASR covering only the latency/peak-load scenario. Availability and financial integrity received no candidates.
+
+### Expected Behavior
+The ASR node must generate at least one candidate per identified QA. With 3 QAs identified, the table should have a minimum of 3 rows (one per attribute), giving the user a prioritized view across all architectural concerns.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-044 — ASR Response field polluted with Phase 4 tactical content
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | ASR_TABLE (Phase 2) — content belongs to TACTICS_TABLE (Phase 4) |
+| **File** | `back/src/graph/nodes/asr.py` (ASR response field prompt) |
+
+### Observed Behavior
+The ASR's "Response" field contains:
+> "aplicar backpressure, load shedding controlado y bulkhead para aislar fallos, con circuit breakers hacia dependencias degradadas"
+
+These are **architectural tactics** — they belong to Phase 4 (TACTICS_TABLE) as T-level decisions informed by the selected style and ASR. The ASR's Response field should describe the **required system behavior** (what the system must do), not the implementation tactics (how it achieves it).
+
+### Expected Behavior
+ASR Response field = "the system processes and confirms the settlement end-to-end within the required latency bound". Tactics (circuit breaker, bulkhead) are proposed in Phase 4, after style selection.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-045 — Classifier fails to recognize "tomo ese ASR" as selection — M1 gate fires, requiring explicit "Confirmo" on a second turn
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | ASR_TABLE → STYLE_TABLE transition |
+| **File** | `back/src/graph/nodes/supervisor.py` or `back/src/graph/classifier.py` (intent classification for ASR confirmation) |
+
+### Observed Behavior
+User sends: "De acuerdo, tomo ese ASR. Ahora propón los estilos arquitectónicos."
+
+Archia responds with M1 gate:
+> "Estamos en la fase de selección de ASRs. Para llegar a selección de estilo primero necesitamos completar la fase actual."
+
+Only when user sends "Confirmo el ASR que me diste" does the system register `selected_asrs` as populated and allow style generation.
+
+### Expected Behavior
+"Tomo ese ASR" and "de acuerdo, tomo ese ASR" are explicit selection signals. The classifier must recognize natural-language confirmation phrases as ASR selection intent and populate `selected_asrs`. The M1 gate should not fire after an explicit acceptance statement.
+
+### Root Cause (hypothesis)
+This is a **cascading consequence of BUG-042**: the ASR was delivered without short IDs (A1, A2, etc.). The classifier likely checks for patterns like `"A1"`, `"A2"`, or `"confirmo ASR"` to detect selection. Without an ID in the ASR presentation, the user's "tomo ese ASR" lacks the ID token the classifier expects, so it falls back to a non-selection intent and the M1 gate fires.
+
+Fix must address both BUG-042 (assign IDs in ASR output) and the classifier (recognize natural-language confirmation when context contains a single ASR candidate).
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-046 — STYLE_TABLE "ASR al que responde" column shows truncated full scenario text instead of short ASR ID
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | STYLE_TABLE (Phase 3) |
+| **File** | `back/src/graph/nodes/styles/common.py` (style table formatter) |
+
+### Observed Behavior
+Style table "ASR al que responde" column shows:
+> "Cuando el banco origen envía un mensaje ISO 20022 vía API…" (truncated)
+
+### Expected Behavior
+Per spec table format, the column should contain the short ID (`A1`, `A2`, etc.) that references the selected ASR — not the full scenario text. Short IDs allow the tactics node to build its HARD-BINDING prompt correctly and make the table readable.
+
+### Root Cause (hypothesis)
+Cascading consequence of BUG-042: since no short IDs were assigned to ASR candidates, the style node has no ID to reference and falls back to injecting the full scenario text.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-047 — Tactics confirmation loop: "¿Continuamos?" repeated on "Continuemos" — user must paste full context to break loop
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | TACTICS_TABLE (Phase 4) |
+| **File** | `back/src/graph/nodes/supervisor.py` or `back/src/graph/nodes/tactics/` (tactics entry handler) |
+
+### Observed Behavior
+1. User selects S1 → Archia shows: "La siguiente tarea es: confirmar las tácticas de diseño. ¿Continuamos?"
+2. User replies "Continuemos" → Archia shows **the exact same message** again
+3. User manually pastes the full ASR + Style context → Tactics are finally generated
+
+The system looped on the confirmation step — same symptom as BUG-034 (supervisor→node→supervisor loop).
+
+### Root Cause (hypothesis)
+Classifier maps "Continuemos" to a generic continuation intent that routes back to supervisor. Supervisor sees `current_phase="tactics_table"` and `selected_style` populated but `selected_tactics` empty → re-enters the confirmation prompt instead of calling `tactics_node`. The tactics node likely only fires on a specific intent (e.g., `intent="tactics"`) and "Continuemos" doesn't match it.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-048 — TACTICS_TABLE delivers prose + code + JSON dump instead of the required table format; "detalle bajo demanda" violated; no T-IDs assigned
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | TACTICS_TABLE (Phase 4) |
+| **File** | `back/src/graph/nodes/tactics/common.py` (tactics output formatter) |
+
+### Observed Behavior
+The tactics response delivers in order:
+1. A "Bloque de acción concreto" with a Kubernetes HPA YAML manifest
+2. A 6-item implementation checklist
+3. A pseudo-Go code snippet for admission control
+4. A "Tactics (TOP-3)" section with dense prose including `success_probability` scores
+5. A raw JSON array at the bottom with the full tactic objects
+
+No tactic IDs (T1, T2, T3) are assigned anywhere.
+
+### Expected Behavior
+Per `ArchIA_Flujo_Interaccion.md`, TACTICS_TABLE must present a **table**:
+
+| ID | Táctica | ASR al que aplica | Efecto esperado | Riesgo si se omite |
+|----|---------|-------------------|-----------------|---------------------|
+
+Full detail (rationale, implementation, trade-offs) is delivered ONLY after the user selects a tactic ID. Before selection: table only.
+
+### Additional Violations
+- **No T-IDs** → user cannot select by ID → same classifier selection failure as BUG-045
+- **Implementation code in response** → belongs to post-selection deep-dive, not the candidate table
+- **`success_probability` scores** → not part of the spec format; adds noise before selection
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-049 — Raw JSON tactic objects dumped verbatim into user-facing response
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | TACTICS_TABLE (Phase 4) |
+| **File** | `back/src/graph/nodes/tactics/common.py` or `back/src/graph/unifier.py` (response assembly) |
+
+### Observed Behavior
+The end of Archia's tactics response contains a raw JSON array:
+```json
+[{"name": "Elastic Horizontal Scaling", "purpose": "...", "rationale": "...", "risks": [...], ...}, ...]
+```
+This is internal state/payload data that was never formatted into human-readable output.
+
+### Root Cause (hypothesis)
+The tactics node's LLM output includes both a structured JSON payload (for `ledger.append_decision`) and a markdown response. The unifier or the node itself is concatenating both into `endMessage` instead of discarding the JSON payload after extracting it for ledger use.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-050 — Tactics node does not read ASR + Style context from GraphState — user forced to paste it manually
+
+| Field | Details |
+|---|---|
+| **Status** | 🔴 Pending |
+| **Phase** | TACTICS_TABLE (Phase 4) |
+| **File** | `back/src/graph/nodes/tactics/common.py` (`_build_dossier_design_binding` or equivalent context injection) |
+
+### Observed Behavior
+After the confirmation loop (BUG-047), tactics were only generated after the user manually pasted the full ASR scenario and style choice. Before that, the two "¿Continuamos?" responses contain the correct `Fase:` dossier header (proving the node CAN read ASR/Style IDs from state) but the tactics LLM never ran.
+
+### Expected Behavior
+The tactics node must read `selected_asrs` and `selected_style` from `GraphState` and inject them into its HARD-BINDING prompt automatically. The user must never need to re-provide context that was already captured in prior phases.
+
+### Root Cause (hypothesis)
+The tactics node's entry condition checks for a specific trigger intent (e.g., `intent == "tactics"` or `intent == "generate_tactics"`). "Continuemos" maps to a generic continuation intent that doesn't satisfy the condition, so the node shows the dossier header (read from state) but exits without calling the LLM. Only when the user provides ASR text does the classifier detect `intent == "tactics"` and the LLM runs.
+
+### Resolution Status
+🔴 Pending
+
+---
+
 ## Summary Table
 
 | ID | File | Severity | Status |
@@ -593,3 +1046,18 @@ The intake prompt template, when requesting missing field data, appends a boiler
 | BUG-033 | `intake_node.py` | 🟢 Low — after DIAGNOSIS completes, intake asks permission to generate ASRs instead of auto-transitioning to ASR_TABLE | ✅ Fixed |
 | BUG-034 | `graph/nodes/asr.py` | 🔴 Critical — supervisor→asr→supervisor→unifier loop cycles indefinitely; response never delivered to frontend | ✅ Fixed |
 | BUG-035 | `graph/nodes/context_loader.py` | 🔴 Critical — asr_node finds stale ASR in LangGraph checkpoint from prior session; re-renders old ASR instead of generating new one | ✅ Fixed |
+| BUG-036 | `intake_node.py` | 🟡 Medium — intake response on Turn 2 opens with "¡Hola! Soy ArchIA..." — INTRO re-fires after already being delivered on Turn 1 | ✅ Fixed |
+| BUG-037 | `intake_node.py` | 🔴 High — BUG-027 fix incomplete: A1 step ignores rich context when it arrives on Turn 2 (post-intro); fires generic "describe your system" re-ask | ✅ Fixed |
+| BUG-038 | `intake_validators.py` | 🔴 High — vocabulary heuristic rejects response with "Gateway ISO 20022", "API", "RTGS core", "mTLS" as having "no technical vocabulary"; keyword list is hardcoded, web-dev-only, and fails on fintech domain terms | ✅ Fixed |
+| BUG-039 | `intake_validators.py` | 🔴 High — REGRESSION of BUG-028: `campo_2_fuente` ("fuente del estímulo", ASR Phase 2 field) still asked during DIAGNOSIS; "usuario/paciente/médico" healthcare bleed still present; `normal_operation_baseline` never asked | ✅ Fixed |
+| BUG-040 | `intake_validators.py` | 🟡 Medium — PARTIAL REGRESSION of BUG-032: `campo_4` question text still lists "mantenimiento" as required example alongside normal/peak load; fix updated validator criteria but never updated the prompt text shown to user | ✅ Fixed |
+| BUG-041 | `intake_node.py` | 🟢 Low — REGRESSION of BUG-033: intake still asks "¿Quieres que proponga los ASRs?" instead of auto-transitioning to ASR_TABLE | ✅ Fixed |
+| BUG-042 | `graph/nodes/asr.py` | 🔴 High — ASR_TABLE delivers single ASR in full 6-part prose before user selects; violates table format and "detalle bajo demanda" rule | ✅ Fixed |
+| BUG-043 | `graph/nodes/asr.py` | 🔴 High — ASR node generates only 1 candidate despite 3 identified QAs (latency, availability, financial integrity); availability and integrity have no ASR | ✅ Fixed |
+| BUG-044 | `graph/nodes/asr.py` | 🟡 Medium — ASR Response field polluted with Phase 4 tactical content (backpressure, load shedding, bulkhead, circuit breakers); tactics belong to TACTICS_TABLE | ✅ Fixed |
+| BUG-045 | `classifier.py` / `supervisor.py` | 🔴 High — classifier fails to recognize "tomo ese ASR" as selection; M1 gate fires and wastes a turn; cascading from BUG-042 (no ASR IDs assigned) | ✅ Fixed |
+| BUG-046 | `styles/common.py` | 🟡 Medium — STYLE_TABLE "ASR al que responde" column shows truncated full scenario text instead of short ID (A1/A2); cascading from BUG-042 | ✅ Fixed |
+| BUG-047 | `supervisor.py` / `tactics/` | 🔴 High — tactics confirmation loop: "Continuemos" re-triggers confirmation prompt instead of generating tactics; user must paste full context to break loop | ✅ Fixed |
+| BUG-048 | `tactics/common.py` | 🔴 High — TACTICS_TABLE delivers HPA YAML + checklists + Go snippets + prose instead of required table; no T-IDs; violates "detalle bajo demanda" | ✅ Fixed |
+| BUG-049 | `tactics/common.py` / `unifier.py` | 🔴 High — raw JSON tactic objects dumped verbatim into user-facing response; internal payload leaks into `endMessage` | ✅ Fixed |
+| BUG-050 | `tactics/common.py` | 🔴 High — tactics LLM never reads ASR+Style context from GraphState; only triggers when user manually pastes ASR scenario text | ✅ Fixed |

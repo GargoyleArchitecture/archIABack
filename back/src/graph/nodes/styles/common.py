@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -517,17 +518,31 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
             "Compare these two styles in more depth for this ASR.",
         ]
 
+    # BUG-046: show the ASR ID the user selected (e.g. "A1 (Latencia)"), not a
+    # truncated free-text scenario. The architect already saw the scenario in
+    # the ASR table; what they need here is to recognise which row was picked.
     _ledger_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
-    _raw_asr_name = (
-        (_ledger_asr_payload.get("summary") or "").strip()
-        or next(
-            (ln.strip() for ln in
-             (state.get("current_asr") or state.get("last_asr") or "").splitlines()
-             if ln.strip() and not ln.strip().startswith("#")),
-            ("ASR activo" if lang == "es" else "Active ASR"),
-        )
+    _selected_asr_ids = state.get("selected_asrs") or []
+    _selected_id = ""
+    if _selected_asr_ids:
+        _first = str(_selected_asr_ids[0]).strip()
+        # Accept both candidate IDs ("A1") and ledger UUIDs; prefer candidate IDs.
+        if re.match(r"^[Aa]\d+$", _first):
+            _selected_id = _first.upper()
+        else:
+            for _c in (state.get("asr_candidates") or []):
+                if isinstance(_c, dict) and _c.get("id") == _first:
+                    _selected_id = (_c.get("candidate_id") or "").upper() or _first
+                    break
+            if not _selected_id:
+                _selected_id = _first[:12]
+    if not _selected_id:
+        _selected_id = (_ledger_asr_payload.get("candidate_id") or "A?").upper()
+    _qa_label = (_ledger_asr_payload.get("qa") or qa or "").strip()
+    _asr_name = _sanitize_md_cell(
+        f"{_selected_id} ({_qa_label})" if _qa_label else _selected_id,
+        max_chars=40,
     )
-    _asr_name = _sanitize_md_cell(_raw_asr_name, max_chars=60)
     _col_style = "Estilo arquitectónico" if lang == "es" else "Architecture Style"
     _col_asr   = "ASR al que responde"   if lang == "es" else "ASR addressed"
     _col_just  = "Justificación"         if lang == "es" else "Justification"

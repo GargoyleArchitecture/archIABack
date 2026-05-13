@@ -204,16 +204,47 @@ def classifier_node(state: GraphState) -> GraphState:
             "ese asr me sirve", "me sirve ese asr",
             "confirm", "i confirm", "approve",
             "looks good", "yes that asr", "sí ese asr", "si ese asr",
+            # BUG-045: natural-language selection phrases the architect uses when
+            # picking an ASR by ID from the candidate table.
+            "tomo ese", "tomo el asr", "me quedo con", "elijo", "voy con",
+            "ese me sirve", "perfecto ese", "ok ese", "de acuerdo", "dale",
+            "vale ese", "i'll take", "let's go with", "pick", "i pick",
+            "i choose", "go with",
         ]
         asr_reject_triggers = [
             "rechazo", "ese no", "no me convence", "otro asr", "otro distinto",
             "reject", "another asr", "different asr", "not that one",
         ]
-        if any(k in low for k in asr_confirm_triggers):
+        # BUG-045: ID-pattern matcher — when the user types just "a1", "A2",
+        # "tomo A1", "voy con a3", we extract the matched IDs and route to
+        # asr_confirm so the supervisor can advance the M1 gate to STYLE_TABLE.
+        _asr_id_matches = re.findall(r"\b[Aa](\d+)\b", msg)
+        _bare_id = re.match(r"^\s*[Aa]\d+\s*$", msg)
+        if any(k in low for k in asr_confirm_triggers) or _asr_id_matches or _bare_id:
             intent = "asr_confirm"
+            if _asr_id_matches:
+                _selected_ids = [f"A{n}" for n in _asr_id_matches]
+                # Preserve dedup + ordering for downstream filters.
+                state["selected_asrs"] = list(dict.fromkeys(_selected_ids))
         elif any(k in low for k in asr_reject_triggers) or is_asr_regenerate_request(msg):
             intent = "asr_reject"
 
+    # BUG-047: when the architect picked a style and is now in TACTICS_TABLE,
+    # natural continuation verbs ("Continuemos", "adelante", "ok") should route
+    # to tactics generation instead of looping on a confirmation question.
+    _in_tactics_phase = (state.get("current_phase") or "") == "tactics_table"
+    _has_style = bool(
+        state.get("selected_style") or state.get("style") or state.get("last_style")
+    )
+    _no_tactics = not (state.get("selected_tactics") or [])
+    if _in_tactics_phase and _has_style and _no_tactics:
+        _continue_triggers = [
+            "continuemos", "continúa", "continua", "sigue", "adelante",
+            "go ahead", "let's continue", "lets continue", "next", "proceed",
+            "siguiente", "ok", "okay", "vale", "dale", "vamos",
+        ]
+        if any(k in low for k in _continue_triggers):
+            intent = "tactics"
 
     # BUG-014: language is sticky for short, low-signal messages (e.g. "S2", "ok").
     # Only switch when there are enough tokens to classify reliably, OR the user

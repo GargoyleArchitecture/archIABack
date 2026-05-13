@@ -18,7 +18,7 @@ _TECHNICAL_TERMS = re.compile(
     r"rest(?:ful)?|grpc|https?|websockets?|webrtc|mqtt|soap|graphql|"
     # infra / platforms
     r"kafka|redis|postgres(?:ql)?|mongo(?:db)?|mysql|sqlite|s3|cdn|pop|sfu|mcu|"
-    r"gateways?|proxys?|proxies|broker|balanceador|nginx|docker|kubernetes|k8s|"
+    r"gateways?|proxys?|proxies|broker|brokers?|balanceador|nginx|docker|kubernetes|k8s|"
     r"lambda|serverless|contenedores?|"
     # security / compliance
     r"oauth|jwt|tls|mtls|hipaa|gdpr|rbac|sso|autenticaci[oó]n|autorizaci[oó]n|"
@@ -30,7 +30,16 @@ _TECHNICAL_TERMS = re.compile(
     # generic system vocabulary
     r"funciones?|aplicaci[oó]n|aplicaciones|integraci[oó]n|integraciones|"
     r"notificaci[oó]n|notificaciones|videollamadas?|sesiones?|almacenamiento|"
-    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria"
+    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria|"
+    # BUG-038: finance / integration vocabulary so fintech inputs like
+    # "Gateway ISO 20022", "core bancario", "RTGS", "bus de eventos",
+    # "payment gateway", "webhook" are recognised as technical terms.
+    r"banco|bancos|banco origen|payment gateway|payment\s*gateway|pasarela de pagos|"
+    r"iso\s?20022|swift|sepa|ach|rtgs|core\s+bancario|core\s+banking|core\s+ledger|"
+    r"webhook|webhooks|bus de eventos|event bus|stream|streaming|"
+    r"queue|queues|cola de mensajes|message queue|cola de eventos|"
+    r"liquidaci[oó]n|settlement|conciliaci[oó]n|reconciliation|ledger|"
+    r"tokenizaci[oó]n|tokenization|kyc|aml|antifraude|antifraud|fraud|fraude"
     r")\b",
     re.IGNORECASE,
 )
@@ -53,7 +62,15 @@ _SOURCE_CATEGORIES = re.compile(
     # internal event
     r"evento interno|internal event|"
     # time / schedule synonyms
-    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout"
+    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout|"
+    # BUG-038: finance / integration sources so fintech intake answers
+    # (e.g. "banco origen", "API REST", "webhook", "cola Kafka", "payment gateway")
+    # are accepted as stimulus sources.
+    r"banco|banco origen|core\s+bancario|core\s+banking|"
+    r"api\s+rest|rest\s+api|webhook|webhooks|"
+    r"cola|queue|stream|streaming|"
+    r"payment\s+gateway|pasarela\s+de\s+pagos|"
+    r"iso\s?20022|swift|sepa|ach|rtgs|mtls|tls|broker"
     r")\b",
     re.IGNORECASE,
 )
@@ -123,8 +140,8 @@ INTAKE_SCRIPT = [
     },
     {
         "field": "campo_4_ambientes",
-        "question_es": "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas: carga normal, sobrecarga, mantenimiento (ej: p95<200ms, 500rps).",
-        "question_en": "In what environments or scenarios must the system operate? Include concrete metrics: normal load, overload, maintenance (e.g., p95<200ms, 500rps).",
+        "question_es": "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas para carga normal y al menos una condición de pico o sobrecarga (ej: normal p95<200ms a 100rps; pico p99<500ms a 800rps). Las ventanas de mantenimiento son opcionales.",
+        "question_en": "In what environments or scenarios must the system operate? Include concrete metrics for normal load and at least one peak/overload condition (e.g., normal p95<200ms at 100rps; peak p99<500ms at 800rps). Maintenance windows are optional.",
         "rule": "_METRIC_PATTERN match",
     },
     {
