@@ -293,6 +293,10 @@ def supervisor_node(state: GraphState):
         block_text = _build_block_message(current_phase, min_phase_key, state_lang)
         _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
         _sugs_en = ["Yes, let's continue", "I want to change the system context"]
+        # BUG-002 fix: preserve completed_nodes across phase-gate redirects.
+        # Wiping it caused the supervisor to re-trigger already-done nodes
+        # (e.g. ASR re-generation) on the turn immediately after the block.
+        _completed_safe = _augment_completed_nodes(state, list(state.get("completed_nodes") or []))
         return {
             **state,
             "endMessage": block_text,
@@ -302,7 +306,7 @@ def supervisor_node(state: GraphState):
             "suggestions": _sugs_es if state_lang == "es" else _sugs_en,
             "requested_nodes": [],
             "pending_nodes": [],
-            "completed_nodes": [],
+            "completed_nodes": _completed_safe,
             "phase_redirect_hint": "",
         }
     # ────────────────────────────────────────────────────────────────────────

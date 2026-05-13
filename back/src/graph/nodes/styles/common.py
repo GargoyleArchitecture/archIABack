@@ -327,7 +327,7 @@ the specific technologies listed. Business rules must be respected in all trade-
         state.get("ledger_active") or {}, lang
     )
 
-    # ── Multi-ASR consistency constraint (P7) ──────────────────────────���──
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────
     _ledger = state.get("ledger") or {}
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
@@ -363,19 +363,19 @@ Mention specific technologies only inside the "impact" or "rationale" fields.
 
 You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:
 
-{{
-  "style_1": {{
+{{{{
+  "style_1": {{{{
     "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
     "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
     "tradeoff": "One sentence (max 15 words) stating the main trade-off."
-  }},
-  "style_2": {{
+  }}}},
+  "style_2": {{{{
     "name": "Short name of style 2",
     "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
     "tradeoff": "One sentence (max 15 words) stating the main trade-off."
-  }},
+  }}}},
   "best_style": "style_1 or style_2 (choose ONE)"
-}}
+}}}}
 
 Do NOT add comments or any text outside of this JSON object.
 All string values in the JSON (name, justification, tradeoff) MUST be written in {"English" if lang == "en" else "español"}.
@@ -406,7 +406,11 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     style2_justification = style2.get("justification", "").strip()
     style2_tradeoff = style2.get("tradeoff", "").strip()
     best_key = (data.get("best_style") or "").strip()
-    rationale = data.get("rationale", "").strip()
+    # BUG-001 fix: the LLM JSON schema has no top-level "rationale" field.
+    # Use the chosen style's own "tradeoff" field as the rationale so the
+    # ledger payload's "tradeoffs" and tactics binding block are never empty.
+    _chosen_data = style2 if best_key == "style_2" else style1
+    rationale = _chosen_data.get("tradeoff", "").strip()
 
     chosen_name = style2_name if best_key == "style_2" else style1_name
 

@@ -70,7 +70,7 @@ def create_or_load_vectorstore() -> Chroma:
         embedding_function=_embeddings(),
         persist_directory=persist_directory,
     )
-    # Nota: si no hay datos aún, _VDB está “vacío” pero funcional.
+    # Nota: si no hay datos aún, _VDB está "vacío" pero funcional.
     return _VDB
 
 
@@ -139,6 +139,10 @@ def rebuild_vectorstore():
     """
     Helper opcional: si quieres reconstruir en caliente, borra el dir
     y vuelve a cargar (pero el pipeline recomendado es usar build_vectorstore.py).
+
+    BUG-004 fix: also clear the process-level lru_cache on the RAG fetch
+    helpers so subsequent calls pick up the newly indexed documents instead
+    of returning stale results from the old vectorstore.
     """
     import shutil
     global _VDB
@@ -147,4 +151,14 @@ def rebuild_vectorstore():
         print(f"[RAG] Removing existing Chroma DB at {persist_directory}")
         shutil.rmtree(persist_directory, ignore_errors=True)
     _VDB = None
+
+    # Clear RAG caches so stale snippets from the old store are not returned.
+    try:
+        from src.graph.nodes.styles.common import _fetch_styles_rag
+        from src.graph.nodes.tactics.common import _fetch_tactics_rag
+        _fetch_styles_rag.cache_clear()
+        _fetch_tactics_rag.cache_clear()
+    except Exception:
+        pass
+
     return create_or_load_vectorstore()
