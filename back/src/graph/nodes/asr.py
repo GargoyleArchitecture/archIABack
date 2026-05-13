@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import re
+from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage
 from src.graph.resources import llm, rag_trace_record
@@ -19,10 +20,12 @@ from src.rag_agent import get_indexed_retriever
 from src.graph.qa_registry import normalize_qa, qa_to_focus_label
 from src.ledger import (
     append_decision,
+    load_ledger,
+    transition_phase,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
-from src.ledger.types import Phase
+from src.ledger.types import Phase, PhaseTransition
 from src.graph.nodes._ledger_helpers import _refresh_ledger_state
 
 log = logging.getLogger("asr_node")
@@ -691,6 +694,33 @@ Rules:
                 _saved["id"], qa_pipeline, _project_id,
             )
             _refresh_ledger_state(state, _user_id, _project_id, lang)
+
+            # ── Fix A: self-heal phase if intake's transition_phase failed ─
+            # intake_node transitions "diagnosis"→"asr_table" before routing
+            # here, but that call can fail silently. If the ledger is still at
+            # "diagnosis" after our append_decision, we own the transition now.
+            if state.get("current_phase") == "diagnosis":
+                try:
+                    _ph_ledger = load_ledger(_user_id, _project_id, auto_migrate=False)
+                    if _ph_ledger.get("current_phase") == "diagnosis":
+                        transition_phase(_user_id, _project_id, PhaseTransition(
+                            from_phase="diagnosis",
+                            to_phase="asr_table",
+                            iteration=_ph_ledger["current_iteration"] + 1,
+                            triggered_by="asr_node_self_heal",
+                            user_message=uq,
+                            skipped_phases=[],
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                        ))
+                        log.info("asr_node: self-healed phase diagnosis→asr_table")
+                    else:
+                        # ledger already advanced; just sync state
+                        state["current_phase"] = _ph_ledger.get("current_phase") or "asr_table"
+                    _refresh_ledger_state(state, _user_id, _project_id, lang)
+                except (LedgerValidationError, LedgerConcurrencyError, Exception) as _ph_exc:
+                    log.warning("asr_node: self-heal transition failed (nonfatal): %s", _ph_exc)
+                    state["current_phase"] = "asr_table"
+            # ─────────────────────────────────────────────────────────────
 
             # ── Populate asr_candidates (P8) ───────────────────────────────
             _asr_entry = {

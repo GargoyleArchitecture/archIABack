@@ -570,16 +570,26 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
-                "current_phase": "asr_table",  # mirror ledger transition so supervisor skips diagnosis gate
+                "current_phase": "asr_table",  # bypass supervisor diagnosis gate regardless of ledger outcome
                 "normal_operation_baseline": _baseline,
                 "endMessage": "",         # asr_node will set the real response
                 "nextNode": "asr",
                 "intent": "asr",
             }
             if _updated_ledger is not None:
-                # Provide asr_node with intake_v1 in state so intake context is injected
-                # into the ASR prompt without waiting for the next context_loader reload.
+                # Transition succeeded: give asr_node the up-to-date ledger so
+                # intake_v1 is available in the ASR prompt without waiting for
+                # the next context_loader reload.
                 _a2["ledger"] = _updated_ledger
+            else:
+                # Transition failed silently: mirror current_phase into state["ledger"]
+                # so state is internally consistent. asr_node will reconcile with
+                # SQLite via _refresh_ledger_state and self-heal if needed (Fix A).
+                _ledger_snapshot = dict(state.get("ledger") or {})
+                if _ledger_snapshot:
+                    _ledger_snapshot = dict(_ledger_snapshot)
+                    _ledger_snapshot["current_phase"] = "asr_table"
+                    _a2["ledger"] = _ledger_snapshot
             return _a2
 
         else:
