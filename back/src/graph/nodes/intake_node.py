@@ -428,8 +428,11 @@ async def intake_node(state: GraphState) -> GraphState:
     uq = (state.get("userQuestion") or "").strip()
     lang = state.get("language") or "es"
     intake_fields = dict(state.get("intake_fields") or {})
+    # BUG-028: skip optional fields (campo_2_fuente, campo_3_estimulo) when
+    # finding the next required field so they never block intake completion.
     current_index = next(
-        (i for i, s in enumerate(INTAKE_SCRIPT) if s["field"] not in intake_fields),
+        (i for i, s in enumerate(INTAKE_SCRIPT)
+         if s["field"] not in intake_fields and not s.get("optional")),
         8,
     )
     project_context_text = state.get("project_context_text") or ""
@@ -456,17 +459,35 @@ async def intake_node(state: GraphState) -> GraphState:
             except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
                 log.warning("intake_node: intro→diagnosis transition failed (nonfatal): %s", _exc)
 
-    # M6: Auto-introducción ADD 3.0 — ocurre exactamente una vez
+    # M6: Auto-introducción ADD 3.0 — ocurre exactamente una vez.
+    # BUG-027: also try to extract intake fields from the user's first message
+    # so rich context provided upfront is not discarded.
     if (state.get("current_phase") or "") == "intro":
         _intro = _INTRO_ADD30_ES if lang == "es" else _INTRO_ADD30_EN
-        _q0 = INTAKE_SCRIPT[0][f"question_{lang}"]
+
+        _first_fields: dict = {}
+        _first_idx = 0
+        if uq and not _is_digression(uq):
+            _first_fields, _saved_intro, _failed_intro = await _process_intake_turn(
+                uq, {}, 0, project_context_text, lang
+            )
+            _first_idx = next(
+                (i for i, s in enumerate(INTAKE_SCRIPT)
+                 if s["field"] not in _first_fields and not s.get("optional")),
+                8,
+            )
+
+        _q_next = (
+            asr_question if _first_idx >= 8
+            else INTAKE_SCRIPT[_first_idx][f"question_{lang}"]
+        )
         return {
             **state,
             "current_phase": "diagnosis",  # advance state even if ledger write failed
-            "intake_fields": intake_fields,
-            "intake_current_field": 0,
-            "intake_complete": False,
-            "endMessage": f"{_intro}\n\n{_q0}",
+            "intake_fields": _first_fields,
+            "intake_current_field": 8 if _first_idx >= 8 else _first_idx,
+            "intake_complete": _first_idx >= 8,
+            "endMessage": f"{_intro}\n\n{_q_next}",
             "nextNode": "unifier",
             "intent": "intake",
         }
@@ -633,17 +654,54 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intent": "intake",
             }
 
-    # Rama B: todos los campos validados en este turno
+    # Rama B: todos los campos requeridos validados en este turno.
+    # BUG-033: auto-advance to ASR instead of showing a permission question,
+    # saving intake_v1 and transitioning the ledger phase in the same turn.
     if current_index >= 8:
-        return {
+        _user_id    = (state.get("user_id_for_prefs") or "").strip()
+        _project_id = (state.get("project_id") or "").strip() or None
+        _ts = datetime.now(timezone.utc).isoformat()
+        _updated_ledger = None
+
+        if _user_id:
+            try:
+                _b_ledger = load_ledger(_user_id, _project_id)
+                _b_ledger["project_context"]["intake_v1"] = intake_fields
+                save_ledger(_user_id, _b_ledger, _project_id)
+                transition_phase(_user_id, _project_id, PhaseTransition(
+                    from_phase="diagnosis",
+                    to_phase="asr_table",
+                    iteration=_b_ledger["current_iteration"] + 1,
+                    triggered_by="intake_complete",
+                    user_message=uq,
+                    skipped_phases=[],
+                    timestamp=_ts,
+                ))
+                _updated_ledger = _b_ledger
+            except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                log.warning("intake_node: Rama B ledger error (nonfatal): %s", _exc)
+
+        _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+        _rb: dict = {
             **state,
             "intake_fields": intake_fields,
             "intake_current_field": 8,
             "intake_complete": True,
-            "endMessage": asr_question,
-            "nextNode": "unifier",
-            "intent": "intake",
+            "current_phase": "asr_table",
+            "normal_operation_baseline": _baseline,
+            "endMessage": "",
+            "nextNode": "asr",
+            "intent": "asr",
         }
+        if _updated_ledger is not None:
+            _rb["ledger"] = _updated_ledger
+        else:
+            _ledger_snapshot = dict(state.get("ledger") or {})
+            if _ledger_snapshot:
+                _ledger_snapshot = dict(_ledger_snapshot)
+                _ledger_snapshot["current_phase"] = "asr_table"
+                _rb["ledger"] = _ledger_snapshot
+        return _rb
 
     # Rama C: primer turno (sin campos previos) — validar o dar bienvenida
     if current_index == 0 and not intake_fields:

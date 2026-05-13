@@ -158,7 +158,10 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             # "intro"/"diagnosis" that supervisor/intake_node established.  Also skip
             # _mirror_legacy so old-session ASR/style/tactic scalars are not restored.
             _new_project_flow = bool(state.get("new_project_flow"))
-            if _new_project_flow and mapped_phase not in ("intro", "diagnosis"):
+            # BUG-035: guard must fire unconditionally on new_project_flow so that
+            # _mirror_legacy cannot restore stale current_asr from a prior session
+            # when the old ledger phase is "intro" or "diagnosis".
+            if _new_project_flow:
                 updates["ledger_active"] = {}
                 updates["qa_locked_in"]  = False
             else:

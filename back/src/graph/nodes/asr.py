@@ -307,12 +307,19 @@ def asr_node(state: GraphState) -> GraphState:
         log.info("asr_node: re-rendering existing ASR (no explicit request to change)")
         requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
         pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
+        # BUG-034: set hasVisitedASR=True so the router does not re-fire the asr
+        # branch on the next supervisor call, preventing a GraphRecursionError loop.
+        _done = list(state.get("completed_nodes") or [])
+        if "asr" not in _done:
+            _done.append("asr")
         return {
             **state,
             "requested_nodes": requested_nodes,
             "pending_nodes": pending_nodes,
             "endMessage": existing_asr,
             "nextNode": "unifier",
+            "hasVisitedASR": True,
+            "completed_nodes": _done,
         }
 
     # ── Regeneration: clear downstream state (P8) ─────────────────────────
