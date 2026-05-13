@@ -156,8 +156,10 @@ def rebuild_vectorstore():
     try:
         from src.graph.nodes.styles.common import _fetch_styles_rag
         from src.graph.nodes.tactics.common import _fetch_tactics_rag
+        from src.graph.nodes.tech.common import _fetch_tech_rag
         _fetch_styles_rag.cache_clear()
         _fetch_tactics_rag.cache_clear()
+        _fetch_tech_rag.cache_clear()
     except Exception:
         pass
 

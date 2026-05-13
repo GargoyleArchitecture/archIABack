@@ -24,6 +24,7 @@ from src.graph.utils import (
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.qa_registry import normalize_qa
+from datetime import datetime, timezone
 from src.ledger import (
     append_decision,
     compute_active_view,
@@ -32,10 +33,11 @@ from src.ledger import (
     render_dossier,
     render_dossier_compact,
     render_phase_prompt,
+    transition_phase,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
-from src.ledger.types import Phase
+from src.ledger.types import Phase, PhaseTransition
 
 _tac_log = logging.getLogger("tactics_node")
 
@@ -630,6 +632,20 @@ Example shape (values are illustrative — adjust to your tactics):
                 "tactics_node: ledger ok id=%s qa=%s items=%d project=%s",
                 _saved["id"], _qa, len(_items), _project_id,
             )
+            # BUG-026: advance phase tactics_table → tech_proposals so the M1
+            # gate allows tech requests on the next turn.
+            _ph = load_ledger(_user_id, _project_id, auto_migrate=False)
+            if _ph.get("current_phase") == "tactics_table":
+                transition_phase(_user_id, _project_id, PhaseTransition(
+                    from_phase="tactics_table",
+                    to_phase="tech_proposals",
+                    iteration=_ph["current_iteration"] + 1,
+                    triggered_by="tactics_node",
+                    user_message=(state.get("userQuestion") or ""),
+                    skipped_phases=[],
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ))
+                _tac_log.info("tactics_node: phase tactics_table→tech_proposals")
             _refresh_ledger_state(state, _user_id, _project_id, lang)
 
         except LedgerValidationError as _exc:

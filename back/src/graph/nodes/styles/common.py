@@ -11,6 +11,7 @@ from src.graph.qa_registry import normalize_qa
 from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.rag_agent import get_indexed_retriever
 from src.graph.utils import _dedupe_snippets
+from datetime import datetime, timezone
 from src.ledger import (
     append_decision,
     compute_active_view,
@@ -19,10 +20,11 @@ from src.ledger import (
     render_dossier,
     render_dossier_compact,
     render_phase_prompt,
+    transition_phase,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
-from src.ledger.types import Phase
+from src.ledger.types import Phase, PhaseTransition
 
 log = logging.getLogger("style_node")
 
@@ -307,7 +309,7 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
 
     # Ground styles with the final QA resolved for the turn, not with a stale
     # classifier index that may drift on follow-up turns.
-    book_snippets = _fetch_styles_rag(qa, qa, k=6)
+    book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
 
     proj_ctx_block = ""
     if proj_ctx:
@@ -419,6 +421,22 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
     state["quality_attribute"] = qa
+    # BUG-022: populate style_candidates so the dossier and future queries
+    # can surface both options without re-invoking the LLM.
+    state["style_candidates"] = [
+        {
+            "id": "S1",
+            "name": style1_name,
+            "justification": style1_justification,
+            "tradeoff": style1_tradeoff,
+        },
+        {
+            "id": "S2",
+            "name": style2_name,
+            "justification": style2_justification,
+            "tradeoff": style2_tradeoff,
+        },
+    ]
 
     # ── Ledger write-back (P4) ───────────────────────────────────────────────
     _user_id    = (state.get("user_id_for_prefs") or "").strip()
@@ -450,6 +468,20 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
                 "style_node: ledger ok id=%s qa=%s chosen=%s project=%s",
                 _saved["id"], qa, chosen_name, _project_id,
             )
+            # BUG-026: advance phase style_table → tactics_table so the M1 gate
+            # allows tactics requests on the next turn.
+            _ph = load_ledger(_user_id, _project_id, auto_migrate=False)
+            if _ph.get("current_phase") == "style_table":
+                transition_phase(_user_id, _project_id, PhaseTransition(
+                    from_phase="style_table",
+                    to_phase="tactics_table",
+                    iteration=_ph["current_iteration"] + 1,
+                    triggered_by="style_node",
+                    user_message=(state.get("userQuestion") or ""),
+                    skipped_phases=[],
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ))
+                log.info("style_node: phase style_table→tactics_table")
             _refresh_ledger_state(state, _user_id, _project_id, lang)
 
         except LedgerValidationError as _exc:
