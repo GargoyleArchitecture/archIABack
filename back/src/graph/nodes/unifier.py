@@ -71,6 +71,33 @@ def _split_sections(text: str) -> dict:
         sections[k] = sections[k].strip()
     return sections
 
+
+def _ensure_section(title: str, body: str) -> str:
+    body = (body or "").strip()
+    if not body:
+        return ""
+    if re.match(r"^##\s+", body):
+        return body
+    return f"{title}\n\n{body}"
+
+
+def _render_diagram_block(state: GraphState, lang: str) -> str:
+    """Build the diagram Markdown block for both single- and multi-intent paths.
+
+    Returns an embedded SVG image block when diagram data is available, or a
+    clear failure message so the user is never left with a false promise.
+    """
+    d = state.get("diagram") or {}
+    if not (d.get("ok") and d.get("svg_b64")):
+        return (
+            "## Diagrama\n\nNo se pudo renderizar el diagrama esta vez."
+            if lang == "es"
+            else "## Diagram\n\nThe diagram could not be rendered this time."
+        )
+    data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
+    head = "## Diagrama" if lang == "es" else "## Diagram"
+    return f"{head}\n\n![diagram]({data_url})"
+
 async def unifier_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
@@ -103,31 +130,39 @@ async def unifier_node(state: GraphState) -> GraphState:
             or ""
         ).strip()
 
-        has_diagram = bool((state.get("diagram") or {}).get("ok"))
+        tech_txt = (
+            _last_ai_by(state, "tech_advisor")
+            or _last_turn_by(state, "tech_advisor")
+            or ""
+        ).strip()
 
         blocks = []
         if lang == "es":
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"## ASR\n\n{asr_txt}")
+                blocks.append(_ensure_section("## ASR", asr_txt))
             if style_txt and "style" in requested_set:
-                blocks.append(f"## Estilos Arquitectónicos\n\n{style_txt}")
+                blocks.append(_ensure_section("## Estilos Arquitectónicos", style_txt))
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"## Tácticas\n\n{tactics_txt}")
-            if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("## Diagrama\n\nRenderizado listo en esta misma respuesta.")
+                blocks.append(_ensure_section("## Tácticas", tactics_txt))
+            if tech_txt and "tech" in requested_set:
+                blocks.append(_ensure_section("## Tecnologías", tech_txt))
+            if "diagram_agent" in requested_set:
+                blocks.append(_render_diagram_block(state, lang))
             followups = [
                 "Refinar el ASR con métricas más estrictas.",
                 "Aterrizar estas tácticas en un plan de implementación por fases.",
             ]
         else:
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"## ASR\n\n{asr_txt}")
+                blocks.append(_ensure_section("## ASR", asr_txt))
             if style_txt and "style" in requested_set:
-                blocks.append(f"## Architecture Styles\n\n{style_txt}")
+                blocks.append(_ensure_section("## Architecture Styles", style_txt))
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"## Tactics\n\n{tactics_txt}")
-            if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("## Diagram\n\nRendered output is included in this same response.")
+                blocks.append(_ensure_section("## Tactics", tactics_txt))
+            if tech_txt and "tech" in requested_set:
+                blocks.append(_ensure_section("## Technologies", tech_txt))
+            if "diagram_agent" in requested_set:
+                blocks.append(_render_diagram_block(state, lang))
             followups = [
                 "Refine the ASR with stricter metrics.",
                 "Turn these tactics into a phased implementation plan.",
@@ -174,7 +209,11 @@ async def unifier_node(state: GraphState) -> GraphState:
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text, "intent": "diagram"}
 
-    # ðŸ”´ Caso especial para ESTILOS
+    if intent == "intake":
+        state = _finalize_turn(state, state.get("endMessage") or "")
+        return {**state, "endMessage": state.get("endMessage") or ""}
+
+    # 🔴 Caso especial para ESTILOS
     if intent == "style":
         style_txt = (
             _last_ai_by(state, "style_recommender")
@@ -232,7 +271,39 @@ async def unifier_node(state: GraphState) -> GraphState:
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial para ASR
+    # 🔴 Caso especial para TECNOLOGÍAS
+    if intent == "tech":
+        tech_md = (
+            _last_ai_by(state, "tech_advisor")
+            or state.get("endMessage")
+            or "No technology content."
+        )
+        src_txt = _last_ai_by(state, "tech_sources")
+        refs_block = _extract_rag_sources_from(src_txt) if src_txt else "None"
+
+        if lang == "es":
+            followups = [
+                "Genera un diagrama de componentes con estas tecnologías.",
+                "Genera un diagrama de despliegue alineado con estas tecnologías.",
+            ]
+            refs_label = "### Referencias"
+        else:
+            followups = [
+                "Generate a component diagram with these technologies.",
+                "Generate a deployment diagram aligned with these technologies.",
+            ]
+            refs_label = "### References"
+
+        end_text = f"{tech_md}\n\n---\n\n{refs_label}\n\n{refs_block}"
+
+        state["suggestions"] = followups
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
+    # 🔴 Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (
             _last_ai_by(state, "asr_recommender")
@@ -267,7 +338,7 @@ async def unifier_node(state: GraphState) -> GraphState:
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial: saludo / smalltalk
+    # ðŸ"´ Caso especial: saludo / smalltalk
     if intent in ("greeting", "smalltalk"):
         if lang == "es":
             hello = "## Bienvenido a ArchIA\n\n¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"
@@ -291,6 +362,9 @@ async def unifier_node(state: GraphState) -> GraphState:
             )
 
         end_text = hello + "\n\n" + footer
+        redirect = (state.get("phase_redirect_hint") or "").strip()
+        if redirect:
+            end_text = end_text + "\n\n" + redirect
         state["suggestions"] = nexts
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
@@ -321,9 +395,18 @@ async def unifier_node(state: GraphState) -> GraphState:
         + "\n\n".join(buckets)
     )
 
-    directive = "Responde en español." if lang == "es" else "Answer in English."
+    if lang == "es":
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
+    else:
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
     if style_hint:
-        directive = directive + f" {style_hint}"
+        directive = directive + f"\n{style_hint}"
 
     proj_ctx_block = ""
     if proj_ctx:
@@ -353,11 +436,16 @@ RAG_SOURCES:
 
 SOURCE:
 {synthesis_source}
+
+{"RECORDATORIO FINAL: toda tu respuesta debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response must be in English."}
 """
 
     resp = await llm.ainvoke(apply_mode_prompt(state, prompt))
     final_text = getattr(resp, "content", str(resp))
     final_text = _strip_mermaid_artifacts(final_text)
+    redirect = (state.get("phase_redirect_hint") or "").strip()
+    if redirect:
+        final_text = final_text + "\n\n" + redirect
 
     secs = _split_sections(final_text)
     chips = []
@@ -373,5 +461,4 @@ SOURCE:
 
     state = _finalize_turn(state, final_text)
     return {**state, "endMessage": final_text}
-
 

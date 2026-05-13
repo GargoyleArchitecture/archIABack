@@ -23,6 +23,12 @@ from src.services.diagram_ir import (
     to_detail_level,
 )
 from src.services.diagram_render import render_dot, render_dot_drawio, render_svg_b64
+from src.ledger import (
+    append_decision, compute_active_view, load_ledger,
+    render_dossier, render_dossier_compact, render_phase_prompt,
+    LedgerValidationError, LedgerConcurrencyError,
+)
+from src.ledger.types import Phase
 
 try:
     from graphviz import Source
@@ -58,13 +64,20 @@ def _sanitize_dot(raw: Any) -> str:
     return normalize_text(txt).strip()
 
 
-def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel, expand: bool = False) -> str:
+def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel, expand: bool = False, lang: str = "es") -> str:
     """Generate DOT code via LLM. Uses expansion prompt when building on a prior level."""
     if expand:
         target_desc = EXPAND_TARGET_MEDIUM if level == DiagramLevel.MEDIUM else EXPAND_TARGET_DETAILED
         system_prompt = DOT_SYSTEM_EXPAND.format(target_description=target_desc)
     else:
         system_prompt = DOT_SYSTEM_OVERVIEW if level == DiagramLevel.OVERVIEW else DOT_SYSTEM
+
+    lang_note = (
+        "Node and edge labels in the DOT graph MUST be written in Spanish (español)."
+        if lang == "es"
+        else "Node and edge labels in the DOT graph MUST be written in English."
+    )
+    system_prompt = f"{system_prompt}\n\n{lang_note}"
     msgs = [SystemMessage(content=normalize_text(system_prompt)), HumanMessage(content=normalize_text(natural_prompt))]
     resp = llm.invoke(msgs)
     raw = getattr(resp, "content", str(resp)) or ""
@@ -133,7 +146,46 @@ def _resolve_diagram_level(state: GraphState, user_q: str) -> DiagramLevel:
     return _infer_level_from_user_request(user_q)
 
 
+def _build_diagram_parent_refs(state: GraphState) -> list[dict]:
+    """Extract style + tactic refs from ledger_active for diagram parents."""
+    active = state.get("ledger_active") or {}
+    refs = []
+    style = active.get("style")
+    if style and style.get("id"):
+        refs.append({"id": style["id"], "kind": "style", "iteration": style.get("iteration", 0)})
+    tactic = active.get("tactic")
+    if tactic and tactic.get("id"):
+        refs.append({"id": tactic["id"], "kind": "tactic", "iteration": tactic.get("iteration", 0)})
+    return refs
+
+
+def _build_diagram_payload(diagram_obj: dict) -> dict:
+    """Map diagram_orchestrator output to ledger payload contract."""
+    return {
+        "level": diagram_obj.get("level"),
+        "dot": diagram_obj.get("dot", ""),
+        "dot_drawio": diagram_obj.get("dot_drawio", ""),
+        "svg_b64": diagram_obj.get("svg_b64", ""),
+        "focus": diagram_obj.get("detail_level", ""),
+        "mapping": diagram_obj.get("overview_mapping"),
+    }
+
+
+def _refresh_ledger_state(state: GraphState, user_id: str, project_id: str | None, lang: str) -> None:
+    """Reload ledger into state after a successful append_decision."""
+    ledger = load_ledger(user_id, project_id)
+    active = compute_active_view(ledger)
+    state["ledger"] = ledger
+    state["ledger_active"] = active
+    state["design_dossier_md"] = render_dossier(ledger, lang=lang)
+    state["current_phase"] = ledger.get("current_phase") or "intro"
+    state["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
+    state["ledger_phase_prompt"] = render_phase_prompt(ledger, lang=lang)
+    state["ledger_pending_advance"] = ledger.get("pending_advance") or {}
+
+
 def diagram_orchestrator_node(state: GraphState) -> GraphState:
+    _lang = (state.get("language") or "es")
     user_q = normalize_text(state.get("localQuestion") or state.get("userQuestion") or "").strip()
     requested_level = _resolve_diagram_level(state, user_q)
 
@@ -217,7 +269,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
 
     dot_code = ""
     try:
-        dot_code = _llm_nl_to_dot(full_prompt, level=requested_level, expand=expand_mode)
+        dot_code = _llm_nl_to_dot(full_prompt, level=requested_level, expand=expand_mode, lang=_lang)
     except Exception as exc:
         log.warning("diagram_orchestrator_node: DOT generation failed: %s", exc)
 
@@ -275,4 +327,41 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
     state["diagram_history"] = diagram_history
     state["hasVisitedDiagram"] = True
     state["intent"] = "diagram"
+
+    # --- Ledger write-back (nonfatal) ---
+    _user_id = state.get("user_id_for_prefs") or ""
+    _project_id = state.get("project_id")
+    # _lang already set at the top of this function
+    if _user_id and diagram_obj.get("ok"):
+        _qa = (
+            (state.get("ledger_active") or {}).get("asr", {}) or {}
+        ).get("qa", state.get("quality_attribute", ""))
+        _parent_refs = _build_diagram_parent_refs(state)
+        try:
+            append_decision(_user_id, _project_id, {
+                "id": "",
+                "kind": "diagram",
+                "phase": state.get("current_phase") or Phase.DIAGRAM.value,
+                "iteration": 0,
+                "qa": _qa,
+                "parents": _parent_refs,
+                "payload": _build_diagram_payload(diagram_obj),
+                "rationale": f"Level {diagram_obj.get('level')} diagram generated for {_qa or 'current design'}",
+                "sources": [],
+                "status": "active",
+                "parent_status": "ok",
+                "superseded_by": None,
+                "rejection_reason": None,
+                "created_at": "",
+                "created_by_node": "diagram_orchestrator_node",
+            })
+            _refresh_ledger_state(state, _user_id, _project_id, _lang)
+            log.info("diagram_orchestrator_node: ledger write ok — kind=diagram qa=%s", _qa)
+        except LedgerValidationError as exc:
+            log.warning("diagram_orchestrator_node: ledger validation error: %s", exc)
+        except LedgerConcurrencyError as exc:
+            log.warning("diagram_orchestrator_node: ledger concurrency error: %s", exc)
+        except Exception as exc:
+            log.warning("diagram_orchestrator_node: ledger write failed: %s", exc)
+
     return state

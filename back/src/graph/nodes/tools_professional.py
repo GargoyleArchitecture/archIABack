@@ -18,6 +18,7 @@ import sys
 import tempfile
 from langchain_core.tools import tool
 from src.rag_agent import get_indexed_retriever
+from src.graph.nodes._rag_format import _safe_doc_label
 
 
 # ---- python_repl_tool ----------------------------------------------------
@@ -116,15 +117,14 @@ def local_rag_advanced(query: str, quality_attribute: str = "general", k: int = 
         results = []
         for i, (d, dist) in enumerate(scored[:k], start=1):
             md = d.metadata or {}
-            title = md.get("source_title") or md.get("title") or "doc"
+            label = _safe_doc_label(md)
             page = md.get("page_label") or md.get("page")
-            path = md.get("source_path") or md.get("source") or ""
             page_str = f" (p.{page})" if page is not None else ""
             results.append({
                 "rank": i,
                 "score": float(1.0 / (1.0 + float(dist))),
                 "snippet": (d.page_content or "").strip()[:300],
-                "source": f"{title}{page_str} - {path}".strip(),
+                "source": f"{label}{page_str}".strip(),
             })
         return json.dumps(
             {"query": query, "total": len(results), "results": results},

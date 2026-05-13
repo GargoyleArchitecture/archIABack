@@ -82,7 +82,7 @@ def _merge_states(
     - style / selected_style / last_style / suggestions / memory_text → style_result
     - tactics_md / tactics_struct / tactics_list / messages           → tactics_result
     - turn_messages  → input + delta_style + delta_tactics (concatenar en orden)
-    - arch_stage / intent / endMessage / quality_attribute / current_asr → tactics_result
+    - intent / endMessage / quality_attribute / current_asr → tactics_result
     - completed_nodes → añadir "style" y/o "tactics" según éxito
 
     Manejo de errores:
@@ -129,7 +129,6 @@ def _merge_states(
         merged["tactics_md"] = tactics_result.get("tactics_md", merged.get("tactics_md"))
         merged["tactics_struct"] = tactics_result.get("tactics_struct", merged.get("tactics_struct", []))
         merged["tactics_list"] = tactics_result.get("tactics_list", merged.get("tactics_list", []))
-        merged["arch_stage"] = tactics_result.get("arch_stage", "TACTICS")
         merged["quality_attribute"] = tactics_result.get("quality_attribute", merged.get("quality_attribute"))
         if tactics_result.get("current_asr"):
             merged["current_asr"] = tactics_result["current_asr"]
@@ -146,14 +145,13 @@ def _merge_states(
 
         if "tactics" not in completed:
             completed.append("tactics")
-        log.info("style_tactics_parallel: tactics OK, arch_stage=TACTICS")
+        log.info("style_tactics_parallel: tactics OK")
     else:
         log.warning(
             "style_tactics_parallel: tactics FALLÓ, manteniendo campos de entrada. error=%s",
             tactics_error,
         )
         if style_result is not None and style_error is None:
-            merged["arch_stage"] = style_result.get("arch_stage", "STYLE")
             merged["intent"] = "style"
             merged["endMessage"] = style_result.get("endMessage", merged.get("endMessage", ""))
             merged["nextNode"] = "unifier"

@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import logging
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import AIMessage
@@ -23,13 +24,27 @@ from src.graph.utils import (
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.qa_registry import normalize_qa
+from src.ledger import (
+    append_decision,
+    compute_active_view,
+    get_all_active_asrs,
+    load_ledger,
+    render_dossier,
+    render_dossier_compact,
+    render_phase_prompt,
+    LedgerValidationError,
+    LedgerConcurrencyError,
+)
+from src.ledger.types import Phase
+
+_tac_log = logging.getLogger("tactics_node")
 
 
 @lru_cache(maxsize=64)
-def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6) -> tuple:
+def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6, queries_override: tuple | None = None) -> tuple:
     """Returns (book_snippets: str, src_meta: tuple of (title, page_str, path)).
-    Cached by (qa, resolved_index, k). Cache hit skips all ChromaDB queries."""
-    queries = [
+    Cached by (qa, resolved_index, k, queries_override). Cache hit skips all ChromaDB queries."""
+    queries = list(queries_override) if queries_override else [
         f"{qa} architectural tactics",
         f"{qa} tactics performance scalability latency availability security modifiability",
         "Bass Clements Kazman performance and scalability tactics",
@@ -90,12 +105,12 @@ def guess_quality_attribute(text: str) -> str:
         return "reliability"
     return "performance"
 
-def _allowed_tactic_names_from_lines(lines: list[str]) -> list[str]:
+def _allowed_tactic_names_from_lines(lines: list) -> list:
     """Extrae el nombre canónico de líneas tipo 'Nombre — descripción'."""
-    out: list[str] = []
+    out: list = []
     for raw in lines or []:
         line = (raw or "").strip()
-        if not line:
+        if not line or line.startswith("#"):
             continue
         if " — " in line:
             out.append(line.split(" — ", 1)[0].strip())
@@ -106,7 +121,7 @@ def _allowed_tactic_names_from_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def _canonicalize_tactic_name(name: str, allowed: list[str]) -> str:
+def _canonicalize_tactic_name(name: str, allowed: list) -> str:
     """Fuerza el nombre a uno del catálogo permitido (mejor esfuerzo)."""
     n = (name or "").strip()
     if not allowed:
@@ -145,19 +160,194 @@ def resolve_qa_for_tactics(state: GraphState, asr_text: str, qa_override: str | 
     return guess_quality_attribute(asr_text)
 
 
+# ---------------------------------------------------------------------------
+# Pure helpers (Step 4 — P4)
+# ---------------------------------------------------------------------------
+
+def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
+    """Build a HARD-BINDING prompt block sourced from the active ASR + active style.
+    Returns "" when either is missing (first-turn sessions, pre-style sessions).
+    Both required: tactics without a confirmed ASR and style are structurally incomplete.
+    """
+    active = ledger_active or {}
+    asr    = active.get("asr")
+    style  = active.get("style")
+    if not asr or not style:
+        return ""
+
+    asr_id        = asr.get("id", "")
+    qa            = asr.get("qa", "")
+    asr_payload   = asr.get("payload") or {}
+    rm            = asr_payload.get("response_measure", "")
+    style_id      = style.get("id", "")
+    style_payload = style.get("payload") or {}
+    style_chosen  = style_payload.get("chosen", "")
+    style_trades  = style_payload.get("tradeoffs", "")[:200]
+
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'ACTIVE DESIGN DECISIONS — BINDING CONSTRAINTS FOR TACTICS:\n'
+            f'  ASR ID:            {asr_id}\n'
+            f'  Quality Attribute: {qa}\n'
+            f'  Response Measure:  {rm}\n\n'
+            f'  Active Style:      {style_chosen}  (id: {style_id})\n'
+            f'  Style Tradeoffs:   {style_trades}\n\n'
+            f'REQUIREMENTS:\n'
+            f'1. Each tactic\'s "traces_to_asr" field MUST cite: "{rm}"\n'
+            f'2. Tactics MUST realize style "{style_chosen}" — do NOT contradict its tradeoffs.\n'
+            f'3. Tactics that conflict with "{style_chosen}" MUST be excluded with explanation.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'DECISIONES DE DISEÑO ACTIVAS — RESTRICCIONES VINCULANTES PARA TÁCTICAS:\n'
+        f'  ID del ASR:          {asr_id}\n'
+        f'  Atributo de Calidad: {qa}\n'
+        f'  Medida de Respuesta: {rm}\n\n'
+        f'  Estilo Activo:       {style_chosen}  (id: {style_id})\n'
+        f'  Compromisos:         {style_trades}\n\n'
+        f'REQUISITOS:\n'
+        f'1. El campo "traces_to_asr" de cada táctica DEBE citar: "{rm}"\n'
+        f'2. Las tácticas DEBEN realizar el estilo "{style_chosen}" — no contradigan sus compromisos.\n'
+        f'3. Las tácticas que conflictúen con "{style_chosen}" DEBEN excluirse con explicación.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _build_tactic_payload(items: list) -> dict:
+    return {"items": items}
+
+
+def _build_parent_refs(ledger_active: dict) -> list:
+    active = ledger_active or {}
+    refs   = []
+    asr    = active.get("asr")
+    style  = active.get("style")
+    if asr:
+        refs.append({"id": asr["id"], "kind": "asr",   "iteration": asr.get("iteration", 0)})
+    if style:
+        refs.append({"id": style["id"], "kind": "style", "iteration": style.get("iteration", 0)})
+    return refs
+
+
+def _validate_tactic_traces(items: list, response_measure: str) -> list:
+    """Post-processing guard: if LLM emitted an empty traces_to_asr, fill a
+    sensible default so the ledger payload is structurally complete.
+    Mutates and returns the list.
+    """
+    default = f"Satisfies Response Measure: {response_measure}" if response_measure else ""
+    for item in items:
+        if isinstance(item, dict) and not (item.get("traces_to_asr") or "").strip():
+            item["traces_to_asr"] = default
+    return items
+
+
+def _build_multi_asr_tactics_constraint(all_asrs: list[dict], lang: str) -> str:
+    """Prompt block: flag tactics that conflict with the highest-priority ASR."""
+    if not all_asrs:
+        return ""
+    top_asr = all_asrs[0]
+    top_qa = top_asr.get("qa", "")
+    top_rm = (top_asr.get("payload") or {}).get("response_measure", "")
+    if not top_qa:
+        return ""
+    if lang == "en":
+        return (
+            f'\n{"=" * 60}\n'
+            f'HIGHEST-PRIORITY ASR CONSTRAINT:\n'
+            f'  QA: {top_qa}\n'
+            f'  Response Measure: {top_rm}\n\n'
+            f'RULE: If a tactic conflicts with "{top_qa}", it MAY still appear '
+            f'in the list, but you MUST add a "conflict_note" field (one sentence) '
+            f'explaining the tradeoff. The architect decides — do not hide options.\n'
+            f'{"=" * 60}\n'
+        )
+    return (
+        f'\n{"=" * 60}\n'
+        f'RESTRICCIÓN DEL ASR DE MAYOR PRIORIDAD:\n'
+        f'  QA: {top_qa}\n'
+        f'  Medida de Respuesta: {top_rm}\n\n'
+        f'REGLA: Si una táctica conflictúa con "{top_qa}", PUEDE seguir en la lista, '
+        f'pero DEBES agregar un campo "conflict_note" (una oración) explicando el '
+        f'tradeoff. El arquitecto decide — no ocultes opciones.\n'
+        f'{"=" * 60}\n'
+    )
+
+
+def _render_conflict_flags(struct: list, all_asrs: list[dict], lang: str) -> str:
+    """If any tactic has a conflict_note, build a visible warning block."""
+    if not all_asrs:
+        return ""
+    top_qa = all_asrs[0].get("qa", "")
+    notes = []
+    for item in struct:
+        if not isinstance(item, dict):
+            continue
+        cn = (item.get("conflict_note") or "").strip()
+        if cn:
+            notes.append(f"- **{item.get('name', '?')}**: {cn}")
+    if not notes:
+        return ""
+    if lang == "es":
+        header = f"\n\n---\n⚠️ **Conflictos con ASR prioritario ({top_qa}):**\n"
+    else:
+        header = f"\n\n---\n⚠️ **Conflicts with highest-priority ASR ({top_qa}):**\n"
+    return header + "\n".join(notes)
+
+
+# ---------------------------------------------------------------------------
+# Ledger state refresh (Step 5 — P4)
+# ---------------------------------------------------------------------------
+
+def _refresh_ledger_state(
+    state: dict,
+    user_id: str,
+    project_id,
+    lang: str,
+) -> None:
+    try:
+        fresh  = load_ledger(user_id, project_id, auto_migrate=False)
+        active = compute_active_view(fresh)
+        state["ledger"]                 = fresh
+        state["ledger_active"]          = active
+        state["design_dossier_md"]      = render_dossier(fresh, lang=lang)
+        state["ledger_dossier_compact"] = render_dossier_compact(fresh, lang=lang)
+        state["ledger_phase_prompt"]    = render_phase_prompt(fresh, lang=lang)
+        state["current_phase"]          = fresh.get("current_phase") or "intro"
+        state["ledger_pending_advance"] = fresh.get("pending_advance") or {}
+        _tac_log.debug("tactics_node: ledger state refreshed phase=%s", state["current_phase"])
+    except Exception as exc:
+        _tac_log.warning("tactics_node: state refresh failed (nonfatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Main node implementation
+# ---------------------------------------------------------------------------
+
 def tactics_node_impl(
     state: GraphState,
     qa_override: str | None = None,
-    preferred_tactics: list[str] | None = None,
+    preferred_tactics: list | None = None,
     preferred_group_label: str | None = None,
     restrict_to_preferred_tactics: bool = False,
+    rag_queries_override: list | None = None,
 ) -> GraphState:
     """Implementación común del nodo de tácticas (ADD 3.0)."""
     lang = state.get("language", "es")
-    directive = "Answer in English." if lang == "en" else "Responde en español."
+    if lang == "en":
+        directive = (
+            "MANDATORY LANGUAGE: English.\n"
+            "Your ENTIRE response MUST be in English. Do not mix languages."
+        )
+    else:
+        directive = (
+            "IDIOMA OBLIGATORIO: español.\n"
+            "Tu respuesta COMPLETA debe estar en español. No mezcles idiomas."
+        )
     style_hint = (state.get("user_style_hint") or "").strip()
     if style_hint:
-        directive = f"{directive} {style_hint}"
+        directive = f"{directive}\n{style_hint}"
     doc_only = bool(state.get("doc_only"))
     ctx_doc = (state.get("doc_context") or "").strip()
     ctx_add = (state.get("add_context") or "").strip()
@@ -182,10 +372,12 @@ def tactics_node_impl(
     if doc_only and ctx_doc:
         book_snippets = f"[DOC] {ctx_doc[:2000]}"
     else:
+        _rag_queries = tuple(rag_queries_override) if rag_queries_override else None
         book_snippets, src_meta = _fetch_tactics_rag(
             qa,
-            state.get("resolved_index") or qa,
+            qa,
             k=6,
+            queries_override=_rag_queries,
         )
         rag_trace_record(
             query=" | ".join([
@@ -197,13 +389,34 @@ def tactics_node_impl(
         )
 
     preferred_block = ""
-    allowed_names: list[str] = []
+    allowed_names: list = []
     if preferred_tactics:
         group_label = (preferred_group_label or "Preferred tactics").strip()
-        items = "\n".join(f"- {t}" for t in preferred_tactics if str(t).strip())
+        _tac_items: list[str] = []
+        _has_groups = False
+        for _t in preferred_tactics:
+            _t_s = str(_t).strip()
+            if not _t_s:
+                continue
+            if _t_s.startswith("#"):
+                _tac_items.append(f"\n{_t_s[1:].strip()}:")
+                _has_groups = True
+            else:
+                _tac_items.append(f"  - {_t_s}")
+        items = "\n".join(_tac_items)
         allowed_names = _allowed_tactic_names_from_lines(preferred_tactics)
         if restrict_to_preferred_tactics and allowed_names:
             allowed_csv = ", ".join(f'"{n}"' for n in allowed_names)
+            _multi_group_guidance = ""
+            if _has_groups:
+                _multi_group_guidance = (
+                    "\nSELECTION GUIDANCE:\n"
+                    "An ASR has one primary stimulus → response chain. Identify which ONE group best matches this ASR:\n"
+                    "  * DETECT — The ASR's response is about knowing WHEN or WHETHER a failure is occurring.\n"
+                    "  * RECOVER — The ASR's response is about RESTORING service or state after a failure.\n"
+                    "  * PREVENT — The ASR's response is about ELIMINATING or REDUCING the probability of failure.\n"
+                    "Select ALL THREE tactics from ONLY that group. Do not mix groups.\n"
+                )
             preferred_block = (
                 f"\n\nALLOWED TACTICS ONLY ({group_label}):\n"
                 f"{items}\n\n"
@@ -211,8 +424,9 @@ def tactics_node_impl(
                 "- You MUST select EXACTLY THREE tactics for the TOP-3.\n"
                 "- EVERY tactic name in sections (1) and (2) MUST be one of the allowed canonical names "
                 f"listed above (before the em dash), exactly from this set: [{allowed_csv}].\n"
-                "- Do NOT introduce any other tactic names (no recovery/repair/redundancy tactics unless they appear in the allowed list).\n"
+                "- Do NOT introduce any other tactic names outside the allowed list above.\n"
                 "- If documentation grounding conflicts, still obey the allowed list; you may note doc limitations in prose.\n"
+                f"{_multi_group_guidance}"
             )
         else:
             preferred_block = (
@@ -239,12 +453,27 @@ Mention specific technologies from the stack when describing how each tactic wou
 {"=" * 60}
 """
 
+    # ── Dossier design binding (P4) ─────────────────────────────────────────
+    dossier_binding_block = _build_dossier_design_binding(
+        state.get("ledger_active") or {}, lang
+    )
+    # Extract response_measure for traces validation fallback
+    _active_asr = (state.get("ledger_active") or {}).get("asr")
+    _response_measure = ((_active_asr or {}).get("payload") or {}).get("response_measure", "")
+
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────────
+    _ledger = state.get("ledger") or {}
+    _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
+    multi_asr_constraint = _build_multi_asr_tactics_constraint(_all_asrs, lang)
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
 We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.
 Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
 {proj_ctx_block}
+{dossier_binding_block}
+{multi_asr_constraint}
 Additional session context (if any):
 {ctx or "None"}
 
@@ -278,11 +507,14 @@ For EACH tactic use a ### heading with the tactic name and include: **Rationale*
 Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
 - Use dot as decimal separator (e.g., 0.82), never commas.
 - Do not use percent signs, just 0..1 floats for success_probability.
+- Each object MUST include a "traces_to_asr" field: one sentence citing the ASR's Response Measure that this tactic helps satisfy.
 - If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
 - Do not add any prose or markdown outside the JSON fence.
 
 Example shape (values are illustrative — adjust to your tactics):
 {TACTICS_JSON_EXAMPLE}
+
+{"RECORDATORIO FINAL: toda tu respuesta (secciones de texto y valores JSON) debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response (text sections and JSON string values) must be in English."}
 """
     resp = llm.invoke(apply_mode_prompt(state, prompt))
     raw = getattr(resp, "content", str(resp)).strip()
@@ -298,7 +530,7 @@ Example shape (values are illustrative — adjust to your tactics):
     struct = normalize_tactics_json(struct, top_n=3)
 
     if restrict_to_preferred_tactics and allowed_names and isinstance(struct, list):
-        taken: set[str] = set()
+        taken: set = set()
 
         def _pick_unused_fallback() -> str:
             for cand in allowed_names:
@@ -338,6 +570,11 @@ Example shape (values are illustrative — adjust to your tactics):
     if (not md_only) and isinstance(struct, list) and struct:
         md_only = "\n".join(f"- {it.get('name','')}: {it.get('rationale','')}" for it in struct if isinstance(it, dict))
 
+    # ── Post-LLM conflict flags (P7) ──────────────────────────────────────
+    _conflict_block = _render_conflict_flags(struct, _all_asrs, lang)
+    if _conflict_block:
+        md_only += _conflict_block
+
     src_lines = [
         _clip_text(f"- {title}{page_str} — {path}", 60)
         for title, page_str, path in src_meta
@@ -351,16 +588,68 @@ Example shape (values are illustrative — adjust to your tactics):
 
     msgs = [AIMessage(content=md_only, name="tactics_advisor"), AIMessage(content=src_block, name="tactics_sources")]
 
+    # ── Scalar writes (unconditional) ────────────────────────────────────────
     state["tactics_md"] = md_only
     state["tactics_struct"] = struct if isinstance(struct, list) else []
     state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
-    state["arch_stage"] = "TACTICS"
     state["quality_attribute"] = qa
     if asr_text:
         state["current_asr"] = asr_text
 
+    # ── Ledger write-back (P4) ───────────────────────────────────────────────
+    _user_id    = (state.get("user_id_for_prefs") or "").strip()
+    _project_id = (state.get("project_id") or "").strip() or None
+
+    if _user_id:
+        try:
+            _items   = _validate_tactic_traces(
+                list(state.get("tactics_struct") or []),
+                _response_measure,
+            )
+            _parents = _build_parent_refs(state.get("ledger_active") or {})
+            _qa      = state.get("quality_attribute") or qa
+            _new_decision: dict = {
+                "id":               "",
+                "kind":             "tactic",
+                "phase":            Phase.TACTICS_TABLE.value,
+                "iteration":        0,
+                "qa":               _qa,
+                "parents":          _parents,
+                "payload":          _build_tactic_payload(_items),
+                "rationale":        "",
+                "sources":          [],
+                "status":           "active",
+                "parent_status":    "ok",
+                "superseded_by":    None,
+                "rejection_reason": None,
+                "created_at":       "",
+                "created_by_node":  "tactics_node",
+            }
+            _saved = append_decision(_user_id, _project_id, _new_decision)
+            _tac_log.info(
+                "tactics_node: ledger ok id=%s qa=%s items=%d project=%s",
+                _saved["id"], _qa, len(_items), _project_id,
+            )
+            _refresh_ledger_state(state, _user_id, _project_id, lang)
+
+        except LedgerValidationError as _exc:
+            _tac_log.warning("tactics_node: ledger validation error (nonfatal): %s", _exc)
+        except LedgerConcurrencyError as _exc:
+            _tac_log.warning("tactics_node: ledger concurrency error (nonfatal): %s", _exc)
+        except Exception as _exc:
+            _tac_log.warning("tactics_node: unexpected ledger error (nonfatal): %s", _exc)
+
     state["endMessage"] = md_only
     state["intent"] = "tactics"
     state["nextNode"] = "unifier"
+
+    # BUG-013: persist completed_nodes and routing_phase across turns.
+    _done = list(state.get("completed_nodes") or [])
+    for _n in ("asr", "style", "tactics"):
+        if _n not in _done:
+            _done.append(_n)
+    state["completed_nodes"] = _done
+    state["routing_phase"] = "tactics"
+
     prev_msgs = state.get("messages", [])
     return {**state, "messages": prev_msgs + msgs}
