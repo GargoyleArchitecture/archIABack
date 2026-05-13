@@ -243,6 +243,47 @@ def supervisor_node(state: GraphState):
     state_lang = state.get("language") or detect_lang(uq) or "es"
     state_lang = "es" if state_lang == "es" else "en"
 
+    # ─── Orientación para usuarios que regresan ──────────────────────────────
+    # Fires when: user has passed intake (current_phase outside intro/diagnosis)
+    # AND the message is a greeting or generic intent with no specific action.
+    # Instead of falling through to investigator, summarize their progress and
+    # tell them what to do next.
+    _returning_intent = (state.get("intent") or "") in ("general", "greeting", "smalltalk")
+    _has_phase_context = (state.get("current_phase") or "intro") not in ("intro", "diagnosis")
+
+    if _returning_intent and _has_phase_context:
+        _phase_now   = state.get("current_phase") or "intro"
+        _task_hint   = PHASE_NEXT_TASK.get(_phase_now, {}).get(state_lang, "")
+        _phase_label = PHASE_DISPLAY.get(_phase_now, {}).get(state_lang, _phase_now)
+        _compact     = (state.get("ledger_dossier_compact") or "").strip()
+
+        if state_lang == "es":
+            _lines = [f"Bienvenido de vuelta. Estamos en la fase de **{_phase_label}**."]
+            if _compact:
+                _lines.append(_compact)
+            if _task_hint:
+                _lines.append(f"La siguiente tarea es: *{_task_hint}*. ¿Continuamos?")
+        else:
+            _lines = [f"Welcome back. We're in the **{_phase_label}** phase."]
+            if _compact:
+                _lines.append(_compact)
+            if _task_hint:
+                _lines.append(f"Next up: *{_task_hint}*. Shall we continue?")
+
+        _completed = _augment_completed_nodes(state, list(state.get("completed_nodes") or []))
+        return {
+            **state,
+            "endMessage": "\n\n".join(_lines),
+            "nextNode": "unifier",
+            "intent": "intake",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": _completed,
+            "phase_redirect_hint": "",
+        }
+    # ────────────────────────────────────────────────────────────────────────
+
     # ─── M1: Gate de fase ADD 3.0 ───────────────────────────────────────────
     current_phase = (state.get("current_phase") or "intro")
     intent_raw = (state.get("intent") or "")

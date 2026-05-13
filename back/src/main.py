@@ -746,10 +746,9 @@ async def message(
 
     # --- Limpieza parcial del estado (sin borrar historial persistente del grafo) ---
     try:
-        get_graph().update_state(config, {"values": {
+        get_graph().update_state(config, {
             "endMessage": "",
-
-            "diagram": {},  # FIX: dict vacío, no None
+            "diagram": {},
             "hasVisitedDiagram": False,
             "turn_messages": [],
             "requested_nodes": [],
@@ -757,7 +756,7 @@ async def message(
             # Do NOT reset completed_nodes here (BUG-013): boot_node now manages
             # it phase-aware so overwriting it here would erase session progress.
             "current_asr": stored_current_asr,
-        }})
+        })
     except Exception:
         pass
 
