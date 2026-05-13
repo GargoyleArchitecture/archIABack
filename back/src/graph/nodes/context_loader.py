@@ -145,22 +145,28 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             active = compute_active_view(ledger)
 
             updates["ledger"]                 = ledger
-            updates["ledger_active"]          = active
             updates["design_dossier_md"]      = render_dossier(ledger, lang=lang)
-            raw_phase = ledger.get("current_phase") or "intro"
-            updates["current_phase"]          = _LEGACY_PHASE_MAP.get(raw_phase, raw_phase)
             updates["ledger_dossier_compact"] = render_dossier_compact(ledger, lang=lang)
             updates["ledger_phase_prompt"]    = render_phase_prompt(ledger, lang=lang)
             updates["ledger_pending_advance"] = ledger.get("pending_advance") or {}
 
-            # qa_locked_in: True only once we have left the intake phases.
-            # Keeps quality_attribute at "general" until the user has
-            # completed the diagnostic and an ASR is about to be generated.
-            _phase = updates.get("current_phase") or state.get("current_phase") or "intro"
-            _qa_locked_in = _phase not in ("intro", "diagnosis")
-            updates["qa_locked_in"] = _qa_locked_in
+            raw_phase = ledger.get("current_phase") or "intro"
+            mapped_phase = _LEGACY_PHASE_MAP.get(raw_phase, raw_phase)
 
-            _mirror_legacy(active, updates, _qa_locked_in)
+            # BUG-025: When supervisor has detected a new project introduction and set
+            # new_project_flow=True, the stale ledger phase must NOT override the
+            # "intro"/"diagnosis" that supervisor/intake_node established.  Also skip
+            # _mirror_legacy so old-session ASR/style/tactic scalars are not restored.
+            _new_project_flow = bool(state.get("new_project_flow"))
+            if _new_project_flow and mapped_phase not in ("intro", "diagnosis"):
+                updates["ledger_active"] = {}
+                updates["qa_locked_in"]  = False
+            else:
+                updates["current_phase"]  = mapped_phase
+                updates["ledger_active"]  = active
+                _qa_locked_in = mapped_phase not in ("intro", "diagnosis")
+                updates["qa_locked_in"] = _qa_locked_in
+                _mirror_legacy(active, updates, _qa_locked_in)
 
             log.info(
                 "context_loader: ledger hydrated user=%s project=%s phase=%s decisions=%d",

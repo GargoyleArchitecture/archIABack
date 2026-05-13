@@ -223,6 +223,10 @@ class GraphState(TypedDict):
     intake_fields: dict          # campos recolectados del guión de 8 preguntas
     intake_current_field: int    # índice activo 0–8 (8 = esperando respuesta de ASRs)
     intake_complete: bool        # True cuando los 8 campos han sido validados
+    # BUG-025: set by supervisor when it detects a fresh project intro on a stale
+    # checkpoint. Tells context_loader to skip phase/active-view restore from the
+    # prior-session ledger so the new intake flow runs on clean state.
+    new_project_flow: bool
 
     # ── Routing phase (BUG-013) ──────────────────────────────────────────────
     # Tracks which graph-routing phase the session has reached so boot_node can

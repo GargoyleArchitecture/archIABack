@@ -89,6 +89,31 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         _append_unique(out, "diagram_agent")
     return out
 
+import re as _re
+
+_NEW_PROJECT_GREETING_RE = _re.compile(
+    r"^\s*(?:hola\b|hi\b|hello\b|buenos\s+d[íi]as|buenas\s+tardes|hey\b)",
+    _re.IGNORECASE,
+)
+_NEW_PROJECT_DESIGN_RE = _re.compile(
+    r"\b(?:"
+    r"quiero\s+dise[nñ]ar|quisiera\s+dise[nñ]ar|"
+    r"necesito\s+(?:diseñar|crear|construir)\s+(?:la\s+)?(?:arquitectura|sistema)|"
+    r"dise[nñ]ar\s+(?:la\s+)?arquitectura\s+de|"
+    r"dise[nñ]ar\s+(?:el|un)\s+sistema|"
+    r"I\s+(?:need|want)\s+to\s+(?:design|build|create)\s+(?:a|an|the)\s+(?:architecture|system)"
+    r")\b",
+    _re.IGNORECASE,
+)
+
+def _is_new_project_intro(uq: str) -> bool:
+    """True when the message is a fresh project introduction (greeting + design intent, long enough)."""
+    return (
+        len(uq.split()) >= 20
+        and bool(_NEW_PROJECT_GREETING_RE.search(uq))
+        and bool(_NEW_PROJECT_DESIGN_RE.search(uq))
+    )
+
 def _build_block_message(current_phase: str, requested_phase: str, lang: str) -> str:
     cur_display = PHASE_DISPLAY.get(current_phase, {}).get(lang, current_phase)
     req_display = PHASE_DISPLAY.get(requested_phase, {}).get(lang, requested_phase)
@@ -238,6 +263,41 @@ def supervisor_node(state: GraphState):
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
         return {**state, "nextNode": "unifier", "intent": "diagram"}
+
+    # BUG-025: New project detection — fires when a stale checkpoint has a
+    # mid-session current_phase but the user is clearly starting a fresh project.
+    # Without this, the M1 gate issues a "wrong phase" block instead of intake.
+    _phase_now = (state.get("current_phase") or "intro")
+    if _phase_now not in ("intro", "diagnosis") and _is_new_project_intro(uq):
+        _np_lang = state.get("language") or detect_lang(uq) or "es"
+        _np_lang = "es" if _np_lang == "es" else "en"
+        return {
+            **state,
+            "current_phase": "intro",
+            "new_project_flow": True,
+            "routing_phase": "intake",
+            "intake_fields": {},
+            "intake_complete": False,
+            "intake_current_field": 0,
+            "current_asr": "",
+            "last_asr": "",
+            "selected_asrs": [],
+            "asr_candidates": [],
+            "style": "",
+            "selected_style": "",
+            "last_style": "",
+            "style_candidates": [],
+            "selected_tactics": [],
+            "tactics_candidates": [],
+            "tactics_struct": [],
+            "tactics_list": [],
+            "tech_candidates": [],
+            "ledger_active": {},
+            "completed_nodes": [],
+            "nextNode": "intake",
+            "localQuestion": "",
+            "language": _np_lang,
+        }
 
     # BUG-014: preserve prior language when detect_lang has no signal (returns None).
     state_lang = state.get("language") or detect_lang(uq) or "es"
