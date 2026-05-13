@@ -51,11 +51,13 @@ from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
 
+import asyncio
+
 from fastapi import UploadFile, File, Form, HTTPException, Request, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from contextlib import asynccontextmanager
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import MutableHeaders
 
 
 from langchain_core.messages import HumanMessage
@@ -114,15 +116,27 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ArquIA API", lifespan=lifespan)
 
 # ===================== UTF-8 Middleware =======================
-class UTF8Middleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Asegurar que la respuesta especifica UTF-8
-        if "content-type" in response.headers:
-            content_type = response.headers["content-type"]
-            if "application/json" in content_type and "charset" not in content_type:
-                response.headers["content-type"] = "application/json; charset=utf-8"
-        return response
+# BUG-019: pure ASGI middleware instead of BaseHTTPMiddleware. The latter wraps
+# responses in an anyio cancel scope that fires on client disconnect, which
+# propagates CancelledError into the SSE generator and aborts LangGraph's
+# AsyncPregelLoop.__aexit__ before the checkpoint commit completes.
+class UTF8Middleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_wrapper(event):
+            if event["type"] == "http.response.start":
+                headers = MutableHeaders(scope=event)
+                ct = headers.get("content-type", "")
+                if "application/json" in ct and "charset" not in ct:
+                    headers["content-type"] = "application/json; charset=utf-8"
+            await send(event)
+
+        await self.app(scope, receive, send_wrapper)
 
 app.add_middleware(UTF8Middleware)
 
@@ -729,19 +743,23 @@ async def message(
 
     has_existing_asr = bool(stored_current_asr)
 
+    # BUG-020: keyword detection beats the "no existing ASR -> asr" fallback.
+    # When state corruption (e.g. from BUG-019) leaves current_asr empty but the
+    # user explicitly asks for styles/tactics/tech/diagram, honor the request so
+    # the supervisor's phase gate can either route correctly or surface a clear
+    # block message — instead of silently falling back to asr.
     user_intent = "general"
     if explicit_asr_request:
         user_intent = "asr"
-    elif not has_existing_asr:
-        # Si aún no hay ASR, cualquier cosa va a ASR primero
-        user_intent = "asr"
     elif _wants_style(message):
-        # Ya hay ASR y el usuario está pidiendo estilos
         user_intent = "style"
     elif _wants_tactics(message):
         user_intent = "tactics"
     elif _wants_deployment(message):
         user_intent = "diagram"
+    elif not has_existing_asr:
+        # No explicit signal and no ASR yet — default to asr first.
+        user_intent = "asr"
 
 
     # --- Limpieza parcial del estado (sin borrar historial persistente del grafo) ---
@@ -828,13 +846,42 @@ async def message(
     async def generate():
         _final: dict = {}
 
+        # BUG-019: run the graph in a detached background task and stream from a
+        # queue. If the client disconnects, we shield the task so it finishes and
+        # commits its SQLite checkpoint. Without this, BaseHTTPMiddleware (or
+        # client close) would cancel AsyncPregelLoop.__aexit__ mid-commit and
+        # leave state corrupt (current_asr empty, hasVisitedASR false, etc.).
+        _queue: asyncio.Queue = asyncio.Queue()
+        _SENTINEL = object()
+
+        async def _drive_graph():
+            try:
+                # astream(stream_mode="updates") emits one event per node (just
+                # that node's return dict), with no intermediate token/sub-chain
+                # events — avoids the serialisation overhead of astream_events.
+                async for chunk in get_graph().astream(input_state, config, stream_mode="updates"):
+                    await _queue.put(("chunk", chunk))
+            except GraphRecursionError as _e:
+                await _queue.put(("recursion", _e))
+            except Exception as _e:
+                await _queue.put(("error", _e))
+            finally:
+                await _queue.put(("done", _SENTINEL))
+
+        graph_task = asyncio.create_task(_drive_graph())
+
         try:
-            # graph.astream(stream_mode="updates") emits one event per node (just
-            # that node's return dict), with no intermediate token/sub-chain events.
-            # This avoids the serialisation overhead of astream_events(version="v2")
-            # which copies the full state on every LLM token.
-            async for chunk in get_graph().astream(input_state, config, stream_mode="updates"):
-                for node_name, node_output in chunk.items():
+            while True:
+                kind, payload = await _queue.get()
+                if kind == "done":
+                    break
+                if kind == "recursion":
+                    raise payload
+                if kind == "error":
+                    raise payload
+
+                # payload is a single astream chunk: {node_name: node_output}
+                for node_name, node_output in payload.items():
                     if not isinstance(node_output, dict):
                         continue
 
@@ -867,7 +914,7 @@ async def message(
                         # is available here. unifier -> END, so astream will
                         # terminate naturally on the next iteration.
                         _final = node_output
-                        payload = fix_utf8_recursive({
+                        sse_payload = fix_utf8_recursive({
                             "type": "complete",
                             "endMessage": (node_output.get("endMessage", "") or "").strip(),
                             "diagram":    node_output.get("diagram", {}),
@@ -880,12 +927,17 @@ async def message(
                             "mode":             node_output.get("mode", "professional"),
                             "mode_suggestion":  node_output.get("mode_suggestion"),
                         })
-                        yield _sse(payload)
+                        yield _sse(sse_payload)
 
             yield "data: [DONE]\n\n"
 
-        except GeneratorExit:
-            # Client disconnected mid-stream; let the generator close cleanly.
+        except (GeneratorExit, asyncio.CancelledError):
+            # Client disconnected mid-stream. CRITICAL: do NOT cancel graph_task.
+            # Shield it so LangGraph completes __aexit__ and commits state.
+            try:
+                await asyncio.shield(graph_task)
+            except Exception:
+                log.exception("graph_task failed after client disconnect")
             raise
         except GraphRecursionError:
             # BUG-013: guard against infinite ASR loops when completed_nodes is
@@ -918,6 +970,14 @@ async def message(
             yield _sse({"type": "error", "message": str(exc)})
             yield "data: [DONE]\n\n"
             return
+        finally:
+            # BUG-019: ensure the graph task is awaited so its SQLite checkpoint
+            # commit completes before the request lifecycle ends.
+            if not graph_task.done():
+                try:
+                    await asyncio.shield(graph_task)
+                except Exception:
+                    log.exception("graph_task cleanup failed in finally")
 
         # Post-processing after stream closes (arch_flow persistence, memory saves)
         if _final:

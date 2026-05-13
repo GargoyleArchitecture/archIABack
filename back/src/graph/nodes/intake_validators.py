@@ -216,8 +216,9 @@ _REPROMPT_ERRORS: dict[int, dict[str, str]] = {
         "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
     },
     4: {
-        "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
-        "en": "No concrete metric found. Include numbers, comparisons or units such as: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        # BUG-016: include explicit instruction to cover all three scenarios in one message.
+        "es": "No se encontró ninguna métrica concreta para los tres escenarios. Tu respuesta debe cubrir carga normal, sobrecarga Y mantenimiento (los tres en el MISMO mensaje), cada uno con números/unidades: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        "en": "No concrete metric found for all three scenarios. Your answer must cover normal load, overload, AND maintenance (all three in the SAME message), each with numbers/units: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
     },
     5: {
         "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
@@ -301,9 +302,10 @@ _UNIFIED_PROMPT_V2 = """\
 2. Use exactly one of these statuses per field: answered_valid, answered_invalid, not_addressed.
 3. If answered_valid or answered_invalid, extract only the portion of the user message that answers that field.
 4. Validate each attempted answer against the ADD 3.0 criterion AND the project context.
-5. If answered_invalid, explain exactly what is missing in {lang}, list the missing details, and write a short repair prompt telling the user how to rewrite the answer.
-6. If not_addressed, set extracted_text to null and leave reason / repair_prompt empty.
-7. Accept only if the answer contains concrete details specific to the user's actual system and meets the criterion.
+5. If answered_invalid, explain exactly what is missing in {lang}, list EVERY missing sub-aspect in `missing_details` (e.g. for `campo_4_ambientes` list each of "normal", "sobrecarga", "mantenimiento" that is absent — never just the first one), and write a short repair prompt telling the user how to rewrite the answer.
+6. The repair prompt MUST instruct the user to re-send the COMPLETE specification of the field, including any sub-aspects they already sent in earlier turns. State are not accumulated at sub-aspect granularity, so a partial follow-up message will be rejected.
+7. If not_addressed, set extracted_text to null and leave reason / repair_prompt empty.
+8. Accept only if the answer contains concrete details specific to the user's actual system and meets the criterion.
 
 Respond ONLY with valid JSON:
 {{
@@ -374,27 +376,36 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
     _lang = lang if lang in ("es", "en") else "es"
     question = INTAKE_SCRIPT[index]["question_es" if _lang == "es" else "question_en"]
 
+    # BUG-016: every template ends with the explicit instruction to re-send the
+    # complete field spec, including any sub-aspects already provided in earlier
+    # turns. The validator evaluates each turn in isolation — sub-aspects (e.g.
+    # normal/sobrecarga/mantenimiento for campo_4_ambientes) are NOT accumulated
+    # across turns, so a follow-up that only fixes the missing piece will be
+    # rejected again because the previously-validated pieces are no longer in
+    # the message.
+    _es_reenvia = "Por favor, reenvía la especificación COMPLETA del campo, incluyendo las partes que ya enviaste en mensajes anteriores."
+    _en_resend  = "Please resend the COMPLETE field specification, including any parts you already provided in earlier messages."
     if _lang == "es":
         templates = {
-            0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
-            1: "Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas.",
-            2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
-            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si ese trigger tiene métricas asociadas (latencia, TPM, usuarios concurrentes, timeouts), indica también con qué componente interactúa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta y reconocible.",
-            4: "Reescribe tu respuesta cubriendo carga normal, sobrecarga y mantenimiento, e incluye métricas numéricas en cada caso, por ejemplo ms, rps o porcentajes.",
-            5: "Reescribe tu respuesta listando los atributos de calidad prioritarios con valores concretos, por ejemplo disponibilidad 99.9%, latencia <100ms o throughput 1000rps.",
-            6: "Reescribe tu respuesta indicando restricciones técnicas concretas, o escribe 'ninguna' si realmente no aplica.",
-            7: "Reescribe tu respuesta indicando decisiones de diseño previas concretas que deban respetarse, o escribe 'ninguna' si no existe ninguna.",
+            0: f"Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta. {_es_reenvia}",
+            1: f"Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas. {_es_reenvia}",
+            2: f"Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer. {_es_reenvia}",
+            3: f"Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si ese trigger tiene métricas asociadas (latencia, TPM, usuarios concurrentes, timeouts), indica también con qué componente interactúa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta y reconocible. {_es_reenvia}",
+            4: f"Reescribe tu respuesta cubriendo los TRES escenarios: carga normal, sobrecarga Y mantenimiento, e incluye métricas numéricas en cada caso (ms, rps, porcentajes). {_es_reenvia}",
+            5: f"Reescribe tu respuesta listando los atributos de calidad prioritarios con valores concretos, por ejemplo disponibilidad 99.9%, latencia <100ms o throughput 1000rps. {_es_reenvia}",
+            6: f"Reescribe tu respuesta indicando restricciones técnicas concretas, o escribe 'ninguna' si realmente no aplica. {_es_reenvia}",
+            7: f"Reescribe tu respuesta indicando decisiones de diseño previas concretas que deban respetarse, o escribe 'ninguna' si no existe ninguna. {_es_reenvia}",
         }
     else:
         templates = {
-            0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
-            1: "Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues.",
-            2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
-            3: "Rewrite your answer describing the specific event that triggers the behavior. If that trigger has associated metrics (latency, TPM, concurrent users, timeouts), also indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically and recognizably is sufficient.",
-            4: "Rewrite your answer covering normal load, overload, and maintenance, and include numeric metrics for each case, such as ms, rps, or percentages.",
-            5: "Rewrite your answer listing the priority quality attributes with concrete values, for example availability 99.9%, latency <100ms, or throughput 1000rps.",
-            6: "Rewrite your answer stating concrete technical constraints, or write 'none' if there are truly none.",
-            7: "Rewrite your answer stating concrete prior design decisions that must be respected, or write 'none' if there are none.",
+            0: f"Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation. {_en_resend}",
+            1: f"Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues. {_en_resend}",
+            2: f"Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer. {_en_resend}",
+            3: f"Rewrite your answer describing the specific event that triggers the behavior. If that trigger has associated metrics (latency, TPM, concurrent users, timeouts), also indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically and recognizably is sufficient. {_en_resend}",
+            4: f"Rewrite your answer covering ALL THREE scenarios: normal load, overload, AND maintenance, with numeric metrics for each case (ms, rps, percentages). {_en_resend}",
+            5: f"Rewrite your answer listing the priority quality attributes with concrete values, for example availability 99.9%, latency <100ms, or throughput 1000rps. {_en_resend}",
+            6: f"Rewrite your answer stating concrete technical constraints, or write 'none' if there are truly none. {_en_resend}",
+            7: f"Rewrite your answer stating concrete prior design decisions that must be respected, or write 'none' if there are none. {_en_resend}",
         }
 
     prompt = templates[index]

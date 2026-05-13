@@ -126,9 +126,30 @@ _OVERLOAD_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# BUG-017: collapse Spanish/European thousands separators ("50 000" -> "50000").
+# Matches "digit, space, exactly 3 digits at a word boundary" so it does NOT eat
+# normal whitespace before a unit ("200 ms") or between value and metric name.
+# Loops until stable to handle chained groups ("1 234 567" -> "1234567").
+_THOUSANDS_SPACE_RE = re.compile(
+    r"(?<=\d)[ \s](?=\d{3}(?:[ \s]\d{3})*\b)"
+)
+
+
+def _normalize_thousands(text: str) -> str:
+    """Collapse space-separated thousands groups in numeric tokens."""
+    if not text:
+        return text
+    prev = None
+    while text != prev:
+        prev = text
+        text = _THOUSANDS_SPACE_RE.sub("", text)
+    return text
+
 
 def _parse_metrics_from_segment(text: str) -> list[dict]:
     """Extract metric dicts from a text segment."""
+    # BUG-017: normalize "50 000" -> "50000" before any numeric regex runs.
+    text = _normalize_thousands(text)
     results: list[dict] = []
     matched_spans: set[tuple[int, int]] = set()
 

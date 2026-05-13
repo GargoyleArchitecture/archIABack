@@ -117,17 +117,33 @@ def classifier_node(state: GraphState) -> GraphState:
     # Skip the LLM call to preserve intent="intake" and avoid spurious QA overrides,
     # but still detect language so intake_node responds in the user's language.
     # Gate: diagnosis phase only applies in professional mode.
+    #
+    # BUG-020: if the message contains an explicit phase-advancing keyword
+    # (style / tactics / tech / diagram), fall through into the full classifier
+    # so the intent is set correctly. The supervisor's phase gate will still
+    # block routing when current_phase doesn't permit it, but the user will get
+    # the correct "we must finish phase X first" message instead of being
+    # silently misrouted with a stale unifier response.
     if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         msg = state.get("userQuestion", "") or ""
-        prior_lang = state.get("language") or "es"
-        # BUG-014: too few words → keep the prior language; only switch when the
-        # signal is strong enough (> 3 tokens) or the fast detector is confident.
-        if prior_lang and len(msg.split()) <= 3:
-            lang = prior_lang
-        else:
-            detected = _detect_lang_fast(msg)
-            lang = detected if (detected == "es" or len(msg.split()) > 2) else prior_lang
-        return {**state, "language": lang}
+        low = msg.lower()
+        _phase_advancing_kw = (
+            "estilo", "estilos", "style", "styles",
+            "táctica", "tácticas", "tactica", "tacticas", "tactic", "tactics",
+            "tecnología", "tecnologías", "tecnologias", "technology", "tech stack",
+            "diagrama", "diagram",
+        )
+        if not any(k in low for k in _phase_advancing_kw):
+            prior_lang = state.get("language") or "es"
+            # BUG-014: too few words → keep the prior language; only switch when
+            # signal is strong enough (> 3 tokens) or the fast detector is sure.
+            if prior_lang and len(msg.split()) <= 3:
+                lang = prior_lang
+            else:
+                detected = _detect_lang_fast(msg)
+                lang = detected if (detected == "es" or len(msg.split()) > 2) else prior_lang
+            return {**state, "language": lang}
+        # else: fall through into the full classifier so keyword overrides run
 
     msg = state.get("userQuestion", "") or ""
     qa_ids = supported_qas()

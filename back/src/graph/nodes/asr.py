@@ -650,19 +650,25 @@ Rules:
     ]
 
     # Memoria viva del chat
-    state["last_asr"] = content
+    # BUG-018: when ASR was discarded (within normal operation), `content` is a
+    # user-facing rejection message — NOT a real ASR. Writing it to current_asr/
+    # last_asr/memory_text pollutes the session and makes every subsequent turn
+    # think an ASR exists, blocking re-generation.
     refs_list = [
         ln.lstrip("- ").strip()
         for ln in src_block.splitlines()
         if ln.strip() and not ln.lower().startswith("sources")
     ]
     state["asr_sources_list"] = refs_list
-    prev_mem = state.get("memory_text", "") or ""
-    state["memory_text"] = (prev_mem + f"\n\n[LAST_ASR]\n{content}\n").strip()
 
     # Metadatos
     state["quality_attribute"] = qa_pipeline
-    state["current_asr"] = content
+
+    if not _asr_discarded:
+        state["last_asr"] = content
+        state["current_asr"] = content
+        prev_mem = state.get("memory_text", "") or ""
+        state["memory_text"] = (prev_mem + f"\n\n[LAST_ASR]\n{content}\n").strip()
 
     # ── Ledger write-back (P3) — skip if ASR was discarded ──────────────────
     _user_id    = (state.get("user_id_for_prefs") or "").strip()
@@ -749,10 +755,14 @@ Rules:
 
     # BUG-013: persist completed_nodes and routing_phase so boot_node does not
     # reset them on the next turn and the supervisor does not re-run ASR.
+    # BUG-018: but only when a real ASR was produced. On discard, leave
+    # routing_phase at "intake" so the next turn can legitimately retry ASR
+    # generation with new context.
     _done = list(state.get("completed_nodes") or [])
     if "asr" not in _done:
         _done.append("asr")
     state["completed_nodes"] = _done
-    state["routing_phase"] = "asr"
+    if not _asr_discarded:
+        state["routing_phase"] = "asr"
 
     return state
