@@ -63,8 +63,10 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from src.graph import (
     build_graph,
+    build_routine_graph,
     get_graph,
     set_graph,
+    set_routine_graph,
     set_store,
     make_inmemory_store,
 )
@@ -102,6 +104,16 @@ async def lifespan(app: FastAPI):
         compiled = build_graph(saver, store=store)
         set_graph(compiled)
         set_store(store)
+        # F5-T2 (wiring cerrado en Ciclo 2.5 de Fase 12): compila el subgrafo
+        # de retos y lo registra como singleton. El endpoint /generate-routine
+        # lo consume via get_routine_graph(). Aislado de la conversación
+        # principal: sin checkpointer (las generaciones son one-shot).
+        try:
+            routine_graph = build_routine_graph()
+            set_routine_graph(routine_graph)
+            print("[startup] Subgrafo de retos compilado")
+        except Exception as exc:
+            print(f"[startup] WARN: build_routine_graph fallo: {exc}")
         try:
             create_or_load_vectorstore()
             print("[startup] RAG listo")
@@ -982,6 +994,41 @@ async def feedback(
 ):
     update_feedback(session_id=session_id, message_id=message_id, up=thumbs_up, down=thumbs_down)
     return {"status": "Feedback recorded successfully"}
+
+# ===================== /generate-routine (F5-T2) ============================
+# Wiring real cerrado en Ciclo 2.5 de Fase 12. El handler es una fachada
+# delgada: toda la lógica vive en `src/services/routine_generator.py` para
+# que sea testeable sin TestClient ni lifespan completo.
+from pydantic import BaseModel as _RoutineReqBaseModel
+from src.services import routine_generator as _routine_generator
+
+
+class GenerateRoutineRequest(_RoutineReqBaseModel):
+    """Body del endpoint POST /generate-routine.
+
+    `user_id` es requerido; `target_weakness` opcional (si falta, el subgrafo
+    elige la weakness de menor mastery del perfil — F5-T1 `select_weakness_node`).
+    """
+    user_id: str
+    target_weakness: Optional[str] = None
+
+
+@app.post("/generate-routine")
+async def generate_routine(request: Request, body: GenerateRoutineRequest):
+    """F5-T2: invoca el subgrafo de retos y devuelve el `RoutineOutput`.
+
+    Auth: `X-Internal-Token` (F4-T2 token compartido). Sin JWT — este endpoint
+    es interno, lo llama el Backend Negocio (no el Frontend directamente).
+    """
+    _routine_generator.verify_internal_token(request)
+    trace_id = _routine_generator.make_trace_id(request)
+    final = await _routine_generator.generate_routine_for_user(
+        user_id=body.user_id,
+        target_weakness=body.target_weakness,
+        trace_id=trace_id,
+    )
+    return final.model_dump()
+
 
 # ===================== /test (mock) =====================
 @app.post("/test")
