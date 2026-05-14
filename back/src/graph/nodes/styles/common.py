@@ -503,20 +503,6 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
                 "style_node: ledger ok id=%s qa=%s chosen=%s project=%s",
                 _saved["id"], qa, chosen_name, _project_id,
             )
-            # BUG-026: advance phase style_table → tactics_table so the M1 gate
-            # allows tactics requests on the next turn.
-            _ph = load_ledger(_user_id, _project_id, auto_migrate=False)
-            if _ph.get("current_phase") == "style_table":
-                transition_phase(_user_id, _project_id, PhaseTransition(
-                    from_phase="style_table",
-                    to_phase="tactics_table",
-                    iteration=_ph["current_iteration"] + 1,
-                    triggered_by="style_node",
-                    user_message=(state.get("userQuestion") or ""),
-                    skipped_phases=[],
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ))
-                log.info("style_node: phase style_table→tactics_table")
             _refresh_ledger_state(state, _user_id, _project_id, lang)
 
         except LedgerValidationError as _exc:

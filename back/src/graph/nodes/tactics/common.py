@@ -586,6 +586,11 @@ Hard rules for the table:
 After the table, on a new line, write EXACTLY this selection prompt:
 {_select_q}
 
+ABSOLUTE STOP RULE: After the line above you MUST output ONLY the ```json fence
+and NOTHING ELSE. Do NOT add any "Solución concreta", checklists, implementation
+details, YAML, code snippets, deployment configs, or trade-off paragraphs in this
+response. Implementation details belong to a LATER step (post-confirmation), not here.
+
 THEN — and only then — append one ```json fenced block containing a JSON array of
 EXACTLY 3 objects (T1, T2, T3) for internal ledger use:
 - Use dot as decimal separator (0.82, never 0,82).
@@ -651,6 +656,11 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     # internal ledger payload; debugging relies on logs, not chat output.
     md_only = strip_first_json_fence(raw)
     md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
+    # BUG-S3-002: truncate anything the LLM appended after the selection prompt.
+    _select_marker = _select_q.strip()
+    if _select_marker and _select_marker in md_only:
+        _idx = md_only.index(_select_marker)
+        md_only = md_only[: _idx + len(_select_marker)].rstrip()
     if (not md_only) and isinstance(struct, list) and struct:
         # BUG-048 fallback: render as a one-row table per item with the same
         # column schema as the spec, not a bullet list.
@@ -721,20 +731,6 @@ Example JSON shape (values are illustrative — adjust to your tactics):
                 "tactics_node: ledger ok id=%s qa=%s items=%d project=%s",
                 _saved["id"], _qa, len(_items), _project_id,
             )
-            # BUG-026: advance phase tactics_table → tech_proposals so the M1
-            # gate allows tech requests on the next turn.
-            _ph = load_ledger(_user_id, _project_id, auto_migrate=False)
-            if _ph.get("current_phase") == "tactics_table":
-                transition_phase(_user_id, _project_id, PhaseTransition(
-                    from_phase="tactics_table",
-                    to_phase="tech_proposals",
-                    iteration=_ph["current_iteration"] + 1,
-                    triggered_by="tactics_node",
-                    user_message=(state.get("userQuestion") or ""),
-                    skipped_phases=[],
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ))
-                _tac_log.info("tactics_node: phase tactics_table→tech_proposals")
             _refresh_ledger_state(state, _user_id, _project_id, lang)
 
         except LedgerValidationError as _exc:

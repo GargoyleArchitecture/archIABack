@@ -65,7 +65,7 @@ def _build_style_parent_ref(ledger_active: dict) -> list:
     for kind in ("asr", "style"):
         entry = (ledger_active or {}).get(kind)
         if entry and entry.get("id"):
-            refs.append({"id": entry["id"], "kind": kind})
+            refs.append({"id": entry["id"], "kind": kind, "iteration": entry.get("iteration", 0)})
     return refs
 
 
@@ -101,7 +101,6 @@ def tactics_confirm_node(state: GraphState) -> GraphState:
         }]
 
     confirmed_ids = [str(t.get("id") or "").upper() for t in chosen_tactics]
-    state["selected_tactics"] = confirmed_ids
 
     qa = normalize_qa(state.get("quality_attribute", "")) or "general"
 
@@ -171,6 +170,10 @@ def tactics_confirm_node(state: GraphState) -> GraphState:
         except Exception as exc:
             log.warning("tactics_confirm: unexpected ledger error (nonfatal): %s", exc)
 
+    # Set confirmed IDs after ledger refresh so refresh can't overwrite them.
+    state["selected_tactics"] = confirmed_ids
+    # Clear stale markdown so the unifier doesn't echo the previous tactics table.
+    state["tactics_md"] = ""
     # BUG-015: clear candidates so the tech node uses only selected_tactics.
     state["tactics_candidates"] = []
 

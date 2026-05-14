@@ -204,9 +204,14 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         _append_unique(plan, "style")
 
     if wants_tactics:
-        if (not has_existing_asr) and ("asr" not in plan):
-            _append_unique(plan, "asr")
-        _append_unique(plan, "tactics")
+        _phase_past_tactics = (state.get("current_phase") or "") in (
+            "tech_proposals", "diagram", "done"
+        )
+        _tactics_already_done = bool(state.get("selected_tactics")) and _phase_past_tactics
+        if not _tactics_already_done:
+            if (not has_existing_asr) and ("asr" not in plan):
+                _append_unique(plan, "asr")
+            _append_unique(plan, "tactics")
 
     if wants_tech:
         if (not has_existing_asr) and ("asr" not in plan):
