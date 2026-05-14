@@ -79,6 +79,7 @@ from src.memory import (
 )
 from src.graph.utils import is_explicit_asr_request
 from src.services.doc_ingest import extract_pdf_text
+from src.services.message_sync import persist_ai_message
 from src.ledger.store import load_ledger as _load_ledger, compute_active_view as _compute_active_view
 memory_init()
 
@@ -825,6 +826,7 @@ async def message(
     _arch_flow    = arch_flow
     _asr_key      = asr_key
     _project_id   = project_id
+    _authorization_header = authorization_header
 
     async def generate():
         _final: dict = {}
@@ -868,9 +870,25 @@ async def message(
                         # is available here. unifier -> END, so astream will
                         # terminate naturally on the next iteration.
                         _final = node_output
+                        _end_text = (node_output.get("endMessage", "") or "").strip()
+
+                        # Persist AI response in Backend Negocio BEFORE emitting
+                        # 'complete'. Garantiza que cuando el cliente reciba el
+                        # endMessage, ya este guardado en PostgreSQL — asi el
+                        # usuario puede navegar/cerrar la pestana sin perder la
+                        # respuesta. Nunca lanza al caller (best-effort).
+                        try:
+                            await persist_ai_message(
+                                chat_id=_session_id,
+                                content=_end_text,
+                                authorization=_authorization_header,
+                            )
+                        except Exception:
+                            log.exception("message_sync raised unexpectedly (non-blocking)")
+
                         payload = fix_utf8_recursive({
                             "type": "complete",
-                            "endMessage": (node_output.get("endMessage", "") or "").strip(),
+                            "endMessage": _end_text,
                             "diagram":    node_output.get("diagram", {}),
                             "messages":   node_output.get("turn_messages", []),
                             "session_id": _session_id,
@@ -898,6 +916,17 @@ async def message(
                 else "Something tangled while processing your request. Could you repeat your last instruction?"
             )
             log.warning("GraphRecursionError hit — emitting recovery message for thread=%s", _thread_id)
+            # Persistir tambien el mensaje de recovery: el usuario debe verlo en
+            # el historial al recargar para entender por que el turno se cayo.
+            try:
+                await persist_ai_message(
+                    chat_id=_session_id,
+                    content=_recovery,
+                    authorization=_authorization_header,
+                )
+            except Exception:
+                log.exception("message_sync raised unexpectedly (non-blocking)")
+
             yield _sse({
                 "type": "complete",
                 "endMessage": _recovery,
