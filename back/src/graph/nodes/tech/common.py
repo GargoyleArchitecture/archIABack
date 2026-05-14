@@ -257,8 +257,9 @@ def tech_node_impl(
     prompt = f"""{directive}
 You are an architecture technology advisor following ADD 3.0.
 
-Your job is to propose CONCRETE technologies that implement the CONFIRMED architectural tactics below.
-Each technology must directly trace back to one tactic and one ASR.
+Your job is to propose CONCRETE technologies that implement ONLY the CONFIRMED tactics listed below.
+Each technology must directly trace back to one confirmed tactic and one ASR.
+HARD CONSTRAINT: Do NOT propose technologies for any tactic not listed under "Confirmed Tactics" above.
 {proj_ctx_block}
 {binding_block}
 {_priority_block}
@@ -267,9 +268,10 @@ Each technology must directly trace back to one tactic and one ASR.
 
 ## Knowledge Base Grounding
 Use the following excerpts when proposing technologies.
-If a technology appears in the excerpts, set "rag_backed": true.
-If a technology comes only from your general knowledge, set "rag_backed": false.
-Do NOT omit a good technology just because it lacks RAG backing — flag it honestly instead.
+MANDATORY: Every JSON object MUST include "rag_backed": true or false — this field is REQUIRED.
+  - Set "rag_backed": true ONLY if the technology name explicitly appears in the excerpts below.
+  - Set "rag_backed": false if the technology comes from your general knowledge, even if it is a good fit.
+  - Never omit this field. Omitting it is an error.
 
 {book_snippets or "(no RAG snippets available)"}
 
@@ -287,10 +289,10 @@ Return ONE code fence starting with ```json containing a JSON array with EXACTLY
 Required fields per object:
 - "id": string like "TECH-1", "TECH-2", "TECH-3"
 - "name": technology name
-- "tactic": the tactic name it implements
-- "asr_id": the ASR id it addresses (e.g. "ASR-1")
+- "tactic": the tactic name it implements (MUST be one of the confirmed tactics above)
+- "asr_id": the ASR id it addresses — use the human-readable ID shown to the user (e.g. "A1", "A2")
 - "rationale": 1-2 sentence justification
-- "rag_backed": boolean — true if the technology appears in the RAG snippets, false if from general knowledge only
+- "rag_backed": boolean — REQUIRED. true if the technology name appears in the RAG excerpts, false otherwise
 
 Example shape (values are illustrative):
 {TECH_JSON_EXAMPLE}
@@ -314,15 +316,19 @@ Example shape (values are illustrative):
 
     md_only = strip_first_json_fence(raw)
     md_only = re.sub(r"\n?###\s+2\.\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
+    # BUG-017: strip any remaining trailing code fences (bare JSON arrays that
+    # the LLM appends after the markdown section).
+    md_only = re.sub(r"\n*```(?:json|JSON)?\s*\[[\s\S]*?\]\s*```\s*$", "", md_only).rstrip()
     if not md_only and struct:
         md_only = "\n".join(
             f"- **{it['name']}** ({it['tactic']}): {it['rationale'][:100]}"
             for it in struct
         )
 
+    # BUG-016: never expose server filesystem paths in references.
     src_lines = [
-        _clip_text(f"- {title}{page_str} — {path}", 60)
-        for title, page_str, path in src_meta
+        _clip_text(f"- {title}{page_str}", 60)
+        for title, page_str, _path in src_meta
     ]
     src_lines = list(dict.fromkeys(src_lines))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")

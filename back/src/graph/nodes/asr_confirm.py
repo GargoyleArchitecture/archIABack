@@ -178,6 +178,9 @@ def asr_confirm_node(state: GraphState) -> GraphState:
         except Exception as exc:
             log.warning("asr_confirm: unexpected ledger error (nonfatal): %s", exc)
 
+    # BUG-005: clear candidates so the table is not re-echoed in the style phase.
+    state["asr_candidates"] = []
+
     state["routing_phase"] = "style"
     if not transitioned:
         state["current_phase"] = "style_table"

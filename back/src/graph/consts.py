@@ -47,7 +47,7 @@ TECH_JSON_EXAMPLE = """[
     "id": "TECH-1",
     "name": "Redis Cluster",
     "tactic": "Maintain Multiple Copies",
-    "asr_id": "ASR-2",
+    "asr_id": "A2",
     "rationale": "In-memory data store enabling sub-millisecond reads for the caching tactic.",
     "rag_backed": true
   },
@@ -55,7 +55,7 @@ TECH_JSON_EXAMPLE = """[
     "id": "TECH-2",
     "name": "Apache Kafka",
     "tactic": "Introduce Concurrency",
-    "asr_id": "ASR-1",
+    "asr_id": "A1",
     "rationale": "Distributed event streaming platform for async message processing.",
     "rag_backed": false
   },
@@ -63,7 +63,7 @@ TECH_JSON_EXAMPLE = """[
     "id": "TECH-3",
     "name": "Kubernetes HPA",
     "tactic": "Increase Resources",
-    "asr_id": "ASR-1",
+    "asr_id": "A1",
     "rationale": "Horizontal Pod Autoscaler adjusts replicas based on load metrics.",
     "rag_backed": true
   }

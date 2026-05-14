@@ -19,6 +19,7 @@ from src.graph.nodes.unifier import unifier_node
 from src.graph.nodes.asr import asr_node
 from src.graph.nodes.asr_confirm import asr_confirm_node
 from src.graph.nodes.style_confirm import style_confirm_node
+from src.graph.nodes.tactics_confirm import tactics_confirm_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
 from src.graph.nodes.tactics import tactics_node, make_tactics_qa_node
 from src.graph.nodes.tech import tech_node, make_tech_qa_node
@@ -134,18 +135,21 @@ def router(state: GraphState) -> str:
     if state["nextNode"] == "style_confirm":
         return "style_confirm"
 
+    if state["nextNode"] == "tactics_confirm":
+        return "tactics_confirm"
+
     if state["nextNode"] == "intake":
         return "intake"
 
     if state["nextNode"] == "style_tactics_parallel":
         return "style_tactics_parallel"
 
-    # NEW: para peticiones de ASR con RAG, pasa primero por el investigador
+    # BUG-003: always run investigator before ASR so references ground the output.
+    # The old force_rag guard is removed — ASR always benefits from RAG.
     if state["nextNode"] == "asr" and not state.get("hasVisitedASR", False):
         if (
             not state.get("hasVisitedInvestigator", False)
             and not state.get("doc_only", False)
-            and state.get("force_rag", False)
         ):
             return "investigator"
         return "asr"
@@ -190,6 +194,7 @@ builder.add_node("unifier", unifier_node)
 builder.add_node("asr", asr_node)
 builder.add_node("asr_confirm", asr_confirm_node)
 builder.add_node("style_confirm", style_confirm_node)
+builder.add_node("tactics_confirm", tactics_confirm_node)
 builder.add_node("style", style_node)
 builder.add_node("tactics", tactics_node)
 builder.add_node("tech", tech_node)
@@ -232,6 +237,7 @@ builder.add_edge("evaluator", "supervisor")
 builder.add_edge("asr", "supervisor")
 builder.add_edge("asr_confirm", "unifier")
 builder.add_edge("style_confirm", "unifier")
+builder.add_edge("tactics_confirm", "unifier")
 builder.add_edge("style", "supervisor")
 builder.add_edge("tactics", "supervisor")
 builder.add_edge("tech", "supervisor")

@@ -399,6 +399,18 @@ def supervisor_node(state: GraphState):
             "completed_nodes": completed_nodes,
         }
 
+    # BUG-012/007/013: route tactics confirmation directly to tactics_confirm_node.
+    if intent_raw == "tactics_confirm":
+        return {
+            **state,
+            "nextNode": "tactics_confirm",
+            "intent": "tactics_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
     pending_nodes = list(state.get("pending_nodes", []) or [])
     requested_nodes = list(state.get("requested_nodes", []) or [])
 

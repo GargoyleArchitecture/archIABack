@@ -661,9 +661,10 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     if _conflict_block:
         md_only += _conflict_block
 
+    # BUG-016: never expose server filesystem paths in references.
     src_lines = [
-        _clip_text(f"- {title}{page_str} — {path}", 60)
-        for title, page_str, path in src_meta
+        _clip_text(f"- {title}{page_str}", 60)
+        for title, page_str, _path in src_meta
     ]
     src_lines = list(dict.fromkeys(src_lines))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
@@ -676,8 +677,12 @@ Example JSON shape (values are illustrative — adjust to your tactics):
 
     # ── Scalar writes (unconditional) ────────────────────────────────────────
     state["tactics_md"] = md_only
-    state["tactics_struct"] = struct if isinstance(struct, list) else []
-    state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
+    _struct_list = struct if isinstance(struct, list) else []
+    state["tactics_struct"] = _struct_list
+    # BUG-010/012: populate tactics_candidates so the classifier's tactics_confirm
+    # block can resolve T1/T2/T3 IDs without needing tactics_struct separately.
+    state["tactics_candidates"] = _struct_list
+    state["tactics_list"] = [(it.get("name") or "").strip() for it in (_struct_list or []) if isinstance(it, dict) and it.get("name")]
     state["quality_attribute"] = qa
     if asr_text:
         state["current_asr"] = asr_text

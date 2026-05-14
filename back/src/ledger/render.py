@@ -322,23 +322,28 @@ def render_dossier_compact(ledger: DesignLedger, *, lang: str = "es") -> str:
     asr = active.get("asr")
     if asr:
         summary = _clip_text((asr.get("payload") or {}).get("summary", ""), 200)
-        lines.append(f"**ASR** ({asr['id']}, QA:{asr['qa']}): {summary}")
+        # BUG-009: use human-readable candidate_id (e.g. "A1"), never the internal ULID.
+        _asr_disp = (asr.get("payload") or {}).get("candidate_id") or ""
+        if not _asr_disp:
+            _asr_disp = asr.get("id", "")[:8]
+        lines.append(f"**ASR** ({_asr_disp}, QA:{asr['qa']}): {summary}")
 
     style = active.get("style")
     if style:
         chosen = (style.get("payload") or {}).get("chosen", "")
-        lines.append(f"**{T['style_section']}** ({style['id']}): {chosen}")
+        # BUG-009: show the style name only, not the internal ULID.
+        lines.append(f"**{T['style_section']}:** {chosen}")
 
     tactic = active.get("tactic")
     if tactic:
         items = (tactic.get("payload") or {}).get("items") or []
         n = len(items) if isinstance(items, list) else "?"
-        lines.append(f"**{T['tactics_section']}** ({tactic['id']}): {n} items")
+        lines.append(f"**{T['tactics_section']}** ({n} items)")
 
     diagram = active.get("diagram")
     if diagram:
         level = (diagram.get("payload") or {}).get("level", "?")
-        lines.append(f"**{T['diagram_section']}** ({diagram['id']}): level {level}")
+        lines.append(f"**{T['diagram_section']}:** level {level}")
 
     pending = ledger.get("pending_advance")
     if pending:

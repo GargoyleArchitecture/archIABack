@@ -250,6 +250,31 @@ def classifier_node(state: GraphState) -> GraphState:
             if _style_id_matches:
                 state["selected_style"] = f"S{_style_id_matches[0]}"
 
+    # BUG-012/007/013: tactics selection — mirror of the style_confirm block.
+    # When the user is in tactics_table and types `T1`, `acepto las tácticas`, etc.
+    # classify as `tactics_confirm` so the supervisor routes to tactics_confirm_node
+    # instead of firing "Bienvenido de vuelta".
+    _in_tactics_phase_cand = (state.get("current_phase") or "") in ("tactics_table",)
+    _has_tactics_candidates = bool(state.get("tactics_candidates") or [])
+    if _in_tactics_phase_cand and _has_tactics_candidates:
+        tactics_confirm_triggers = [
+            "acepto las tácticas", "acepto esas tácticas", "acepto esos tácticas",
+            "confirmo las tácticas", "confirmo esas tácticas",
+            "me quedo con esas tácticas", "voy con esas tácticas",
+            "ok con las tácticas", "perfecto con las tácticas",
+            "esas tácticas me sirven", "de acuerdo con las tácticas",
+            "acepto", "confirmo", "i accept", "i confirm", "accept tactics",
+            "confirm tactics", "approved", "looks good", "go ahead",
+            "let's go with the tactics", "lets go with the tactics",
+            "i'll take the tactics", "ill take the tactics",
+        ]
+        _tactics_id_matches = re.findall(r"\b[Tt](\d+)\b", msg)
+        _bare_tid = re.match(r"^\s*[Tt]\d+\s*$", msg)
+        if any(k in low for k in tactics_confirm_triggers) or _tactics_id_matches or _bare_tid:
+            intent = "tactics_confirm"
+            if _tactics_id_matches:
+                state["selected_tactics"] = [f"T{n}" for n in _tactics_id_matches]
+
     # BUG-047: when the architect picked a style and is now in TACTICS_TABLE,
     # natural continuation verbs ("Continuemos", "adelante", "ok") should route
     # to tactics generation instead of looping on a confirmation question.
@@ -343,6 +368,7 @@ def classifier_node(state: GraphState) -> GraphState:
         "asr_confirm",
         "asr_reject",
         "tactics",
+        "tactics_confirm",
         "style",
         "style_confirm",
         "tech",

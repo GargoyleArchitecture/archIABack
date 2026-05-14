@@ -559,17 +559,23 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     _selected_asr_ids = state.get("selected_asrs") or []
     _selected_id = ""
     if _selected_asr_ids:
-        _first = str(_selected_asr_ids[0]).strip()
-        # Accept both candidate IDs ("A1") and ledger UUIDs; prefer candidate IDs.
-        if re.match(r"^[Aa]\d+$", _first):
-            _selected_id = _first.upper()
-        else:
+        # BUG-006: prefer the human-readable ID (e.g. "A1") over the ULID.
+        # asr_confirm stores [ULID, "A1"] — scan for the readable one first.
+        for _sid in _selected_asr_ids:
+            _s = str(_sid).strip()
+            if re.match(r"^[Aa]\d+$", _s):
+                _selected_id = _s.upper()
+                break
+        if not _selected_id:
+            # Fall back: look up candidate_id from ledger_active ASR payload.
+            _selected_id = (_ledger_asr_payload.get("candidate_id") or "").upper()
+        if not _selected_id:
+            # Last resort: match in asr_candidates list.
+            _first = str(_selected_asr_ids[0]).strip()
             for _c in (state.get("asr_candidates") or []):
                 if isinstance(_c, dict) and _c.get("id") == _first:
-                    _selected_id = (_c.get("candidate_id") or "").upper() or _first
+                    _selected_id = (_c.get("candidate_id") or "").upper()
                     break
-            if not _selected_id:
-                _selected_id = _first[:12]
     if not _selected_id:
         _selected_id = (_ledger_asr_payload.get("candidate_id") or "A?").upper()
     _qa_label = (_ledger_asr_payload.get("qa") or qa or "").strip()

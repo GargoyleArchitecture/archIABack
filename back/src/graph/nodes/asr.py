@@ -766,14 +766,14 @@ After the table, on a new line, write EXACTLY this selection prompt:
             ]
 
     # === Fuentes (si hubo RAG) ===
+    # BUG-016: never expose server filesystem paths in references.
     src_lines = []
     for d in docs_list or []:
         md = d.metadata or {}
         title = md.get("source_title") or md.get("title") or "doc"
         page = md.get("page_label") or md.get("page")
-        path = md.get("source_path") or md.get("source") or ""
         page_str = f" (p.{page})" if page is not None else ""
-        src_lines.append(f"- {title}{page_str} — {path}")
+        src_lines.append(f"- {title}{page_str}")
     if src_lines:
         src_lines = [_clip_text(s, 60) for s in src_lines]
         src_lines = list(dict.fromkeys(src_lines))[:4]

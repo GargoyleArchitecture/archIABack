@@ -81,7 +81,7 @@ def _mirror_legacy(active: dict, updates: dict, qa_locked_in: bool = True) -> No
                     continue
                 item = dict(t)
                 if not item.get("id"):
-                    item["id"] = f"TAC-{i}"
+                    item["id"] = f"T{i}"
                 candidates.append(item)
                 ids.append(item["id"])
             if ids:
