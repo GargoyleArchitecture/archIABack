@@ -148,7 +148,7 @@ class GraphState(TypedDict):
     
     nextNode: Literal[
         "investigator", "evaluator", "diagram_agent",
-        "tactics", "asr", "asr_confirm", "style", "unifier",
+        "tactics", "asr", "asr_confirm", "style", "style_confirm", "unifier",
         "style_tactics_parallel",  # transient: emitido por supervisor, consumido por router
         "intake",
         "tech",
@@ -182,7 +182,7 @@ class GraphState(TypedDict):
 
     # control de idioma/intención/forcing RAG
     language: Literal["en","es"]
-    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","asr_confirm","asr_reject","tactics","style","intake","tech"]
+    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","asr_confirm","asr_reject","tactics","style","style_confirm","intake","tech"]
     force_rag: bool
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 

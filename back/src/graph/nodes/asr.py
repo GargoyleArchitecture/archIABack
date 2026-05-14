@@ -294,6 +294,88 @@ def _coerce_single_asr_markdown(content: str) -> str:
     return text
 
 
+# BUG-052: post-selection 6-part expansion. Called by asr_confirm_node when
+# the user picks a candidate ID from the ASR table — turns the short scenario
+# row into the canonical Bass/Clements/Kazman 6-part block.
+def _expand_asr_to_six_part(payload: dict, lang: str) -> tuple[dict, str]:
+    """Expand a candidate ASR row into the canonical 6-part Markdown block.
+
+    Returns (expanded_payload, markdown). The payload is the input merged with
+    parsed source/stimulus/environment/artifact/response/response_measure so
+    that downstream nodes (style, tactics) read structured fields from the
+    ledger instead of just a one-line scenario.
+    """
+    candidate_id = str(payload.get("candidate_id") or "").upper() or "A?"
+    qa           = str(payload.get("qa") or "").strip()
+    scenario     = str(payload.get("scenario") or payload.get("summary") or "").strip()
+    business     = str(payload.get("business") or "M").upper()[:1]
+    risk         = str(payload.get("risk") or "M").upper()[:1]
+
+    if lang == "es":
+        prompt = (
+            f"Expande el siguiente ASR a sus 6 partes canónicas (Bass/Clements/Kazman). "
+            f"NO inventes información no implícita en el escenario; si un campo no se "
+            f"puede derivar, escribe '(a confirmar)'. Preserva las medidas numéricas.\n\n"
+            f"Cabecera: ASR {candidate_id} — {qa} (Importancia: {business}, Riesgo: {risk})\n"
+            f"Escenario base: {scenario}\n\n"
+            f"Produce EXACTAMENTE esta estructura Markdown (sin texto adicional):\n\n"
+            f"## ASR {candidate_id} — {qa} (Importancia: {business}, Riesgo: {risk})\n\n"
+            f"- **Source:** <quién/qué genera el estímulo>\n"
+            f"- **Stimulus:** <el evento o condición>\n"
+            f"- **Environment:** <condiciones — carga, fallo, mantenimiento>\n"
+            f"- **Artifact:** <componente del sistema que responde>\n"
+            f"- **Response:** <qué hace el sistema>\n"
+            f"- **Response Measure:** <umbral medible del escenario base>\n\n"
+            f"_Siguiente paso: seleccionar el **estilo arquitectónico** que mejor soporte este ASR._"
+        )
+        fallback_md = (
+            f"## ASR {candidate_id} — {qa} (Importancia: {business}, Riesgo: {risk})\n\n"
+            f"**Escenario:** {scenario}\n\n"
+            f"_Siguiente paso: seleccionar el **estilo arquitectónico** que mejor soporte este ASR._"
+        )
+    else:
+        prompt = (
+            f"Expand the following ASR into its canonical 6 parts (Bass/Clements/Kazman). "
+            f"DO NOT invent information not implied by the scenario; if a field cannot be "
+            f"derived, write '(to be confirmed)'. Preserve numeric thresholds.\n\n"
+            f"Header: ASR {candidate_id} — {qa} (Importance: {business}, Risk: {risk})\n"
+            f"Base scenario: {scenario}\n\n"
+            f"Produce EXACTLY this Markdown structure (no extra text):\n\n"
+            f"## ASR {candidate_id} — {qa} (Importance: {business}, Risk: {risk})\n\n"
+            f"- **Source:** <who/what triggers the stimulus>\n"
+            f"- **Stimulus:** <the event or condition>\n"
+            f"- **Environment:** <conditions — load, failure, maintenance>\n"
+            f"- **Artifact:** <which system component responds>\n"
+            f"- **Response:** <what the system does>\n"
+            f"- **Response Measure:** <measurable threshold from the base scenario>\n\n"
+            f"_Next step: select the **architecture style** that best supports this ASR._"
+        )
+        fallback_md = (
+            f"## ASR {candidate_id} — {qa} (Importance: {business}, Risk: {risk})\n\n"
+            f"**Scenario:** {scenario}\n\n"
+            f"_Next step: select the **architecture style** that best supports this ASR._"
+        )
+
+    try:
+        result = llm.invoke(prompt)
+        raw = getattr(result, "content", str(result))
+        md = _sanitize_response(raw) or fallback_md
+    except Exception as exc:
+        log.warning("asr expand: LLM call failed (%s); using deterministic fallback", exc)
+        md = fallback_md
+
+    expanded_payload = dict(payload)
+    for field_key, pattern in _ASR_FIELD_RE.items():
+        fm = pattern.search(md)
+        if fm:
+            val = fm.group(1).strip()
+            if val and not _NONE_MARKER_RE.search(val):
+                expanded_payload[field_key] = val
+    if scenario:
+        expanded_payload["summary"] = scenario
+    return expanded_payload, md
+
+
 # BUG-042/043/044: candidate-table parser
 # A row looks like:
 #   | A1 | Latencia | p95 ≤ 800ms con 600 CCU | H | H |

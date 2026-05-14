@@ -1023,6 +1023,163 @@ The tactics node's entry condition checks for a specific trigger intent (e.g., `
 
 ---
 
+## BUG-051 — Auto-advance regression: system asks permission to generate ASRs instead of transitioning automatically
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | DIAGNÓSTICO → ASR_TABLE transition |
+| **File** | `back/src/graph/nodes/intake_node.py` (Rama B / A2 completion path) |
+| **Severity** | 🔴 High — blocks ADD 3.0 phase progression; third occurrence of BUG-033/BUG-041 pattern |
+
+### Observed Behavior
+After all required intake fields are collected (campo_0 through campo_5), the system correctly saves the fields and says:
+
+```
+Guardé: componentes, ambientes.
+
+Ya tengo toda la información necesaria. ¿Quieres que proponga los ASRs o ya tienes alguno definido?
+```
+
+It asks a yes/no permission question instead of auto-advancing.
+
+### Expected Behavior
+Per the ADD 3.0 spec: when all required diagnostic fields are satisfied, emit the localized confirmation and immediately transition to `ASR_TABLE` — no gate, no permission question:
+```
+Diagnóstico completo. Generando candidatos ASR…
+```
+The next response should be the ASR candidate table.
+
+### Root Cause (hypothesis)
+The BUG-041 fix set `endMessage` in the Rama B / A2 return dict correctly, but the LLM prompt used in a prior step of that same branch still generates the "¿Quieres que proponga?" phrasing. Two possible causes:
+1. The intake_node's LLM call (used to summarise what was saved) runs BEFORE `endMessage` is built, and the LLM is prompted to ask "what next?" — its generated text is what the user sees, overriding the `endMessage`.
+2. A different code path (e.g., the supervisor's unifier node) receives `intent=="intake"` with all fields complete and generates the permission question as a generic continuation response.
+
+Investigate `_build_feedback` and the Rama B LLM prompt to confirm which generates the "¿Quieres que proponga?" text.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-052 — Post-selection ASR 6-part detail never rendered
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | ASR_TABLE → ASR detail (post-selection) |
+| **File** | `back/src/graph/nodes/asr.py` (post-selection branch), `supervisor.py` |
+| **Severity** | 🔴 High — violates "detalle bajo demanda" spec rule |
+
+### Observed Behavior
+User typed `"A1"`. System replied:
+```
+✅ ASR confirmado. Quedó como driver arquitectónico activo.
+El siguiente paso es seleccionar el estilo arquitectónico que mejor soporte este ASR.
+```
+No expanded 6-part scenario (Source / Stimulus / Artifact / Environment / Response / Response Measure) was shown.
+
+### Expected Behavior
+Per ADD 3.0 "detalle bajo demanda": after the user selects an ASR ID from the candidate table, the system must render the full 6-part scenario for that specific candidate before advancing to STYLE_TABLE.
+
+### Root Cause (hypothesis)
+The BUG-042 fix rewrote the prompt to emit a candidate table instead of the 6-part detail. The post-selection branch that was supposed to emit the 6-part detail when `selected_asrs` is non-empty was either not implemented or the supervisor routes directly to STYLE_TABLE after `asr_confirm` without triggering the ASR node's detail-expansion path.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-053 — Style proposals use wrong ASR (A4/QA:general instead of user-selected A1/Latencia)
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | STYLE_TABLE |
+| **File** | `back/src/graph/nodes/asr.py` (multi-candidate ledger write), `back/src/graph/nodes/styles/common.py` (ledger lookup) |
+| **Severity** | 🔴 Critical — styles generated for wrong quality attribute; entire STYLE_TABLE phase produces irrelevant output |
+
+### Observed Behavior
+After the user selected A1 (Latencia), asking for style proposals produced:
+- The full ASR table re-rendered (all 4 rows — wrong)
+- Style proposals S1 and S2 mapped to A4 (Durabilidad), not A1 (Latencia)
+- Ledger dossier header shows: `ASR (01KRHWASN0HCKV2C08K2M68CJE, QA:general)` — internal UUID, not "A1", QA "general" not "Latencia"
+
+### Expected Behavior
+Style proposals S1/S2 must be grounded in A1 (Latencia, p99 ≤ 500ms). The dossier header must show `ASR A1 (Latencia)`.
+
+### Root Cause (hypothesis)
+The BUG-042 fix writes ALL candidate rows to the ledger as separate `append_decision` calls with `status="active"`. The ledger's `ledger_active` getter returns the most-recently-written active ASR decision — A4 (last row in the table). The style node reads `ledger_active.asr.payload`, gets A4's data, and generates styles for Durabilidad.
+
+`selected_asrs=["A1"]` is in `GraphState` but the style node's `_asr_name` fix (BUG-046) only changes the display label — it does not re-route the ledger lookup to filter by `candidate_id=="A1"`. The underlying QA and scenario fed to the LLM still come from A4.
+
+The `QA:general` in the dossier header suggests a separate issue: the ledger entry written for A4 either has `qa=""` or it was normalized to "general".
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-054 — Style selection loop: "Bienvenido de vuelta. ¿Continuamos?" after S1 selected
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | STYLE_TABLE — style selection |
+| **File** | `back/src/graph/nodes/supervisor.py`, `back/src/graph/nodes/styles/common.py` |
+| **Severity** | 🔴 High — mirror of BUG-047 but in style→tactics transition; phase permanently stuck |
+
+### Observed Behavior
+After style proposals S1/S2 were shown, user replied `"S1"`. System replied:
+```
+Bienvenido de vuelta. Estamos en la fase de selección de estilo.
+Fase: style_table | Iteración: 3 ASR (01KRHWASN0HCKV2C08K2M68CJE, QA:general): ...
+La siguiente tarea es: seleccionar el estilo arquitectónico para los ASRs. ¿Continuamos?
+```
+Every subsequent message (including "Continua", "continua, sigue con las tacticas para el estilo s1") produced the identical response. Phase never advanced.
+
+### Expected Behavior
+When user types a style ID (`S1`, `S2`) or phrases like "Selecciono S1", the supervisor must:
+1. Record `selected_style="S1"` in state
+2. Transition `current_phase` to `tactics_table`
+3. Generate the tactics candidate table on the next turn
+
+### Root Cause (hypothesis)
+The classifier has no `style_confirm_triggers` equivalent to the `asr_confirm_triggers` added in BUG-045. Typing "S1" or "Continua" in `current_phase=="style_table"` is classified as `intent="smalltalk"` or `intent="general"`, which the supervisor handles with the "Bienvenido de vuelta / ¿Continuamos?" fallback. There is no ID-pattern matcher for `^s\d+$` analogous to the `^a\d+$` matcher for ASR.
+
+### Resolution Status
+🔴 Pending
+
+---
+
+## BUG-055 — "No style content." when user explicitly says "Selecciono el estilo S1"
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | STYLE_TABLE |
+| **File** | `back/src/graph/nodes/styles/common.py` |
+| **Severity** | 🔴 High — style node returns empty string for explicit-text style selection |
+
+### Observed Behavior
+User typed `"Selecciono el estilo S1"`. System replied:
+```
+No style content.
+```
+
+### Expected Behavior
+The style node must recognize "Selecciono el estilo S1" as `intent="style"` + selection of S1, record the decision to the ledger, and emit a confirmation + transition to tactics.
+
+### Root Cause (hypothesis)
+The style node receives `intent="style"` but `selected_style` is not set in state (because the classifier never maps "S1" → `style_confirm`). When the node tries to render confirmation for the selected style, it finds no `style_candidates` match and falls through to an empty-string branch that returns "No style content."
+
+This is cascading from BUG-054: both stem from the missing `style_confirm` intent in the classifier. The difference is BUG-054 fires when the supervisor catches the unrecognized intent; BUG-055 fires when the style node itself receives it.
+
+### Resolution Status
+🔴 Pending
+
+---
+
 ## Summary Table
 
 | ID | File | Severity | Status |
@@ -1061,3 +1218,8 @@ The tactics node's entry condition checks for a specific trigger intent (e.g., `
 | BUG-048 | `tactics/common.py` | 🔴 High — TACTICS_TABLE delivers HPA YAML + checklists + Go snippets + prose instead of required table; no T-IDs; violates "detalle bajo demanda" | ✅ Fixed |
 | BUG-049 | `tactics/common.py` / `unifier.py` | 🔴 High — raw JSON tactic objects dumped verbatim into user-facing response; internal payload leaks into `endMessage` | ✅ Fixed |
 | BUG-050 | `tactics/common.py` | 🔴 High — tactics LLM never reads ASR+Style context from GraphState; only triggers when user manually pastes ASR scenario text | ✅ Fixed |
+| BUG-051 | `intake_node.py` | 🔴 High — REGRESSION of BUG-041: after all intake fields collected, system asks "¿Quieres que proponga los ASRs o ya tienes alguno definido?" instead of auto-advancing to ASR_TABLE | ✅ Fixed |
+| BUG-052 | `asr.py` / `asr_confirm.py` | 🔴 High — post-selection 6-part ASR detail never rendered; after user types "A1", system replies "✅ ASR confirmado" and jumps to style phase without expanding the selected candidate | ✅ Fixed |
+| BUG-053 | `asr_confirm.py` / `styles/common.py` / `ledger/` | 🔴 Critical — style proposals use wrong ASR (A4/QA:general instead of A1/Latencia); multi-candidate ledger write leaves A4 as last `status="active"` entry; `ledger_active` returns A4 instead of user-selected A1; `selected_asrs` ignored by style node | ✅ Fixed |
+| BUG-054 | `classifier.py` / `supervisor.py` / `style_confirm.py` | 🔴 High — style selection loop: after user selects S1, supervisor returns "Bienvenido de vuelta. ¿Continuamos?" on every turn; style intent not recognized after style already proposed | ✅ Fixed |
+| BUG-055 | `classifier.py` / `style_confirm.py` / `unifier.py` | 🔴 High — "No style content." returned when user explicitly says "Selecciono el estilo S1"; style node produces empty output for explicit-phrasing selection | ✅ Fixed |

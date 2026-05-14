@@ -236,15 +236,6 @@ def _extract_baseline(campo_4: str) -> dict:
     }
 
 
-_ASR_QUESTION_ES = (
-    "Ya tengo toda la información necesaria. "
-    "¿Quieres que proponga los ASRs o ya tienes alguno definido?"
-)
-_ASR_QUESTION_EN = (
-    "I have all the information needed. "
-    "Would you like me to propose the ASRs, or do you already have some defined?"
-)
-
 _FIELD_LABELS: dict[int, dict[str, str]] = {
     0: {"es": "requerimiento",        "en": "requirement"},
     1: {"es": "componentes",          "en": "components"},
@@ -442,8 +433,6 @@ async def intake_node(state: GraphState) -> GraphState:
     project_context_text = state.get("project_context_text") or ""
     intake_complete = state.get("intake_complete") or False
 
-    asr_question = _ASR_QUESTION_ES if lang == "es" else _ASR_QUESTION_EN
-
     # Advance ledger from "intro" to "diagnosis" on first entry (M6 has not been implemented yet).
     if (state.get("current_phase") or "") == "intro":
         _uid = (state.get("user_id_for_prefs") or "").strip()
@@ -481,16 +470,66 @@ async def intake_node(state: GraphState) -> GraphState:
                 8,
             )
 
-        _q_next = (
-            asr_question if _first_idx >= 8
-            else INTAKE_SCRIPT[_first_idx][f"question_{lang}"]
-        )
+        # BUG-051: when the user's first message already contains every
+        # required field, auto-advance straight into asr_table after the
+        # INTRO greeting — never ask "¿Quieres que proponga los ASRs?".
+        if _first_idx >= 8:
+            _autoadvance_msg = (
+                "Diagnóstico completo. Generando candidatos ASR…"
+                if lang == "es" else
+                "Diagnosis complete. Generating ASR candidates…"
+            )
+            _baseline = _extract_baseline(_first_fields.get("campo_4_ambientes", ""))
+            _user_id    = (state.get("user_id_for_prefs") or "").strip()
+            _project_id = (state.get("project_id") or "").strip() or None
+            _ts = datetime.now(timezone.utc).isoformat()
+            _updated_ledger = None
+            if _user_id:
+                try:
+                    _m6_ledger = load_ledger(_user_id, _project_id)
+                    _m6_ledger["project_context"]["intake_v1"] = _first_fields
+                    save_ledger(_user_id, _m6_ledger, _project_id)
+                    transition_phase(_user_id, _project_id, PhaseTransition(
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
+                        iteration=_m6_ledger["current_iteration"] + 1,
+                        triggered_by="intake_complete",
+                        user_message=uq,
+                        skipped_phases=[],
+                        timestamp=_ts,
+                    ))
+                    _updated_ledger = _m6_ledger
+                except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                    log.warning("intake_node: M6 ledger error (nonfatal): %s", _exc)
+
+            _m6: dict = {
+                **state,
+                "current_phase": "asr_table",
+                "intake_fields": _first_fields,
+                "intake_current_field": 8,
+                "intake_complete": True,
+                "normal_operation_baseline": _baseline,
+                "endMessage": f"{_intro}\n\n{_autoadvance_msg}",
+                "nextNode": "asr",
+                "intent": "asr",
+            }
+            if _updated_ledger is not None:
+                _m6["ledger"] = _updated_ledger
+            else:
+                _ledger_snapshot = dict(state.get("ledger") or {})
+                if _ledger_snapshot:
+                    _ledger_snapshot = dict(_ledger_snapshot)
+                    _ledger_snapshot["current_phase"] = "asr_table"
+                    _m6["ledger"] = _ledger_snapshot
+            return _m6
+
+        _q_next = INTAKE_SCRIPT[_first_idx][f"question_{lang}"]
         return {
             **state,
             "current_phase": "diagnosis",  # advance state even if ledger write failed
             "intake_fields": _first_fields,
-            "intake_current_field": 8 if _first_idx >= 8 else _first_idx,
-            "intake_complete": _first_idx >= 8,
+            "intake_current_field": _first_idx,
+            "intake_complete": False,
             "endMessage": f"{_intro}\n\n{_q_next}",
             "nextNode": "unifier",
             "intent": "intake",
@@ -760,16 +799,60 @@ async def intake_node(state: GraphState) -> GraphState:
             else:
                 end_msg = _first_q
         elif saved and new_index >= 8:
-            # Todo respondido en el primer mensaje
-            return {
+            # BUG-051: Rama C all-fields-on-first-turn auto-advance (mirrors
+            # Rama B at lines 670-720). User dumped the full project context
+            # on their first message — skip the permission question and
+            # transition diagnosis→asr_table immediately.
+            _user_id    = (state.get("user_id_for_prefs") or "").strip()
+            _project_id = (state.get("project_id") or "").strip() or None
+            _ts = datetime.now(timezone.utc).isoformat()
+            _updated_ledger = None
+
+            if _user_id:
+                try:
+                    _c_ledger = load_ledger(_user_id, _project_id)
+                    _c_ledger["project_context"]["intake_v1"] = intake_fields
+                    save_ledger(_user_id, _c_ledger, _project_id)
+                    transition_phase(_user_id, _project_id, PhaseTransition(
+                        from_phase="diagnosis",
+                        to_phase="asr_table",
+                        iteration=_c_ledger["current_iteration"] + 1,
+                        triggered_by="intake_complete",
+                        user_message=uq,
+                        skipped_phases=[],
+                        timestamp=_ts,
+                    ))
+                    _updated_ledger = _c_ledger
+                except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                    log.warning("intake_node: Rama C ledger error (nonfatal): %s", _exc)
+
+            _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+            _autoadvance_msg = (
+                "Diagnóstico completo. Generando candidatos ASR…"
+                if lang == "es" else
+                "Diagnosis complete. Generating ASR candidates…"
+            )
+            _summary_c = _build_feedback(saved, failed, 8, lang)
+            _rc: dict = {
                 **state,
                 "intake_fields": intake_fields,
                 "intake_current_field": 8,
                 "intake_complete": True,
-                "endMessage": _build_feedback(saved, failed, 8, lang) + f"\n\n{asr_question}",
-                "nextNode": "unifier",
-                "intent": "intake",
+                "current_phase": "asr_table",
+                "normal_operation_baseline": _baseline,
+                "endMessage": f"{_summary_c}\n\n{_autoadvance_msg}" if _summary_c else _autoadvance_msg,
+                "nextNode": "asr",
+                "intent": "asr",
             }
+            if _updated_ledger is not None:
+                _rc["ledger"] = _updated_ledger
+            else:
+                _ledger_snapshot = dict(state.get("ledger") or {})
+                if _ledger_snapshot:
+                    _ledger_snapshot = dict(_ledger_snapshot)
+                    _ledger_snapshot["current_phase"] = "asr_table"
+                    _rc["ledger"] = _ledger_snapshot
+            return _rc
         else:
             end_msg = _build_feedback(saved, failed, target_index if saved or failed else 0, lang)
 
@@ -824,16 +907,60 @@ async def intake_node(state: GraphState) -> GraphState:
         }
 
     if new_index >= 8:
+        # BUG-051: Rama D auto-advance (mirrors Rama B at lines 670-720).
+        # When the last required field gets filled mid-conversation, persist
+        # intake_v1, transition diagnosis→asr_table, and route directly to
+        # asr_node — no permission question.
         summary = _build_feedback(saved, failed, 8, lang)
-        return {
+        _user_id    = (state.get("user_id_for_prefs") or "").strip()
+        _project_id = (state.get("project_id") or "").strip() or None
+        _ts = datetime.now(timezone.utc).isoformat()
+        _updated_ledger = None
+
+        if _user_id:
+            try:
+                _d_ledger = load_ledger(_user_id, _project_id)
+                _d_ledger["project_context"]["intake_v1"] = intake_fields
+                save_ledger(_user_id, _d_ledger, _project_id)
+                transition_phase(_user_id, _project_id, PhaseTransition(
+                    from_phase="diagnosis",
+                    to_phase="asr_table",
+                    iteration=_d_ledger["current_iteration"] + 1,
+                    triggered_by="intake_complete",
+                    user_message=uq,
+                    skipped_phases=[],
+                    timestamp=_ts,
+                ))
+                _updated_ledger = _d_ledger
+            except (LedgerValidationError, LedgerConcurrencyError, Exception) as _exc:
+                log.warning("intake_node: Rama D ledger error (nonfatal): %s", _exc)
+
+        _baseline = _extract_baseline(intake_fields.get("campo_4_ambientes", ""))
+        _autoadvance_msg = (
+            "Diagnóstico completo. Generando candidatos ASR…"
+            if lang == "es" else
+            "Diagnosis complete. Generating ASR candidates…"
+        )
+        _rd: dict = {
             **state,
             "intake_fields": intake_fields,
             "intake_current_field": 8,
             "intake_complete": True,
-            "endMessage": f"{summary}\n\n{asr_question}" if summary else asr_question,
-            "nextNode": "unifier",
-            "intent": "intake",
+            "current_phase": "asr_table",
+            "normal_operation_baseline": _baseline,
+            "endMessage": f"{summary}\n\n{_autoadvance_msg}" if summary else _autoadvance_msg,
+            "nextNode": "asr",
+            "intent": "asr",
         }
+        if _updated_ledger is not None:
+            _rd["ledger"] = _updated_ledger
+        else:
+            _ledger_snapshot = dict(state.get("ledger") or {})
+            if _ledger_snapshot:
+                _ledger_snapshot = dict(_ledger_snapshot)
+                _ledger_snapshot["current_phase"] = "asr_table"
+                _rd["ledger"] = _ledger_snapshot
+        return _rd
 
     end_msg = _build_feedback(saved, failed, target_index, lang)
     return {

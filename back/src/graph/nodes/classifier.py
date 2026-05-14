@@ -229,6 +229,27 @@ def classifier_node(state: GraphState) -> GraphState:
         elif any(k in low for k in asr_reject_triggers) or is_asr_regenerate_request(msg):
             intent = "asr_reject"
 
+    # BUG-054 / BUG-055: style selection — mirror of the asr_confirm block.
+    # When the user is in style_table and types `S1`, `Selecciono el estilo S2`,
+    # etc., classify the intent as `style_confirm` and seed selected_style.
+    _in_style_phase = (state.get("current_phase") or "") == "style_table"
+    _has_style_candidates = bool(state.get("style_candidates") or [])
+    if _in_style_phase and _has_style_candidates:
+        style_confirm_triggers = [
+            "selecciono el estilo", "selecciono este estilo", "selecciono ese estilo",
+            "elijo el estilo", "elijo este estilo", "voy con el estilo",
+            "me quedo con el estilo", "confirmo el estilo", "confirmo ese estilo",
+            "ese estilo me sirve", "perfecto ese estilo", "ok ese estilo",
+            "i pick", "i choose", "go with", "let's go with", "lets go with",
+            "select the style", "i'll take the style", "ill take the style",
+        ]
+        _style_id_matches = re.findall(r"\b[Ss](\d+)\b", msg)
+        _bare_sid = re.match(r"^\s*[Ss]\d+\s*$", msg)
+        if any(k in low for k in style_confirm_triggers) or _style_id_matches or _bare_sid:
+            intent = "style_confirm"
+            if _style_id_matches:
+                state["selected_style"] = f"S{_style_id_matches[0]}"
+
     # BUG-047: when the architect picked a style and is now in TACTICS_TABLE,
     # natural continuation verbs ("Continuemos", "adelante", "ok") should route
     # to tactics generation instead of looping on a confirmation question.
@@ -323,6 +344,7 @@ def classifier_node(state: GraphState) -> GraphState:
         "asr_reject",
         "tactics",
         "style",
+        "style_confirm",
         "tech",
     ] else "general",
 

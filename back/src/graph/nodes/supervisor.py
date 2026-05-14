@@ -385,6 +385,20 @@ def supervisor_node(state: GraphState):
             "completed_nodes": completed_nodes,
         }
 
+    # BUG-054 / BUG-055: route the user's style selection directly to the
+    # confirmation node — never to style_node (which would re-generate
+    # candidates) or to the "Bienvenido de vuelta" fallback.
+    if intent_raw == "style_confirm":
+        return {
+            **state,
+            "nextNode": "style_confirm",
+            "intent": "style_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
     pending_nodes = list(state.get("pending_nodes", []) or [])
     requested_nodes = list(state.get("requested_nodes", []) or [])
 

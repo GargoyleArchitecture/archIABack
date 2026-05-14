@@ -335,6 +335,40 @@ the specific technologies listed. Business rules must be respected in all trade-
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
 
+    # BUG-053 defense-in-depth: if the user explicitly selected an ASR but
+    # ledger_active.asr points at a different one, refuse to render and ask
+    # them to re-select. Prevents silent wrong-QA generation if a future
+    # change breaks the supersession logic in asr_confirm_node.
+    _selected_asrs_check = [str(x).strip().upper() for x in (state.get("selected_asrs") or [])]
+    _active_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
+    _active_candidate_id = str(_active_asr_payload.get("candidate_id") or "").strip().upper()
+    _active_ledger_id    = str(((state.get("ledger_active") or {}).get("asr") or {}).get("id") or "").strip().upper()
+    if _selected_asrs_check and (_active_candidate_id or _active_ledger_id):
+        _matches = (
+            _active_candidate_id in _selected_asrs_check
+            or _active_ledger_id in _selected_asrs_check
+        )
+        if not _matches:
+            log.warning(
+                "style_node: selected_asrs=%s does not match active ASR (candidate_id=%s, id=%s)",
+                _selected_asrs_check, _active_candidate_id, _active_ledger_id,
+            )
+            _err = (
+                "Detecté una inconsistencia entre el ASR que seleccionaste y el ASR activo "
+                "en el ledger. Por favor vuelve a indicar el ID del ASR que quieres usar "
+                "(ej. `A1`)."
+                if lang == "es" else
+                "I detected an inconsistency between the ASR you selected and the ASR "
+                "currently active in the ledger. Please re-select the ASR ID you want to "
+                "use (e.g. `A1`)."
+            )
+            return {
+                **state,
+                "endMessage": _err,
+                "nextNode": "unifier",
+                "intent": "general",
+            }
+
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
 
