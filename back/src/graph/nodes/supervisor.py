@@ -139,6 +139,30 @@ def _build_block_message(current_phase: str, requested_phase: str, lang: str) ->
     return "\n\n".join(lines)
 
 
+def _build_diagram_block_message(current_phase: str, lang: str) -> str:
+    cur_display = PHASE_DISPLAY.get(current_phase, {}).get(lang, current_phase)
+    cur_task    = PHASE_NEXT_TASK.get(current_phase, {}).get(lang, "")
+
+    if lang == "es":
+        lines = [
+            "Para generar un diagrama necesitamos primero confirmar al menos un **estilo arquitectónico**.",
+            f"Estamos en la fase de **{cur_display}**.",
+        ]
+        if cur_task:
+            lines.append(f"La tarea pendiente ahora es: *{cur_task}*.")
+        lines.append("¿Continuamos?")
+    else:
+        lines = [
+            "To generate a diagram we first need to confirm at least one **architecture style**.",
+            f"We are currently in the **{cur_display}** phase.",
+        ]
+        if cur_task:
+            lines.append(f"The pending task right now is: *{cur_task}*.")
+        lines.append("Shall we continue?")
+
+    return "\n\n".join(lines)
+
+
 def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> list[str]:
     low = (uq or "").lower()
     fu_intent = classify_followup(uq) or ""
@@ -355,7 +379,10 @@ def supervisor_node(state: GraphState):
     min_phase_key = FUNNEL_INTENT_MIN_PHASE.get(intent_raw)
 
     if min_phase_key and PHASE_INT.get(current_phase, 0) < PHASE_INT[min_phase_key]:
-        block_text = _build_block_message(current_phase, min_phase_key, state_lang)
+        if intent_raw == "diagram":
+            block_text = _build_diagram_block_message(current_phase, state_lang)
+        else:
+            block_text = _build_block_message(current_phase, min_phase_key, state_lang)
         _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
         _sugs_en = ["Yes, let's continue", "I want to change the system context"]
         # BUG-002 fix: preserve completed_nodes across phase-gate redirects.
