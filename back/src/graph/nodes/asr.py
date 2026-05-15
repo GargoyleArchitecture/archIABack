@@ -547,7 +547,7 @@ def asr_node(state: GraphState) -> GraphState:
     # Mirror intake main requirement + components into proj_ctx when no project context exists.
     if not proj_ctx and _intake_v1_early:
         _mirror_parts = []
-        for _mk in ("campo_0_requerimiento", "campo_1_componentes"):
+        for _mk in ("campo_0_requerimiento", "campo_1_alcance_funcional"):
             _mv = _intake_v1_early.get(_mk, "").strip()
             if _mv:
                 _mirror_parts.append(_mv)
@@ -559,7 +559,7 @@ def asr_node(state: GraphState) -> GraphState:
     if _intake_v1:
         _INTAKE_LABELS = {
             "campo_0_requerimiento": ("Requerimiento principal",      "Main requirement"),
-            "campo_1_componentes":   ("Componentes del sistema",      "System components"),
+            "campo_1_alcance_funcional": ("Alcance funcional del sistema", "Functional scope of the system"),
             "campo_2_fuente":        ("Fuente del estímulo",          "Stimulus source"),
             "campo_3_estimulo":      ("Estímulo / trigger",           "Stimulus / trigger"),
             "campo_4_ambientes":     ("Ambientes y métricas",         "Environments and metrics"),

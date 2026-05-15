@@ -119,9 +119,9 @@ INTAKE_SCRIPT = [
         "rule": "len(tokens) >= 8 AND at least one technical term",
     },
     {
-        "field": "campo_1_componentes",
-        "question_es": "¿Cuáles son los componentes principales del sistema? Menciona servicios, módulos, APIs, bases de datos u otros elementos relevantes.",
-        "question_en": "What are the main components of the system? Mention services, modules, APIs, databases, or other relevant elements.",
+        "field": "campo_1_alcance_funcional",
+        "question_es": "¿Cuáles son las principales funcionalidades o áreas de responsabilidad que el sistema debe soportar? Si el sistema ya existe, describe qué hace actualmente en términos funcionales. Si estás construyendo desde cero, describe las capacidades que debe tener. No nombres componentes arquitectónicos — esos emergen del proceso de diseño ADD.",
+        "question_en": "What are the main functionalities or areas of responsibility the system must support? If the system already exists, describe what it currently does in functional terms. If you are building from scratch, describe the capabilities it should have. Do not name architectural components — those emerge from the ADD design process.",
         "rule": "len(tokens) >= 8 AND at least one technical term",
     },
     {
@@ -306,7 +306,7 @@ class MultiFieldAssessmentResult(BaseModel):
 
 _ADD3_CRITERIA: dict[int, str] = {
     0: "Must describe a concrete system requirement — not generic. Needs objective, quality expectation, or involved components. 'A system that handles requests' is NOT sufficient.",
-    1: "Must name specific system components with at least one characteristic each. 'Frontend and backend' is NOT sufficient. Needs actual services, APIs, modules, or databases.",
+    1: "Must describe concrete functionalities or areas of responsibility the system must support. Whether building from scratch or describing an existing system, the answer must state what the system does or should do — not how it is structured. 'It handles requests' is NOT sufficient. Needs specific capabilities such as payment processing, user authentication, inventory management, or hotel search. Do NOT require the user to name architectural components (services, APIs, modules, databases) — those are ADD design outputs, not intake inputs.",
     2: "Must explicitly identify the source category (user / external system / internal event / time/timer) AND contextualize it to the actual system. Just 'usuario' with no context is NOT sufficient.",
     3: "Two-tier rule — diagnosis level only, not solution design. (A) Triggers WITH performance metrics (latency, TPM, concurrent users, timeouts): identify the system component that receives the event, indicate sync or async interaction, reference the endpoint or event name (approximate is acceptable), and include the associated metric (p95, TPM, timeout). (B) Triggers WITHOUT metrics (timers, webhooks, deployments, security events, internal events): sufficient to name the trigger and the component that processes it — no exact endpoint, retry policy, or cooldown required. The validator must NOT require in any case: autoscaling policies (threshold, cooldown, min/max replicas), HTTP response codes, retry or backoff policies, detailed failover mechanisms, or rollback behavior. These are solution details, not diagnosis details.",
     4: "Must cover at least two operational conditions with numeric metrics: normal load AND at least one stress condition (overload, peak, or burst). Maintenance windows or RTO/RPO are optional. Covering only normal operation is NOT sufficient.",
@@ -413,7 +413,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
     if _lang == "es":
         templates = {
             0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
-            1: "Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas.",
+            1: "Reescribe tu respuesta describiendo las funcionalidades principales o áreas de responsabilidad del sistema. Si estás construyendo desde cero, menciona las capacidades que quieres que el sistema tenga. No nombres componentes arquitectónicos — eso se determina durante el proceso de diseño ADD, no en esta etapa.",
             2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
             3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si tiene métricas (latencia, TPM, usuarios concurrentes, timeouts), indica el componente que lo procesa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta.",
             4: "Reescribe tu respuesta cubriendo al menos carga normal Y sobrecarga/pico, e incluye métricas numéricas en cada caso (ms, rps, porcentajes).",
@@ -424,7 +424,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
     else:
         templates = {
             0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
-            1: "Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues.",
+            1: "Rewrite your answer describing the main functionalities or areas of responsibility of the system. If you are building from scratch, mention the capabilities you want the system to have. Do not name architectural components — those are determined during the ADD design process, not at this stage.",
             2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
             3: "Rewrite your answer describing the specific event that triggers the behavior. If it has associated metrics (latency, TPM, concurrent users, timeouts), indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically is sufficient.",
             4: "Rewrite your answer covering at least normal load AND overload/peak, with numeric metrics for each case (ms, rps, percentages).",
