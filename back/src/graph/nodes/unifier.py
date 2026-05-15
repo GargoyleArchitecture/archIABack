@@ -303,6 +303,26 @@ async def unifier_node(state: GraphState) -> GraphState:
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 
+    if intent == "asr_confirm":
+        end_text = state.get("endMessage") or ""
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state["suggestions"] = state.get("suggestions") or []
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
+    # BUG-054 / BUG-055: same pass-through as asr_confirm — the confirmation
+    # node already produced the user-facing message in `endMessage`.
+    if intent == "style_confirm":
+        end_text = state.get("endMessage") or ""
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state["suggestions"] = state.get("suggestions") or []
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
     # 🔴 Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (

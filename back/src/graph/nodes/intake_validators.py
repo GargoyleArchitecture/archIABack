@@ -18,7 +18,7 @@ _TECHNICAL_TERMS = re.compile(
     r"rest(?:ful)?|grpc|https?|websockets?|webrtc|mqtt|soap|graphql|"
     # infra / platforms
     r"kafka|redis|postgres(?:ql)?|mongo(?:db)?|mysql|sqlite|s3|cdn|pop|sfu|mcu|"
-    r"gateways?|proxys?|proxies|broker|balanceador|nginx|docker|kubernetes|k8s|"
+    r"gateways?|proxys?|proxies|broker|brokers?|balanceador|nginx|docker|kubernetes|k8s|"
     r"lambda|serverless|contenedores?|"
     # security / compliance
     r"oauth|jwt|tls|mtls|hipaa|gdpr|rbac|sso|autenticaci[oó]n|autorizaci[oó]n|"
@@ -30,7 +30,16 @@ _TECHNICAL_TERMS = re.compile(
     # generic system vocabulary
     r"funciones?|aplicaci[oó]n|aplicaciones|integraci[oó]n|integraciones|"
     r"notificaci[oó]n|notificaciones|videollamadas?|sesiones?|almacenamiento|"
-    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria"
+    r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria|"
+    # BUG-038: finance / integration vocabulary so fintech inputs like
+    # "Gateway ISO 20022", "core bancario", "RTGS", "bus de eventos",
+    # "payment gateway", "webhook" are recognised as technical terms.
+    r"banco|bancos|banco origen|payment gateway|payment\s*gateway|pasarela de pagos|"
+    r"iso\s?20022|swift|sepa|ach|rtgs|core\s+bancario|core\s+banking|core\s+ledger|"
+    r"webhook|webhooks|bus de eventos|event bus|stream|streaming|"
+    r"queue|queues|cola de mensajes|message queue|cola de eventos|"
+    r"liquidaci[oó]n|settlement|conciliaci[oó]n|reconciliation|ledger|"
+    r"tokenizaci[oó]n|tokenization|kyc|aml|antifraude|antifraud|fraud|fraude"
     r")\b",
     re.IGNORECASE,
 )
@@ -53,7 +62,15 @@ _SOURCE_CATEGORIES = re.compile(
     # internal event
     r"evento interno|internal event|"
     # time / schedule synonyms
-    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout"
+    r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout|"
+    # BUG-038: finance / integration sources so fintech intake answers
+    # (e.g. "banco origen", "API REST", "webhook", "cola Kafka", "payment gateway")
+    # are accepted as stimulus sources.
+    r"banco|banco origen|core\s+bancario|core\s+banking|"
+    r"api\s+rest|rest\s+api|webhook|webhooks|"
+    r"cola|queue|stream|streaming|"
+    r"payment\s+gateway|pasarela\s+de\s+pagos|"
+    r"iso\s?20022|swift|sepa|ach|rtgs|mtls|tls|broker"
     r")\b",
     re.IGNORECASE,
 )
@@ -112,17 +129,19 @@ INTAKE_SCRIPT = [
         "question_es": "¿Cuál es la fuente del estímulo? Por ejemplo: usuario, sistema externo, evento interno, tiempo/timer.",
         "question_en": "What is the source of the stimulus? For example: user, external system, internal event, time/timer.",
         "rule": "_SOURCE_CATEGORIES match",
+        "optional": True,
     },
     {
         "field": "campo_3_estimulo",
         "question_es": "¿Cuál es el estímulo o trigger que activa el comportamiento del sistema? Describe el evento específico que dispara la respuesta.",
         "question_en": "What is the stimulus or trigger that activates system behavior? Describe the specific event that triggers the response.",
-        "rule": "len(tokens) >= 8 AND at least one technical term",
+        "rule": "len(tokens) >= 5 AND at least one technical term",
+        "optional": True,
     },
     {
         "field": "campo_4_ambientes",
-        "question_es": "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas: carga normal, sobrecarga, mantenimiento (ej: p95<200ms, 500rps).",
-        "question_en": "In what environments or scenarios must the system operate? Include concrete metrics: normal load, overload, maintenance (e.g., p95<200ms, 500rps).",
+        "question_es": "¿En qué ambientes o escenarios debe operar el sistema? Incluye métricas concretas para carga normal y al menos una condición de pico o sobrecarga (ej: normal p95<200ms a 100rps; pico p99<500ms a 800rps). Las ventanas de mantenimiento son opcionales.",
+        "question_en": "In what environments or scenarios must the system operate? Include concrete metrics for normal load and at least one peak/overload condition (e.g., normal p95<200ms at 100rps; peak p99<500ms at 800rps). Maintenance windows are optional.",
         "rule": "_METRIC_PATTERN match",
     },
     {
@@ -157,12 +176,28 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
     if _is_copy_paste(index, value):
         return (False, "copy_paste")
 
-    if index in (0, 1, 3):
+    if index in (0, 1):
         tokens = value.split()
         if len(tokens) < 8:
             return (
                 False,
                 "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, módulo, API, componente, etc.).",
+            )
+        if not (_TECHNICAL_TERMS.search(value) or _TECHNICAL_ACRONYM_RE.search(value)):
+            return (
+                False,
+                "No se detectó vocabulario técnico. Menciona al menos un término arquitectónico como: servicio, API, componente, microservicio, REST, gRPC, WebRTC, kafka, JWT, gateway, etc.",
+            )
+        return (True, "")
+
+    # BUG-030: campo_3 (stimulus) uses a lower word threshold than campo_0/1
+    # because a concise technical description (5+ words) is sufficient.
+    if index == 3:
+        tokens = value.split()
+        if len(tokens) < 5:
+            return (
+                False,
+                "La respuesta es demasiado corta. Necesita al menos 5 palabras describiendo el evento técnico que dispara el comportamiento.",
             )
         if not (_TECHNICAL_TERMS.search(value) or _TECHNICAL_ACRONYM_RE.search(value)):
             return (
@@ -212,12 +247,12 @@ _REPROMPT_ERRORS: dict[int, dict[str, str]] = {
         "en": "Stimulus source not identified. Indicate if it comes from: user/patient/doctor, external system/external API, internal event, time/timer/cron.",
     },
     3: {
-        "es": "La respuesta es demasiado corta. Necesita al menos 8 palabras con vocabulario técnico concreto (servicio, API, REST, gRPC, WebRTC, microservicio, gateway, etc.).",
-        "en": "Answer too short. Need at least 8 words with concrete technical vocabulary (service, API, REST, gRPC, WebRTC, microservice, gateway, etc.).",
+        "es": "La respuesta es demasiado corta. Necesita al menos 5 palabras describiendo el evento técnico que dispara el comportamiento.",
+        "en": "Answer too short. Need at least 5 words describing the technical event that triggers the behavior.",
     },
     4: {
-        "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
-        "en": "No concrete metric found. Include numbers, comparisons or units such as: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        "es": "No se encontró ninguna métrica concreta. Tu respuesta debe cubrir al menos carga normal Y sobrecarga/pico, cada una con números/unidades: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
+        "en": "No concrete metric found. Your answer must cover at least normal load AND overload/peak, each with numbers/units: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
     },
     5: {
         "es": "No se encontró ninguna métrica concreta. Incluye números, comparaciones o unidades como: <200ms, 500rps, 99.9%, p95, SLA, SLO, TPS.",
@@ -274,7 +309,7 @@ _ADD3_CRITERIA: dict[int, str] = {
     1: "Must name specific system components with at least one characteristic each. 'Frontend and backend' is NOT sufficient. Needs actual services, APIs, modules, or databases.",
     2: "Must explicitly identify the source category (user / external system / internal event / time/timer) AND contextualize it to the actual system. Just 'usuario' with no context is NOT sufficient.",
     3: "Two-tier rule — diagnosis level only, not solution design. (A) Triggers WITH performance metrics (latency, TPM, concurrent users, timeouts): identify the system component that receives the event, indicate sync or async interaction, reference the endpoint or event name (approximate is acceptable), and include the associated metric (p95, TPM, timeout). (B) Triggers WITHOUT metrics (timers, webhooks, deployments, security events, internal events): sufficient to name the trigger and the component that processes it — no exact endpoint, retry policy, or cooldown required. The validator must NOT require in any case: autoscaling policies (threshold, cooldown, min/max replicas), HTTP response codes, retry or backoff policies, detailed failover mechanisms, or rollback behavior. These are solution details, not diagnosis details.",
-    4: "Must cover ALL THREE operational conditions: normal, overload, AND maintenance. Each needs numeric metrics (rps, ms, %, intervals). Covering only normal operation is NOT sufficient.",
+    4: "Must cover at least two operational conditions with numeric metrics: normal load AND at least one stress condition (overload, peak, or burst). Maintenance windows or RTO/RPO are optional. Covering only normal operation is NOT sufficient.",
     5: "Must list quality attributes with concrete numeric values. 'High availability' without a percentage is NOT sufficient. Needs availability %, latency ms, throughput rps, or similar.",
     6: "Must list concrete technical constraints or explicit negation (ninguna/none/n/a). Vague mention of constraints is NOT sufficient.",
     7: "Must describe concrete prior architectural decisions or explicit negation. Generic statements like 'we follow best practices' are NOT sufficient.",
@@ -301,9 +336,10 @@ _UNIFIED_PROMPT_V2 = """\
 2. Use exactly one of these statuses per field: answered_valid, answered_invalid, not_addressed.
 3. If answered_valid or answered_invalid, extract only the portion of the user message that answers that field.
 4. Validate each attempted answer against the ADD 3.0 criterion AND the project context.
-5. If answered_invalid, explain exactly what is missing in {lang}, list the missing details, and write a short repair prompt telling the user how to rewrite the answer.
-6. If not_addressed, set extracted_text to null and leave reason / repair_prompt empty.
-7. Accept only if the answer contains concrete details specific to the user's actual system and meets the criterion.
+5. If answered_invalid, explain exactly what is missing in {lang}, list EVERY missing sub-aspect in `missing_details` (e.g. for `campo_4_ambientes` list each of "normal", "sobrecarga" that is absent — never just the first one), and write a short repair prompt telling the user exactly what to add or fix.
+6. If answered_invalid, write a concise repair prompt telling the user what is missing or needs clarification — do NOT ask them to re-send what they already provided.
+7. If not_addressed, set extracted_text to null and leave reason / repair_prompt empty.
+8. Accept only if the answer contains concrete details specific to the user's actual system and meets the criterion.
 
 Respond ONLY with valid JSON:
 {{
@@ -379,8 +415,8 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
             0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
             1: "Reescribe tu respuesta enumerando los componentes reales del sistema y el rol de cada uno, por ejemplo servicios, APIs, bases de datos o colas.",
             2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
-            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si ese trigger tiene métricas asociadas (latencia, TPM, usuarios concurrentes, timeouts), indica también con qué componente interactúa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta y reconocible.",
-            4: "Reescribe tu respuesta cubriendo carga normal, sobrecarga y mantenimiento, e incluye métricas numéricas en cada caso, por ejemplo ms, rps o porcentajes.",
+            3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si tiene métricas (latencia, TPM, usuarios concurrentes, timeouts), indica el componente que lo procesa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta.",
+            4: "Reescribe tu respuesta cubriendo al menos carga normal Y sobrecarga/pico, e incluye métricas numéricas en cada caso (ms, rps, porcentajes).",
             5: "Reescribe tu respuesta listando los atributos de calidad prioritarios con valores concretos, por ejemplo disponibilidad 99.9%, latencia <100ms o throughput 1000rps.",
             6: "Reescribe tu respuesta indicando restricciones técnicas concretas, o escribe 'ninguna' si realmente no aplica.",
             7: "Reescribe tu respuesta indicando decisiones de diseño previas concretas que deban respetarse, o escribe 'ninguna' si no existe ninguna.",
@@ -390,8 +426,8 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
             0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
             1: "Rewrite your answer listing the real system components and each role, such as services, APIs, databases, or queues.",
             2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
-            3: "Rewrite your answer describing the specific event that triggers the behavior. If that trigger has associated metrics (latency, TPM, concurrent users, timeouts), also indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically and recognizably is sufficient.",
-            4: "Rewrite your answer covering normal load, overload, and maintenance, and include numeric metrics for each case, such as ms, rps, or percentages.",
+            3: "Rewrite your answer describing the specific event that triggers the behavior. If it has associated metrics (latency, TPM, concurrent users, timeouts), indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically is sufficient.",
+            4: "Rewrite your answer covering at least normal load AND overload/peak, with numeric metrics for each case (ms, rps, percentages).",
             5: "Rewrite your answer listing the priority quality attributes with concrete values, for example availability 99.9%, latency <100ms, or throughput 1000rps.",
             6: "Rewrite your answer stating concrete technical constraints, or write 'none' if there are truly none.",
             7: "Rewrite your answer stating concrete prior design decisions that must be respected, or write 'none' if there are none.",

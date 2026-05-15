@@ -16,7 +16,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Callable
 
 from src.graph.nodes.styles.common import style_node_impl
-from src.graph.nodes.tactics.availability_tactics import _fault_detection_lines_for_prompt
+from src.graph.nodes.tactics.availability_tactics import _availability_tactics_for_prompt
 from src.graph.nodes.tactics.common import tactics_node_impl
 from src.graph.qa_registry import normalize_qa
 from src.graph.state import GraphState
@@ -50,7 +50,7 @@ def _build_tactics_fn(qa: str) -> Callable[[GraphState], GraphState]:
             return tactics_node_impl(
                 state,
                 qa_override="disponibilidad",
-                preferred_tactics=_fault_detection_lines_for_prompt(),
+                preferred_tactics=_availability_tactics_for_prompt(),
                 preferred_group_label="Fault detection (disponibilidad)",
                 restrict_to_preferred_tactics=True,
             )

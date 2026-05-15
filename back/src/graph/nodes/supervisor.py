@@ -5,7 +5,7 @@ from langchain_core.messages import SystemMessage
 from src.services.llm_factory import get_chat_model
 from src.graph.state import GraphState, supervisorSchema
 from src.graph.nodes.classifier import FOLLOWUP_PATTERNS
-from src.graph.utils import is_explicit_asr_request
+from src.graph.utils import is_explicit_asr_request, is_asr_regenerate_request
 from src.graph.consts import PHASE_INT, FUNNEL_INTENT_MIN_PHASE, PHASE_DISPLAY, PHASE_NEXT_TASK
 import logging
 
@@ -89,6 +89,31 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
         _append_unique(out, "diagram_agent")
     return out
 
+import re as _re
+
+_NEW_PROJECT_GREETING_RE = _re.compile(
+    r"^\s*(?:hola\b|hi\b|hello\b|buenos\s+d[íi]as|buenas\s+tardes|hey\b)",
+    _re.IGNORECASE,
+)
+_NEW_PROJECT_DESIGN_RE = _re.compile(
+    r"\b(?:"
+    r"quiero\s+dise[nñ]ar|quisiera\s+dise[nñ]ar|"
+    r"necesito\s+(?:diseñar|crear|construir)\s+(?:la\s+)?(?:arquitectura|sistema)|"
+    r"dise[nñ]ar\s+(?:la\s+)?arquitectura\s+de|"
+    r"dise[nñ]ar\s+(?:el|un)\s+sistema|"
+    r"I\s+(?:need|want)\s+to\s+(?:design|build|create)\s+(?:a|an|the)\s+(?:architecture|system)"
+    r")\b",
+    _re.IGNORECASE,
+)
+
+def _is_new_project_intro(uq: str) -> bool:
+    """True when the message is a fresh project introduction (greeting + design intent, long enough)."""
+    return (
+        len(uq.split()) >= 20
+        and bool(_NEW_PROJECT_GREETING_RE.search(uq))
+        and bool(_NEW_PROJECT_DESIGN_RE.search(uq))
+    )
+
 def _build_block_message(current_phase: str, requested_phase: str, lang: str) -> str:
     cur_display = PHASE_DISPLAY.get(current_phase, {}).get(lang, current_phase)
     req_display = PHASE_DISPLAY.get(requested_phase, {}).get(lang, requested_phase)
@@ -160,6 +185,8 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         explicit_asr_request
         or fu_intent == "make_asr"
         or (forced == "asr" and not has_existing_asr)
+        or forced == "asr_reject"
+        or is_asr_regenerate_request(uq)
     )
 
     explicit_chain = wants_asr or wants_style or wants_tactics or wants_tech or wants_diagram
@@ -177,9 +204,14 @@ def _infer_requested_nodes(uq: str, state: GraphState, forced: str | None) -> li
         _append_unique(plan, "style")
 
     if wants_tactics:
-        if (not has_existing_asr) and ("asr" not in plan):
-            _append_unique(plan, "asr")
-        _append_unique(plan, "tactics")
+        _phase_past_tactics = (state.get("current_phase") or "") in (
+            "tech_proposals", "diagram", "done"
+        )
+        _tactics_already_done = bool(state.get("selected_tactics")) and _phase_past_tactics
+        if not _tactics_already_done:
+            if (not has_existing_asr) and ("asr" not in plan):
+                _append_unique(plan, "asr")
+            _append_unique(plan, "tactics")
 
     if wants_tech:
         if (not has_existing_asr) and ("asr" not in plan):
@@ -237,9 +269,85 @@ def supervisor_node(state: GraphState):
     if d.get("ok") and d.get("svg_b64"):
         return {**state, "nextNode": "unifier", "intent": "diagram"}
 
+    # BUG-025: New project detection — fires when a stale checkpoint has a
+    # mid-session current_phase but the user is clearly starting a fresh project.
+    # Without this, the M1 gate issues a "wrong phase" block instead of intake.
+    _phase_now = (state.get("current_phase") or "intro")
+    if _phase_now not in ("intro", "diagnosis") and _is_new_project_intro(uq):
+        _np_lang = state.get("language") or detect_lang(uq) or "es"
+        _np_lang = "es" if _np_lang == "es" else "en"
+        return {
+            **state,
+            "current_phase": "intro",
+            "new_project_flow": True,
+            "routing_phase": "intake",
+            "intake_fields": {},
+            "intake_complete": False,
+            "intake_current_field": 0,
+            "current_asr": "",
+            "last_asr": "",
+            "selected_asrs": [],
+            "asr_candidates": [],
+            "style": "",
+            "selected_style": "",
+            "last_style": "",
+            "style_candidates": [],
+            "selected_tactics": [],
+            "tactics_candidates": [],
+            "tactics_struct": [],
+            "tactics_list": [],
+            "tech_candidates": [],
+            "ledger_active": {},
+            "completed_nodes": [],
+            "nextNode": "intake",
+            "localQuestion": "",
+            "language": _np_lang,
+        }
+
     # BUG-014: preserve prior language when detect_lang has no signal (returns None).
     state_lang = state.get("language") or detect_lang(uq) or "es"
     state_lang = "es" if state_lang == "es" else "en"
+
+    # ─── Orientación para usuarios que regresan ──────────────────────────────
+    # Fires when: user has passed intake (current_phase outside intro/diagnosis)
+    # AND the message is a greeting or generic intent with no specific action.
+    # Instead of falling through to investigator, summarize their progress and
+    # tell them what to do next.
+    _returning_intent = (state.get("intent") or "") in ("general", "greeting", "smalltalk")
+    _has_phase_context = (state.get("current_phase") or "intro") not in ("intro", "diagnosis")
+
+    if _returning_intent and _has_phase_context:
+        _phase_now   = state.get("current_phase") or "intro"
+        _task_hint   = PHASE_NEXT_TASK.get(_phase_now, {}).get(state_lang, "")
+        _phase_label = PHASE_DISPLAY.get(_phase_now, {}).get(state_lang, _phase_now)
+        _compact     = (state.get("ledger_dossier_compact") or "").strip()
+
+        if state_lang == "es":
+            _lines = [f"Bienvenido de vuelta. Estamos en la fase de **{_phase_label}**."]
+            if _compact:
+                _lines.append(_compact)
+            if _task_hint:
+                _lines.append(f"La siguiente tarea es: *{_task_hint}*. ¿Continuamos?")
+        else:
+            _lines = [f"Welcome back. We're in the **{_phase_label}** phase."]
+            if _compact:
+                _lines.append(_compact)
+            if _task_hint:
+                _lines.append(f"Next up: *{_task_hint}*. Shall we continue?")
+
+        _completed = _augment_completed_nodes(state, list(state.get("completed_nodes") or []))
+        return {
+            **state,
+            "endMessage": "\n\n".join(_lines),
+            "nextNode": "unifier",
+            "intent": "intake",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": _completed,
+            "phase_redirect_hint": "",
+        }
+    # ────────────────────────────────────────────────────────────────────────
 
     # ─── M1: Gate de fase ADD 3.0 ───────────────────────────────────────────
     current_phase = (state.get("current_phase") or "intro")
@@ -250,6 +358,10 @@ def supervisor_node(state: GraphState):
         block_text = _build_block_message(current_phase, min_phase_key, state_lang)
         _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
         _sugs_en = ["Yes, let's continue", "I want to change the system context"]
+        # BUG-002 fix: preserve completed_nodes across phase-gate redirects.
+        # Wiping it caused the supervisor to re-trigger already-done nodes
+        # (e.g. ASR re-generation) on the turn immediately after the block.
+        _completed_safe = _augment_completed_nodes(state, list(state.get("completed_nodes") or []))
         return {
             **state,
             "endMessage": block_text,
@@ -259,13 +371,51 @@ def supervisor_node(state: GraphState):
             "suggestions": _sugs_es if state_lang == "es" else _sugs_en,
             "requested_nodes": [],
             "pending_nodes": [],
-            "completed_nodes": [],
+            "completed_nodes": _completed_safe,
             "phase_redirect_hint": "",
         }
     # ────────────────────────────────────────────────────────────────────────
 
     # Estado multi-intent del turno
     completed_nodes = _augment_completed_nodes(state, list(state.get("completed_nodes", []) or []))
+
+    if intent_raw == "asr_confirm":
+        return {
+            **state,
+            "nextNode": "asr_confirm",
+            "intent": "asr_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
+    # BUG-054 / BUG-055: route the user's style selection directly to the
+    # confirmation node — never to style_node (which would re-generate
+    # candidates) or to the "Bienvenido de vuelta" fallback.
+    if intent_raw == "style_confirm":
+        return {
+            **state,
+            "nextNode": "style_confirm",
+            "intent": "style_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
+    # BUG-012/007/013: route tactics confirmation directly to tactics_confirm_node.
+    if intent_raw == "tactics_confirm":
+        return {
+            **state,
+            "nextNode": "tactics_confirm",
+            "intent": "tactics_confirm",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
     pending_nodes = list(state.get("pending_nodes", []) or [])
     requested_nodes = list(state.get("requested_nodes", []) or [])
 
@@ -292,7 +442,8 @@ def supervisor_node(state: GraphState):
         or _routing_phase in ("asr", "style", "tactics", "tech", "done")
     )
     _asr_already_done = ("asr" in completed_nodes) or _has_existing_asr
-    must_run_asr = ("asr" in requested_nodes) and not _asr_already_done
+    explicit_regen = is_asr_regenerate_request(uq) or (state.get("intent") == "asr_reject")
+    must_run_asr = ("asr" in requested_nodes) and (explicit_regen or not _asr_already_done)
 
     if must_run_asr:
         next_node = "asr"

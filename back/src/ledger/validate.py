@@ -9,12 +9,13 @@ from src.ledger.types import (
     PhaseTransition,
 )
 
-_VALID_KINDS = {"asr", "style", "tactic", "diagram", "analysis", "constraint"}
+_VALID_KINDS = {"asr", "style", "tactic", "tech", "diagram", "analysis", "constraint"}
 
 _REQUIRED_PAYLOAD_KEYS: dict[str, set[str]] = {
     "asr":        {"summary"},
     "style":      {"chosen"},
     "tactic":     {"items"},
+    "tech":       {"items"},
     "diagram":    set(),
     "analysis":   {"target_id"},
     "constraint": set(),
@@ -25,6 +26,7 @@ _REQUIRED_PARENT_KINDS: dict[str, list[str]] = {
     "asr":        [],
     "style":      ["asr"],
     "tactic":     ["asr", "style"],
+    "tech":       [],
     "diagram":    ["style"],
     "analysis":   [],
     "constraint": [],

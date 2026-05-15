@@ -34,8 +34,12 @@ def _result(fields):
 
 def test_build_repair_prompt_for_metrics_is_targeted():
     msg = build_repair_prompt(4, "es", "Faltan métricas de sobrecarga.")
-    assert "carga normal, sobrecarga y mantenimiento" in msg
+    msg_low = msg.lower()
+    # All three scenarios must be mentioned (BUG-016: prompt uses "Y" for emphasis).
+    assert "normal" in msg_low and "sobrecarga" in msg_low and "mantenimiento" in msg_low
     assert "ms" in msg or "rps" in msg
+    # BUG-016: prompt must instruct user to re-send the COMPLETE field.
+    assert "completa" in msg_low or "complete" in msg_low
 
 
 def test_intake_skips_questions_already_answered_in_same_message():
