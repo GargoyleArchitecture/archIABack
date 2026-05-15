@@ -114,8 +114,8 @@ def _is_copy_paste(index: int, value: str) -> bool:
 INTAKE_SCRIPT = [
     {
         "field": "campo_0_requerimiento",
-        "question_es": "¿Cuál es el requerimiento principal del sistema que deseas diseñar? Describe el objetivo principal, los componentes involucrados y las expectativas de calidad.",
-        "question_en": "What is the main requirement of the system you want to design? Describe the main goal, the components involved, and quality expectations.",
+        "question_es": "¿Cuál es el requerimiento principal del sistema que deseas diseñar? Describe el objetivo principal, el alcance funcional y las expectativas de calidad.",
+        "question_en": "What is the main requirement of the system you want to design? Describe the main goal, the functional scope, and quality expectations.",
         "rule": "len(tokens) >= 8 AND at least one technical term",
     },
     {

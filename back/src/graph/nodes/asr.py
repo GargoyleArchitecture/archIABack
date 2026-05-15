@@ -665,10 +665,12 @@ Your job is to produce a PRIORITIZED TABLE of candidate Architecture Significant
 Requirements (ASRs). The architect will pick one ID to expand later — do NOT
 expand them now.
 
-Generate between 2 and 4 candidate rows, ONE row per identified quality attribute
+Generate between 6 and 8 candidate rows, ONE row per identified quality attribute
 (latency, scalability, availability, security, modifiability, etc.). Read the
 intake context below and infer which QAs are problematic for THIS system. Each
-row must use IDs A1, A2, A3, A4 (in that order).
+row must be traceable to a concrete stakeholder problem or a specific system
+metric from the intake context; if a QA cannot be justified with intake evidence,
+omit it. Use IDs A1 through A8 in order (stop when you run out of justified QAs).
 
 {"=" * 60}
 PROJECT CONTEXT — YOU MUST RESPECT THESE CONSTRAINTS:
