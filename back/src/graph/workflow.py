@@ -18,6 +18,7 @@ from src.graph.nodes.evaluator import evaluator_node
 from src.graph.nodes.unifier import unifier_node
 from src.graph.nodes.asr import asr_node
 from src.graph.nodes.asr_confirm import asr_confirm_node
+from src.graph.nodes.asr_detail import asr_detail_node
 from src.graph.nodes.style_confirm import style_confirm_node
 from src.graph.nodes.tactics_confirm import tactics_confirm_node
 from src.graph.nodes.styles import style_node, make_style_qa_node
@@ -132,6 +133,9 @@ def router(state: GraphState) -> str:
     if state["nextNode"] == "asr_confirm":
         return "asr_confirm"
 
+    if state["nextNode"] == "asr_detail":
+        return "asr_detail"
+
     if state["nextNode"] == "style_confirm":
         return "style_confirm"
 
@@ -193,6 +197,7 @@ builder.add_node("evaluator", evaluator_node)
 builder.add_node("unifier", unifier_node)
 builder.add_node("asr", asr_node)
 builder.add_node("asr_confirm", asr_confirm_node)
+builder.add_node("asr_detail", asr_detail_node)
 builder.add_node("style_confirm", style_confirm_node)
 builder.add_node("tactics_confirm", tactics_confirm_node)
 builder.add_node("style", style_node)
@@ -236,6 +241,7 @@ builder.add_edge("diagram_agent", "supervisor")
 builder.add_edge("evaluator", "supervisor")
 builder.add_edge("asr", "supervisor")
 builder.add_edge("asr_confirm", "unifier")
+builder.add_edge("asr_detail", "unifier")
 builder.add_edge("style_confirm", "unifier")
 builder.add_edge("tactics_confirm", "unifier")
 builder.add_edge("style", "supervisor")

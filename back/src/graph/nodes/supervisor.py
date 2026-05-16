@@ -417,6 +417,19 @@ def supervisor_node(state: GraphState):
             "completed_nodes": completed_nodes,
         }
 
+    # asr_detail: read-only re-render of a confirmed ASR's 6-part block.
+    # No phase transition, no ledger write — bypass all phase gates.
+    if intent_raw == "asr_detail":
+        return {
+            **state,
+            "nextNode": "asr_detail",
+            "intent": "asr_detail",
+            "language": state_lang,
+            "requested_nodes": [],
+            "pending_nodes": [],
+            "completed_nodes": completed_nodes,
+        }
+
     # BUG-054 / BUG-055: route the user's style selection directly to the
     # confirmation node — never to style_node (which would re-generate
     # candidates) or to the "Bienvenido de vuelta" fallback.

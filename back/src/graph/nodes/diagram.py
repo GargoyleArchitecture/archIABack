@@ -293,6 +293,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
                 requested_level,
                 overview_max_nodes=15,
                 medium_max_nodes=30,
+                lang=_lang,
             )
 
             final_dot = render_dot(ir_model)

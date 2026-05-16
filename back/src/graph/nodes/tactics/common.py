@@ -181,6 +181,11 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
     qa            = asr.get("qa", "")
     asr_payload   = asr.get("payload") or {}
     rm            = asr_payload.get("response_measure", "")
+    # Bug A fix: prefer the human-friendly ID (A1/A2/…) over the ULID when
+    # building the prompt so the LLM cites "A2" in `traces_to_asr` instead of
+    # emitting the ULID, which leaks into the tactics table column.
+    human_id      = (asr_payload.get("candidate_id") or "").upper().strip()
+    asr_ref       = human_id or asr_id
     style_id      = style.get("id", "")
     style_payload = style.get("payload") or {}
     style_chosen  = style_payload.get("chosen", "")
@@ -190,13 +195,14 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
         return (
             f'\n{"=" * 60}\n'
             f'ACTIVE DESIGN DECISIONS — BINDING CONSTRAINTS FOR TACTICS:\n'
-            f'  ASR ID:            {asr_id}\n'
+            f'  ASR ID:            {asr_ref}\n'
             f'  Quality Attribute: {qa}\n'
             f'  Response Measure:  {rm}\n\n'
             f'  Active Style:      {style_chosen}  (id: {style_id})\n'
             f'  Style Tradeoffs:   {style_trades}\n\n'
             f'REQUIREMENTS:\n'
-            f'1. Each tactic\'s "traces_to_asr" field MUST cite: "{rm}"\n'
+            f'1. Each tactic\'s "traces_to_asr" field MUST be the ASR id "{asr_ref}" '
+            f'(NOT the ULID, NOT the response measure verbatim).\n'
             f'2. Tactics MUST realize style "{style_chosen}" — do NOT contradict its tradeoffs.\n'
             f'3. Tactics that conflict with "{style_chosen}" MUST be excluded with explanation.\n'
             f'{"=" * 60}\n'
@@ -204,13 +210,14 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
     return (
         f'\n{"=" * 60}\n'
         f'DECISIONES DE DISEÑO ACTIVAS — RESTRICCIONES VINCULANTES PARA TÁCTICAS:\n'
-        f'  ID del ASR:          {asr_id}\n'
+        f'  ID del ASR:          {asr_ref}\n'
         f'  Atributo de Calidad: {qa}\n'
         f'  Medida de Respuesta: {rm}\n\n'
         f'  Estilo Activo:       {style_chosen}  (id: {style_id})\n'
         f'  Compromisos:         {style_trades}\n\n'
         f'REQUISITOS:\n'
-        f'1. El campo "traces_to_asr" de cada táctica DEBE citar: "{rm}"\n'
+        f'1. El campo "traces_to_asr" de cada táctica DEBE ser el id del ASR "{asr_ref}" '
+        f'(NO el ULID, NO la medida de respuesta verbatim).\n'
         f'2. Las tácticas DEBEN realizar el estilo "{style_chosen}" — no contradigan sus compromisos.\n'
         f'3. Las tácticas que conflictúen con "{style_chosen}" DEBEN excluirse con explicación.\n'
         f'{"=" * 60}\n'
@@ -233,15 +240,37 @@ def _build_parent_refs(ledger_active: dict) -> list:
     return refs
 
 
-def _validate_tactic_traces(items: list, response_measure: str) -> list:
-    """Post-processing guard: if LLM emitted an empty traces_to_asr, fill a
-    sensible default so the ledger payload is structurally complete.
+_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+
+
+def _validate_tactic_traces(
+    items: list,
+    response_measure: str,
+    human_asr_id: str = "",
+) -> list:
+    """Post-processing guard:
+    - If LLM emitted an empty traces_to_asr, fill a sensible default so the
+      ledger payload is structurally complete.
+    - Bug A fix: if the LLM emitted the bare ULID (26-char Crockford base32),
+      replace it with the human-friendly ASR id (e.g. "A2") so the rendered
+      "ASR al que aplica" column is readable.
     Mutates and returns the list.
     """
-    default = f"Satisfies Response Measure: {response_measure}" if response_measure else ""
+    fallback = (
+        human_asr_id
+        or (f"Satisfies Response Measure: {response_measure}" if response_measure else "")
+    )
+    human = (human_asr_id or "").strip()
     for item in items:
-        if isinstance(item, dict) and not (item.get("traces_to_asr") or "").strip():
-            item["traces_to_asr"] = default
+        if not isinstance(item, dict):
+            continue
+        val = (item.get("traces_to_asr") or "").strip()
+        if not val:
+            item["traces_to_asr"] = fallback
+            continue
+        if human and _ULID_RE.match(val):
+            # Bare ULID — swap for human id.
+            item["traces_to_asr"] = human
     return items
 
 
@@ -656,6 +685,26 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     # internal ledger payload; debugging relies on logs, not chat output.
     md_only = strip_first_json_fence(raw)
     md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
+    # Bug A fix: if the LLM emitted the ASR's ULID in the "ASR al que aplica"
+    # column instead of the friendly id (A1/A2/…), swap it back. The ULID is
+    # internal; users should see "A2", not "01KRQE2BCJ34FPYVT302BYZY3N".
+    # We swap in three places:
+    #   (1) struct items' `traces_to_asr` field — for the fallback renderer and
+    #       any downstream consumers that read struct directly.
+    #   (2) the markdown the LLM produced — for the user-visible chat bubble.
+    #   (3) the ledger write later in the function (handled via the
+    #       `human_asr_id` arg to _validate_tactic_traces).
+    _active_asr_for_swap = (state.get("ledger_active") or {}).get("asr") or {}
+    _ulid_for_swap = (_active_asr_for_swap.get("id") or "").strip()
+    _human_for_swap = ((_active_asr_for_swap.get("payload") or {}).get("candidate_id") or "").upper().strip()
+    if _ulid_for_swap and _human_for_swap and _ULID_RE.match(_ulid_for_swap):
+        md_only = md_only.replace(_ulid_for_swap, _human_for_swap)
+        if isinstance(struct, list):
+            for _it in struct:
+                if isinstance(_it, dict):
+                    _val = (_it.get("traces_to_asr") or "").strip()
+                    if _val == _ulid_for_swap or _ULID_RE.match(_val):
+                        _it["traces_to_asr"] = _human_for_swap
     # BUG-S3-002: truncate anything the LLM appended after the selection prompt.
     _select_marker = _select_q.strip()
     if _select_marker and _select_marker in md_only:
@@ -706,6 +755,7 @@ Example JSON shape (values are illustrative — adjust to your tactics):
             _items   = _validate_tactic_traces(
                 list(state.get("tactics_struct") or []),
                 _response_measure,
+                human_asr_id=_asr_id_for_tactics,
             )
             _parents = _build_parent_refs(state.get("ledger_active") or {})
             _qa      = state.get("quality_attribute") or qa

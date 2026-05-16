@@ -229,6 +229,28 @@ def classifier_node(state: GraphState) -> GraphState:
         elif any(k in low for k in asr_reject_triggers) or is_asr_regenerate_request(msg):
             intent = "asr_reject"
 
+    # asr_detail: user requests the 6-part detail of an already-confirmed ASR.
+    # Fires across all phases so the phase guard does not block retrospective
+    # inspection once the design loop has advanced past asr_table.
+    if intent not in ("asr_confirm", "asr_reject"):
+        _detail_asr_id_matches = re.findall(r"\b[Aa](\d+)\b", msg)
+        _asr_detail_explicit = re.search(
+            r"\b(?:detalle|detail)\b.*\b[Aa]\d+\b"
+            r"|\bmuéstrame\s+el\s+detalle\b"
+            r"|\bmuestrame\s+el\s+detalle\b"
+            r"|\bshow\s+me\s+(?:the\s+)?detail\b",
+            msg, re.IGNORECASE
+        )
+        if _asr_detail_explicit and _detail_asr_id_matches:
+            _confirmed_ids = {
+                str(x).strip().upper() for x in (state.get("selected_asrs") or [])
+                if re.match(r"^A\d+$", str(x).strip().upper())
+            }
+            _requested_ids = [f"A{n}" for n in _detail_asr_id_matches]
+            if any(rid in _confirmed_ids for rid in _requested_ids):
+                intent = "asr_detail"
+                state["asr_detail_ids"] = [rid for rid in _requested_ids if rid in _confirmed_ids]
+
     # BUG-054 / BUG-055: style selection — mirror of the asr_confirm block.
     # When the user is in style_table and types `S1`, `Selecciono el estilo S2`,
     # etc., classify the intent as `style_confirm` and seed selected_style.
@@ -367,6 +389,7 @@ def classifier_node(state: GraphState) -> GraphState:
         "asr",
         "asr_confirm",
         "asr_reject",
+        "asr_detail",
         "tactics",
         "tactics_confirm",
         "style",

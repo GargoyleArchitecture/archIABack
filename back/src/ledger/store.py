@@ -68,8 +68,18 @@ def _apply_supersession(ledger: DesignLedger, new_decision: Decision) -> str | N
     superseded node itself was mutated; children kept parent_status="ok" even
     though their parent was gone, causing compute_active_view to return stale
     style/tactic decisions linked to a superseded ASR.
+
+    Issue 2a fix: ASRs are an unordered SELECTION SET, not a single-winner
+    decision. Two ASRs picked together (e.g. "A1,A2") are both legitimate
+    drivers for the design loop, and the user may later add/inspect more.
+    Treating each new ASR as a supersession of every previously active ASR
+    collapses the set to its latest member and drops earlier picks from the
+    active view. Short-circuit here to keep all ASRs active concurrently;
+    dedupe-by-candidate-id is handled by the asr_confirm node before write.
     """
     kind = new_decision["kind"]
+    if kind == "asr":
+        return None
     new_parent_ids = frozenset(r["id"] for r in (new_decision.get("parents") or []))
 
     superseded_id: str | None = None

@@ -134,9 +134,9 @@ def asr_confirm_node(state: GraphState) -> GraphState:
     # ── Step 5: Expand + ledger-write every resolved candidate ───────────────
     confirmed_pairs: list[tuple[str, str]] = []  # (ulid_or_fallback, human_id)
     primary_expanded_payload: dict = {}
-    primary_six_part_md: str = ""
     chosen_qa: str = "general"
-    secondary_summaries: list[str] = []
+    all_exp_mds: list[str] = []    # Issue 2b: full detail for every confirmed ASR
+    all_exp_qas: list[str] = []    # Issue 2-bis: QA queue initialization
 
     for idx, cand in enumerate(resolved_candidates):
         base_payload = dict(cand.get("payload") or {})
@@ -157,13 +157,9 @@ def asr_confirm_node(state: GraphState) -> GraphState:
 
         if idx == 0:
             primary_expanded_payload = exp_payload
-            primary_six_part_md = exp_md
             chosen_qa = exp_qa
-        else:
-            qa_label = (exp_payload.get("qa") or cand.get("qa") or "").strip()
-            secondary_summaries.append(
-                f"{exp_human_id} ({qa_label})" if qa_label else exp_human_id
-            )
+        all_exp_mds.append(exp_md)   # Issue 2b: keep full detail for all confirmed ASRs
+        all_exp_qas.append(exp_qa)   # Issue 2-bis: collect QAs for per-QA queue
 
         new_ulid = ""
         if user_id:
@@ -212,14 +208,17 @@ def asr_confirm_node(state: GraphState) -> GraphState:
             new_selected_asrs.append(human_id)
     state["selected_asrs"] = new_selected_asrs
 
-    # ── Step 7: Build endMessage — primary gets full 6-part detail ───────────
-    end_msg = primary_six_part_md
-    if secondary_summaries:
-        if lang == "es":
-            also = "También confirmado" if len(secondary_summaries) == 1 else "También confirmados"
-        else:
-            also = "Additionally confirmed"
-        end_msg += f"\n\n_{also}: {', '.join(secondary_summaries)}_"
+    # Issue 2-bis: unique ordered QA queue for per-QA design loop iteration
+    seen_qas: set[str] = set()
+    qa_queue: list[str] = []
+    for q in all_exp_qas:
+        if q and q not in seen_qas:
+            seen_qas.add(q)
+            qa_queue.append(q)
+    state["selected_qa_queue"] = qa_queue
+
+    # ── Step 7: Build endMessage — full 6-part detail for every confirmed ASR ─
+    end_msg = "\n\n---\n\n".join(all_exp_mds)
 
     transitioned = False
     if user_id:
