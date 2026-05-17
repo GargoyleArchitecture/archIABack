@@ -285,6 +285,15 @@ def supervisor_node(state: GraphState):
         state.get("current_phase"), state.get("intent"), state.get("nextNode"),
     )
 
+    # Tutor mode invariant: never mutate ADD 3.0 progression state.
+    # Force-route every tutor turn to investigator (mode-aware, RAG-only).
+    if (state.get("mode") or "professional") == "tutor":
+        return {
+            **state,
+            "nextNode": "investigator",
+            "localQuestion": state.get("user_input", "") or state.get("localQuestion", ""),
+        }
+
     if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         return {**state, "nextNode": "intake", "localQuestion": ""}
 

@@ -197,7 +197,9 @@ def classifier_node(state: GraphState) -> GraphState:
     # tiene referente y debe seguir el flujo normal.
     _has_existing_asr = bool(state.get("current_asr") or state.get("last_asr"))
     _in_asr_phase = (state.get("current_phase") or "") == "asr_table"
-    if _has_existing_asr and _in_asr_phase:
+    # Tutor mode invariant: do not seed selection state from tutor messages.
+    _not_tutor = (state.get("mode") or "professional") != "tutor"
+    if _has_existing_asr and _in_asr_phase and _not_tutor:
         asr_confirm_triggers = [
             "confirmo", "lo confirmo", "acepto este asr", "acepto ese asr",
             "ese asr está bien", "ese asr esta bien", "está bien ese asr", "esta bien ese asr",
@@ -256,7 +258,7 @@ def classifier_node(state: GraphState) -> GraphState:
     # etc., classify the intent as `style_confirm` and seed selected_style.
     _in_style_phase = (state.get("current_phase") or "") == "style_table"
     _has_style_candidates = bool(state.get("style_candidates") or [])
-    if _in_style_phase and _has_style_candidates:
+    if _in_style_phase and _has_style_candidates and _not_tutor:
         style_confirm_triggers = [
             "selecciono el estilo", "selecciono este estilo", "selecciono ese estilo",
             "elijo el estilo", "elijo este estilo", "voy con el estilo",
@@ -278,7 +280,7 @@ def classifier_node(state: GraphState) -> GraphState:
     # instead of firing "Bienvenido de vuelta".
     _in_tactics_phase_cand = (state.get("current_phase") or "") in ("tactics_table",)
     _has_tactics_candidates = bool(state.get("tactics_candidates") or [])
-    if _in_tactics_phase_cand and _has_tactics_candidates:
+    if _in_tactics_phase_cand and _has_tactics_candidates and _not_tutor:
         tactics_confirm_triggers = [
             "acepto las tácticas", "acepto esas tácticas", "acepto esos tácticas",
             "confirmo las tácticas", "confirmo esas tácticas",
