@@ -1180,6 +1180,46 @@ This is cascading from BUG-054: both stem from the missing `style_confirm` inten
 
 ---
 
+## BUG-056 — Multi-ASR priority ignored: tactics + styles design for the last-appended ASR instead of `selected_asrs[0]`
+
+| Field | Details |
+|---|---|
+| **Status** | ✅ Fixed |
+| **Phase** | STYLE_TABLE + TACTICS_TABLE |
+| **File** | `back/src/graph/nodes/tactics/common.py`, `back/src/graph/nodes/styles/common.py` |
+| **Severity** | 🔴 High — multi-ASR selection silently designs for the wrong driver; user perceives non-determinism |
+
+### Observed Behavior
+When the user confirms several ASRs in priority order (e.g. `"confirmo A1, A2, A3"`, where A1 is the highest-priority driver), the tactics candidate table and the style proposals are built for an apparently arbitrary ASR — typically A3 (last typed), but the user reports it is "not consistently the last element".
+
+### Expected Behavior
+Both nodes must design for `selected_asrs[0]` (the user's highest-priority ASR), preserving the typed priority order all the way from `classifier_node` to the prompt.
+
+### Root Cause
+Two collaborating sites:
+
+1. `back/src/ledger/store.py:330-336` — `compute_active_view()` iterates `ledger["decisions"]` and overwrites `active[d["kind"]]` for every active decision. Because ASRs intentionally do NOT supersede each other (`_apply_supersession` short-circuits for `kind=="asr"` at `store.py:81-82`; comment at `store.py:72-78` explicitly says "ASRs are an unordered SELECTION SET"), all of A1/A2/A3 stay `status="active"` and the loop leaves only the **last-appended** one in `ledger_active["asr"]`.
+2. `back/src/graph/nodes/tactics/common.py:547,559-560,697,760` and `back/src/graph/nodes/styles/common.py:330,343-345,483,544` — both nodes treat `state["ledger_active"]["asr"]` as authoritative for the design target. That value is the collapsed view, so the prompt, the parent-ref of the new style/tactic decision, and the human-id swap all latch onto the wrong ASR.
+
+The same architectural mismatch was reported as BUG-053 from the styles side. The previous fix landed only as a defensive consistency check (`styles/common.py:342-370`) that compares `_active_candidate_id` against `selected_asrs`. In the multi-ASR case `selected_asrs = [ULID_A1, "A1", ULID_A2, "A2", ULID_A3, "A3"]` and the active id `"A3"` IS in the list, so the bailout never fires — styles silently designs for A3. BUG-056 is the proper fix.
+
+Non-determinism perceived by the user is explained by typed-order varying across runs ("always the last typed"), stale `ledger_active` surviving the parallel-dispatch deepcopy in `style_tactics_parallel`, pre-existing ASRs from earlier turns interleaving in the ledger, and silent `append_decision` failures swallowed by the try/except at `asr_confirm.py:183-191`. All variants are eliminated by reading from the primary view.
+
+### Fix
+Introduced a local `_active_view_with_primary_asr(state)` helper at the top of both `tactics/common.py` and `styles/common.py`. It returns a copy of `state["ledger_active"]` with `.asr` overridden by `get_all_active_asrs(ledger)[0]` (which preserves ledger append order, which preserves the user's typed priority order). All call sites that previously read `(state.get("ledger_active") or {})` to extract `.asr` now go through this helper:
+
+- `tactics/common.py`: dossier binding (line 544), `_active_asr` for response-measure validation (547), `_active_asr_payload` for `_asr_id_for_tactics` (559), ULID→human-id swap (697), parent refs for the new tactic decision (760), and the BUG-050 ASR-text fallback (433).
+- `styles/common.py`: dossier binding (330), defensive consistency check (343-345), parent refs for the new style decision (483), `_ledger_asr_payload` for the candidate-id display (544).
+
+`.style` and `.tactic` reads from `ledger_active` are unchanged — those kinds get superseded normally, so the raw view is correct for them.
+
+`compute_active_view` itself is not modified. The "unordered selection set" contract at `ledger/store.py:72-78` is the explicit design — the bug was always in the callers, never in the view.
+
+### Resolution Status
+✅ Fixed in this commit
+
+---
+
 ## Summary Table
 
 | ID | File | Severity | Status |
@@ -1223,3 +1263,4 @@ This is cascading from BUG-054: both stem from the missing `style_confirm` inten
 | BUG-053 | `asr_confirm.py` / `styles/common.py` / `ledger/` | 🔴 Critical — style proposals use wrong ASR (A4/QA:general instead of A1/Latencia); multi-candidate ledger write leaves A4 as last `status="active"` entry; `ledger_active` returns A4 instead of user-selected A1; `selected_asrs` ignored by style node | ✅ Fixed |
 | BUG-054 | `classifier.py` / `supervisor.py` / `style_confirm.py` | 🔴 High — style selection loop: after user selects S1, supervisor returns "Bienvenido de vuelta. ¿Continuamos?" on every turn; style intent not recognized after style already proposed | ✅ Fixed |
 | BUG-055 | `classifier.py` / `style_confirm.py` / `unifier.py` | 🔴 High — "No style content." returned when user explicitly says "Selecciono el estilo S1"; style node produces empty output for explicit-phrasing selection | ✅ Fixed |
+| BUG-056 | `tactics/common.py` / `styles/common.py` | 🔴 High — multi-ASR selection (A1,A2,A3) silently designs tactics + styles for the last-appended ASR instead of `selected_asrs[0]`; `compute_active_view` collapses active ASRs and callers latched onto the wrong driver; perceived as non-determinism | ✅ Fixed |

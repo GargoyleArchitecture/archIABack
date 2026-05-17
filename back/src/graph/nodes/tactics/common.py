@@ -42,6 +42,23 @@ from src.ledger.types import Phase, PhaseTransition
 _tac_log = logging.getLogger("tactics_node")
 
 
+def _active_view_with_primary_asr(state: GraphState) -> dict:
+    # BUG-056: order matters here. The user types ASRs in priority order
+    # (selected_asrs[0] = highest); classifier→asr_confirm preserves that as
+    # ledger append order. But state["ledger_active"]["asr"] comes from
+    # compute_active_view(), which collapses every active ASR to the
+    # LAST-appended one (ledger/store.py:330-336 — ASRs intentionally do
+    # NOT supersede each other per store.py:72-82). Reading .asr from the
+    # raw view silently swaps in the wrong driver on multi-ASR selection.
+    view = dict(state.get("ledger_active") or {})
+    ledger = state.get("ledger") or {}
+    if ledger.get("decisions"):
+        asrs = get_all_active_asrs(ledger)
+        if asrs:
+            view["asr"] = asrs[0]
+    return view
+
+
 @lru_cache(maxsize=64)
 def _fetch_tactics_rag(qa: str, resolved_index: str, k: int = 6, queries_override: tuple | None = None) -> tuple:
     """Returns (book_snippets: str, src_meta: tuple of (title, page_str, path)).
@@ -430,7 +447,7 @@ def tactics_node_impl(
     # repopulate after an in-process turn), read the active ASR from the ledger
     # so the user does NOT have to paste the ASR context manually.
     if not asr_text:
-        _led_asr = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
+        _led_asr = (_active_view_with_primary_asr(state).get("asr") or {}).get("payload") or {}
         asr_text = (
             _led_asr.get("summary")
             or _led_asr.get("scenario")
@@ -540,11 +557,12 @@ Mention specific technologies from the stack when describing how each tactic wou
 """
 
     # ── Dossier design binding (P4) ─────────────────────────────────────────
-    dossier_binding_block = _build_dossier_design_binding(
-        state.get("ledger_active") or {}, lang
-    )
+    # BUG-056: pass the primary-ASR-corrected view so the dossier binds tactics
+    # to selected_asrs[0], not to whichever ASR was last-appended to the ledger.
+    _primary_view = _active_view_with_primary_asr(state)
+    dossier_binding_block = _build_dossier_design_binding(_primary_view, lang)
     # Extract response_measure for traces validation fallback
-    _active_asr = (state.get("ledger_active") or {}).get("asr")
+    _active_asr = _primary_view.get("asr")
     _response_measure = ((_active_asr or {}).get("payload") or {}).get("response_measure", "")
 
     # ── Multi-ASR consistency constraint (P7) ──────────────────────────────
@@ -556,7 +574,7 @@ Mention specific technologies from the stack when describing how each tactic wou
     # prose with code blocks. Internal JSON payload is still required for the
     # ledger but goes inside a fenced block that we strip BEFORE the user sees
     # the message (BUG-049).
-    _active_asr_payload = (state.get("ledger_active") or {}).get("asr") or {}
+    _active_asr_payload = _active_asr or {}
     _asr_id_for_tactics = (_active_asr_payload.get("payload") or {}).get("candidate_id") or "A1"
 
     if lang == "es":
@@ -694,7 +712,9 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     #   (2) the markdown the LLM produced — for the user-visible chat bubble.
     #   (3) the ledger write later in the function (handled via the
     #       `human_asr_id` arg to _validate_tactic_traces).
-    _active_asr_for_swap = (state.get("ledger_active") or {}).get("asr") or {}
+    # BUG-056: swap ULID→human-id using the primary ASR (selected_asrs[0]),
+    # not whatever last-appended ASR ledger_active.asr happens to point at.
+    _active_asr_for_swap = _active_view_with_primary_asr(state).get("asr") or {}
     _ulid_for_swap = (_active_asr_for_swap.get("id") or "").strip()
     _human_for_swap = ((_active_asr_for_swap.get("payload") or {}).get("candidate_id") or "").upper().strip()
     if _ulid_for_swap and _human_for_swap and _ULID_RE.match(_ulid_for_swap):
@@ -757,7 +777,8 @@ Example JSON shape (values are illustrative — adjust to your tactics):
                 _response_measure,
                 human_asr_id=_asr_id_for_tactics,
             )
-            _parents = _build_parent_refs(state.get("ledger_active") or {})
+            # BUG-056: parent ref must point at the PRIMARY active ASR.
+            _parents = _build_parent_refs(_active_view_with_primary_asr(state))
             _qa      = state.get("quality_attribute") or qa
             _new_decision: dict = {
                 "id":               "",
