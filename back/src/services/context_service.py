@@ -30,6 +30,12 @@ def fetch_project_context(project_id: str, api_token: str) -> dict:
     """
     base = _base_url()
     if not base or not project_id or not api_token:
+        # F13-T1: el early-return era silencioso. Logueamos SOLO booleanos
+        # (jamás el token) para diagnosticar el fallo silencioso más común.
+        log.warning(
+            "fetch_project_context: skipped — missing_base=%s missing_project_id=%s missing_api_token=%s",
+            not base, not project_id, not api_token,
+        )
         return {}
     url = f"{base}/projects/{quote(project_id, safe='')}/context"
     try:
@@ -56,6 +62,13 @@ def fetch_user_preferences(user_id: str, api_token: str) -> dict:
     """
     base = _base_url()
     if not base or not user_id or not api_token:
+        # F13-T1: el early-return era silencioso (sin request, sin log) — la
+        # causa silenciosa #1 de que las preferencias no se reflejen. Logueamos
+        # SOLO booleanos; el token jamás se registra.
+        log.warning(
+            "fetch_user_preferences: skipped — missing_base=%s missing_user_id=%s missing_api_token=%s",
+            not base, not user_id, not api_token,
+        )
         return {}
     url = f"{base}/users/{quote(user_id, safe='')}/preferences"
     try:

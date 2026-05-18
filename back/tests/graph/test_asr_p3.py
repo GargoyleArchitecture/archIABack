@@ -86,7 +86,14 @@ def _state(**kw):
         "doc_only":          False,
         "doc_context":       "",
         "add_context":       "",
-        "project_context_text": "",
+        # F13-T2: la precondición de asr_node (asr.py: "no domain context")
+        # exige project_context_text o intake_v1. El fixture proveía "" y
+        # bloqueaba 13 tests. Damos contexto de dominio realista (mismo tema
+        # checkout/latencia que userQuestion) para ejercer la lógica de ASR.
+        "project_context_text": (
+            "## PROJECT CONTEXT\nTech stack: FastAPI, PostgreSQL\n"
+            "Business rules: checkout p95 < 200ms at 5k RPS"
+        ),
         "user_style_hint":   "",
         "design_dossier_md": "",
         "memory_text":       "",
