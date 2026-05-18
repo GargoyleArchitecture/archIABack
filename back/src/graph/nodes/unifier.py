@@ -11,6 +11,22 @@ from src.graph.nodes.profile_shadow import fire_shadow_eval, should_trigger
 from src.graph.utils import _push_turn, _strip_tactics_sections
 
 
+def _length_directive(style_hint: str) -> str:
+    """F13-T1: deriva la regla de longitud de la respuesta desde el token de
+    verbosidad embebido en `user_style_hint` por `format_user_style_hint`
+    ('LOW verbosity' / 'MEDIUM verbosity' / 'HIGH verbosity'). Sin preferencia
+    o MEDIUM devuelve el texto histórico EXACTO, de modo que el comportamiento
+    no cambia para la mayoría de usuarios sin preferencias configuradas."""
+    h = (style_hint or "").upper()
+    if "HIGH VERBOSITY" in h:
+        return ("- Be expansive and thorough: elaborate with examples, context "
+                "and rationale. There is NO length cap; prioritize completeness.")
+    if "LOW VERBOSITY" in h:
+        return "- Be very brief: key points only, minimal elaboration (about 3-5 lines)."
+    # MEDIUM verbosity OR no preference -> unchanged historical text.
+    return "- Keep it concise (6-12 lines of content)."
+
+
 def _finalize_turn(state: GraphState, final_text: str) -> GraphState:
     """F3-T2: dispara shadow eval (fire-and-forget) si la cadencia se cumple
     y resetea `turn_count_since_eval`. Devuelve el state actualizado para
@@ -108,6 +124,13 @@ async def unifier_node(state: GraphState) -> GraphState:
     requested_set = set(requested_nodes)
 
     # Caso compuesto: si el usuario pidió varias salidas explícitas, consolidarlas juntas.
+    # F13-T1 (trade-off documentado): esta rama NO invoca al LLM — ensambla
+    # bloques ya generados por los nodos worker (asr/style/tactics/tech), que
+    # SÍ inyectan `user_style_hint` en su propio directive al generarlos. Por
+    # eso la preferencia ya está reflejada en el contenido. No se añade una
+    # pasada LLM extra aquí por costo/latencia y para no alterar el formato
+    # multi-output determinista; bloques cacheados de turnos previos pueden
+    # reflejar el estilo del turno en que se generaron (limitación aceptada).
     if len(requested_set) >= 2:
         asr_txt = (
             _last_ai_by(state, "asr_recommender")
@@ -425,8 +448,31 @@ async def unifier_node(state: GraphState) -> GraphState:
             "MANDATORY LANGUAGE: English.\n"
             "Your ENTIRE response MUST be in English. Do not mix languages."
         )
+    # F13-T1: la verbosidad gobierna la longitud (antes hardcodeada a 6-12
+    # líneas, lo que anulaba verbosity=HIGH). Sin preferencia → texto histórico.
+    length_rule = _length_directive(style_hint)
+
+    # F13-T1: el estilo de comunicación es una preferencia EXPLÍCITA del
+    # usuario; se enmarca como bloque OBLIGATORIO (espejo de PROJECT CONTEXT),
+    # no como una línea suelta anexada al directive que el LLM desprioriza.
+    style_block = ""
     if style_hint:
-        directive = directive + f"\n{style_hint}"
+        if lang == "es":
+            style_block = (
+                "\n=== ESTILO DE COMUNICACIÓN (OBLIGATORIO) ===\n"
+                "Preferencia explícita del usuario. Cúmplela en TODA la "
+                "respuesta; tiene prioridad sobre el estilo por defecto:\n"
+                f"{style_hint}\n"
+                "=== FIN ESTILO DE COMUNICACIÓN ===\n"
+            )
+        else:
+            style_block = (
+                "\n=== COMMUNICATION STYLE (MANDATORY) ===\n"
+                "Explicit user preference. Honor it across the ENTIRE "
+                "response; it takes precedence over the default style:\n"
+                f"{style_hint}\n"
+                "=== END COMMUNICATION STYLE ===\n"
+            )
 
     proj_ctx_block = ""
     if proj_ctx:
@@ -440,7 +486,7 @@ You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
 - Use Markdown formatting: ## for sections, **bold** for key terms, - for lists.
-- Keep it concise (6-12 lines of content).
+{length_rule}
 - If useful, at the end include a '### References' section listing 3-6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:
@@ -450,7 +496,7 @@ Constraints:
 {MARKDOWN_FORMAT_DIRECTIVE}
 
 Conversation memory (for continuity): {memory_hint}
-{proj_ctx_block}
+{proj_ctx_block}{style_block}
 RAG_SOURCES:
 {rag_refs}
 

@@ -120,6 +120,11 @@ builder = StateGraph(GraphState)
 # y se consumen via get_graph()/get_store() desde los call-sites.
 _graph_holder: dict = {"instance": None}
 _store_holder: dict = {"instance": None}
+# F5-T2 (wiring real cerrado en Ciclo 2.5 de Fase 12): holder del subgrafo de
+# generación de rutinas. Compilado por `build_routine_graph()` y fijado por
+# `set_routine_graph()` desde el lifespan de FastAPI. Lo consume el
+# orquestador `routine_generator.py` via `get_routine_graph()`.
+_routine_graph_holder: dict = {"instance": None}
 
 
 def set_graph(graph_instance) -> None:
@@ -150,6 +155,24 @@ def get_store():
             "Store not initialized. The FastAPI lifespan must run first."
         )
     return s
+
+
+def set_routine_graph(graph_instance) -> None:
+    """Fija la instancia del subgrafo de retos. Llamar desde el lifespan tras
+    `build_routine_graph()`. Separado de `set_graph` porque el subgrafo no
+    necesita checkpointer (las generaciones son one-shot, F5-T1)."""
+    _routine_graph_holder["instance"] = graph_instance
+
+
+def get_routine_graph():
+    """Devuelve la instancia del subgrafo de retos. Lanza si lifespan no
+    corrió o si el build falló."""
+    g = _routine_graph_holder["instance"]
+    if g is None:
+        raise RuntimeError(
+            "Routine graph not initialized. The FastAPI lifespan must run first."
+        )
+    return g
 
 
 def make_inmemory_store() -> InMemoryStore:

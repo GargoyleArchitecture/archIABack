@@ -22,12 +22,49 @@ from __future__ import annotations
 
 import logging
 
-from src.graph.schemas.routine import RoutineOutput, RoutineState
+from src.graph.schemas.routine import RoutineOutput, RoutineState, RubricCriterion
 from src.graph.services.difficulty import estimate_difficulty
 
 log = logging.getLogger("routine.validate_difficulty")
 
 _MAX_REGEN = 2
+
+
+# Rúbrica de último recurso: garantiza que `RoutineOutput.rubric` (F12-T2)
+# nunca caiga bajo `min_length=3` aunque el state llegue híbrido o vacío
+# (ej. tests legacy que no propagan rubric tras synthesize_challenge).
+_DEFAULT_FALLBACK_RUBRIC = [
+    RubricCriterion(
+        concept="Architectural intent",
+        description=(
+            "The submission addresses the target weakness with a concrete and "
+            "explainable change."
+        ),
+        weight=5,
+    ),
+    RubricCriterion(
+        concept="Clarity",
+        description=(
+            "The code is readable and the rationale is briefly documented "
+            "either inline or in commit-style notes."
+        ),
+        weight=3,
+    ),
+    RubricCriterion(
+        concept="Correctness",
+        description=(
+            "The refactor compiles or runs in the target language and does "
+            "not introduce obvious regressions."
+        ),
+        weight=4,
+    ),
+]
+
+
+_FALLBACK_REFERENCE_SOLUTION = (
+    "## Reference\n\nNo reference solution was emitted by the upstream node. "
+    "Apply a minimal viable refactor that resolves the named weakness."
+)
 
 
 def _ceiling_for_mastery(current_mastery: float) -> int:
@@ -38,6 +75,27 @@ def _ceiling_for_mastery(current_mastery: float) -> int:
         m = 0.0
     m = max(0.0, min(1.0, m))
     return int(round(m * 5)) + 2  # rango: 2 (m=0) .. 7 (m=1)
+
+
+def _hydrate_rubric(state: RoutineState) -> list[RubricCriterion]:
+    """Convierte `state['rubric']` (lista de dicts) a `List[RubricCriterion]`.
+
+    Tolerante: si el state no trae rubric, está vacía, o trae dicts inválidos,
+    cae al `_DEFAULT_FALLBACK_RUBRIC` para no romper la validación Pydantic
+    del `RoutineOutput`.
+    """
+    raw = state.get("rubric")
+    if not raw or not isinstance(raw, list):
+        return list(_DEFAULT_FALLBACK_RUBRIC)
+    try:
+        hydrated = [RubricCriterion(**(d or {})) for d in raw]
+    except Exception:
+        log.warning(
+            "validate_difficulty: state['rubric'] failed Pydantic hydration; "
+            "falling back to default rubric"
+        )
+        return list(_DEFAULT_FALLBACK_RUBRIC)
+    return hydrated if len(hydrated) >= 3 else list(_DEFAULT_FALLBACK_RUBRIC)
 
 
 def validate_difficulty_node(state: RoutineState) -> RoutineState:
@@ -77,6 +135,9 @@ def validate_difficulty_node(state: RoutineState) -> RoutineState:
 
     # Acepta: clamp final, construye RoutineOutput, persiste en state["final"].
     final_difficulty = max(1, min(5, final_difficulty))
+    rubric_objs = _hydrate_rubric(state)
+    reference_solution = state.get("reference_solution") or _FALLBACK_REFERENCE_SOLUTION
+
     output = RoutineOutput(
         title=state.get("title") or f"Routine for {state.get('target_weakness', 'arch')}",
         target_weakness=state.get("target_weakness") or "general software architecture",
@@ -85,6 +146,8 @@ def validate_difficulty_node(state: RoutineState) -> RoutineState:
         difficulty=final_difficulty,
         challenge_md=state.get("challenge_md")
         or "## Challenge\n\nNo content was generated.",
+        rubric=rubric_objs,
+        reference_solution=reference_solution,
     )
     return {
         **state,

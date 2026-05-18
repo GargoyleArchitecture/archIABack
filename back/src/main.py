@@ -65,8 +65,10 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from src.graph import (
     build_graph,
+    build_routine_graph,
     get_graph,
     set_graph,
+    set_routine_graph,
     set_store,
     make_inmemory_store,
 )
@@ -81,6 +83,7 @@ from src.memory import (
 )
 from src.graph.utils import is_explicit_asr_request
 from src.services.doc_ingest import extract_pdf_text
+from src.services.message_sync import persist_ai_message
 from src.ledger.store import load_ledger as _load_ledger, compute_active_view as _compute_active_view
 memory_init()
 
@@ -103,6 +106,16 @@ async def lifespan(app: FastAPI):
         compiled = build_graph(saver, store=store)
         set_graph(compiled)
         set_store(store)
+        # F5-T2 (wiring cerrado en Ciclo 2.5 de Fase 12): compila el subgrafo
+        # de retos y lo registra como singleton. El endpoint /generate-routine
+        # lo consume via get_routine_graph(). Aislado de la conversación
+        # principal: sin checkpointer (las generaciones son one-shot).
+        try:
+            routine_graph = build_routine_graph()
+            set_routine_graph(routine_graph)
+            print("[startup] Subgrafo de retos compilado")
+        except Exception as exc:
+            print(f"[startup] WARN: build_routine_graph fallo: {exc}")
         try:
             create_or_load_vectorstore()
             print("[startup] RAG listo")
@@ -508,6 +521,7 @@ def _stream_post_process(
     arch_flow: dict,
     asr_key: str = "current_asr",
     project_id: Optional[str] = None,
+    turn_style_from_form: bool = False,
 ) -> None:
     """Post-processing after the graph finishes: persist feedback, memory, arch_flow."""
     upsert_feedback(session_id=session_id, message_id=message_id, up=0, down=0)
@@ -577,7 +591,9 @@ def _stream_post_process(
     # Persist dual context (survives across turns once loaded)
     if result.get("project_context_text"):
         arch_flow["project_context_text"] = result["project_context_text"]
-    if result.get("user_style_hint"):
+    # F13-T1: un hint de origen Form es SOLO por-turno; no debe envenenar
+    # arch_flow (un turno posterior sin el campo debe re-derivar de Negocio).
+    if result.get("user_style_hint") and not turn_style_from_form:
         arch_flow["user_style_hint"] = result["user_style_hint"]
 
     save_arch_flow(user_id, arch_flow, project_id)
@@ -591,6 +607,8 @@ async def message(
     session_id: str = Form(...),
     mode: str = Form(None),
     user_id: str = Form(None),
+    explanation_style: str = Form(None),
+    verbosity: str = Form(None),
     image1: Optional[UploadFile] = File(None),
     image2: Optional[UploadFile] = File(None),
     project_id: Optional[str] = Form(None),
@@ -620,6 +638,25 @@ async def message(
     )
     project_id = (project_id or "").strip() or None          # normalizar: "" → None
     _raw_project_id = project_id
+
+    # F13-T1: preferencias de comunicación por-turno (Form). Override de la
+    # preferencia persistida en Negocio. Valor ausente/invalido → se ignora
+    # (degradación silenciosa, sin 400) y se cae al fetch a Negocio.
+    from src.services.context_service import format_user_style_hint
+    _VALID_STYLES = {"ANALOGY", "FORMAL", "CONCISE"}
+    _VALID_VERBOSITY = {"LOW", "MEDIUM", "HIGH"}
+    _form_style = (explanation_style or "").strip().upper()
+    _form_verbosity = (verbosity or "").strip().upper()
+    if explanation_style and _form_style not in _VALID_STYLES:
+        log.warning("/message: explanation_style invalido=%r ignorado", explanation_style)
+        _form_style = ""
+    if verbosity and _form_verbosity not in _VALID_VERBOSITY:
+        log.warning("/message: verbosity invalido=%r ignorado", verbosity)
+        _form_verbosity = ""
+    turn_style_hint = format_user_style_hint(
+        {"explanationStyle": _form_style, "verbosity": _form_verbosity}
+    )
+    turn_style_from_form = bool(turn_style_hint)
     try:
         arch_flow = load_arch_flow(user_id, project_id)
     except ValueError:
@@ -822,9 +859,12 @@ async def message(
         "project_id":             project_id or "",
         "user_id_for_prefs":      user_id,
         "project_context_text":   arch_flow.get("project_context_text", ""),
-        "user_style_hint":        arch_flow.get("user_style_hint", ""),
+        # F13-T1: el hint por-turno (Form) tiene precedencia; user_style_loaded=True
+        # hace que context_loader salte el fetch a Negocio (Form gana, sin round-trip).
+        # Si no viene por Form, se mantiene el comportamiento previo (fallback Negocio).
+        "user_style_hint":        turn_style_hint or arch_flow.get("user_style_hint", ""),
         "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
-        "user_style_loaded":      bool(arch_flow.get("user_style_hint", "")),
+        "user_style_loaded":      bool(turn_style_hint) or bool(arch_flow.get("user_style_hint", "")),
         # ADD 3.0 candidates and selections are NOT reset here (BUG-013):
         # these are session-persistent fields managed by boot_node's
         # preserve-if-not-None logic. Removing them from input_state lets
@@ -842,6 +882,8 @@ async def message(
     _arch_flow    = arch_flow
     _asr_key      = asr_key
     _project_id   = project_id
+    _authorization_header = authorization_header
+    _turn_style_from_form = turn_style_from_form
 
     async def generate():
         _final: dict = {}
@@ -914,9 +956,25 @@ async def message(
                         # is available here. unifier -> END, so astream will
                         # terminate naturally on the next iteration.
                         _final = node_output
+                        _end_text = (node_output.get("endMessage", "") or "").strip()
+
+                        # Persist AI response in Backend Negocio BEFORE emitting
+                        # 'complete'. Garantiza que cuando el cliente reciba el
+                        # endMessage, ya este guardado en PostgreSQL — asi el
+                        # usuario puede navegar/cerrar la pestana sin perder la
+                        # respuesta. Nunca lanza al caller (best-effort).
+                        try:
+                            await persist_ai_message(
+                                chat_id=_session_id,
+                                content=_end_text,
+                                authorization=_authorization_header,
+                            )
+                        except Exception:
+                            log.exception("message_sync raised unexpectedly (non-blocking)")
+
                         sse_payload = fix_utf8_recursive({
                             "type": "complete",
-                            "endMessage": (node_output.get("endMessage", "") or "").strip(),
+                            "endMessage": _end_text,
                             "diagram":    node_output.get("diagram", {}),
                             "messages":   node_output.get("turn_messages", []),
                             "session_id": _session_id,
@@ -948,7 +1006,18 @@ async def message(
                 if _lang == "es"
                 else "Something tangled while processing your request. Could you repeat your last instruction?"
             )
-            log.exception("GraphRecursionError hit — full trace for thread=%s", _thread_id)
+            log.warning("GraphRecursionError hit — emitting recovery message for thread=%s", _thread_id)
+            # Persistir tambien el mensaje de recovery: el usuario debe verlo en
+            # el historial al recargar para entender por que el turno se cayo.
+            try:
+                await persist_ai_message(
+                    chat_id=_session_id,
+                    content=_recovery,
+                    authorization=_authorization_header,
+                )
+            except Exception:
+                log.exception("message_sync raised unexpectedly (non-blocking)")
+
             yield _sse({
                 "type": "complete",
                 "endMessage": _recovery,
@@ -992,6 +1061,7 @@ async def message(
                 arch_flow=_arch_flow,
                 asr_key=_asr_key,
                 project_id=_project_id,
+                turn_style_from_form=_turn_style_from_form,
             )
 
     return StreamingResponse(
@@ -1012,6 +1082,69 @@ async def feedback(
 ):
     update_feedback(session_id=session_id, message_id=message_id, up=thumbs_up, down=thumbs_down)
     return {"status": "Feedback recorded successfully"}
+
+# ===================== /generate-routine (F5-T2) ============================
+# Wiring real cerrado en Ciclo 2.5 de Fase 12. El handler es una fachada
+# delgada: toda la lógica vive en `src/services/routine_generator.py` para
+# que sea testeable sin TestClient ni lifespan completo.
+from pydantic import BaseModel as _RoutineReqBaseModel
+from src.services import routine_generator as _routine_generator
+from src.services import attempt_evaluator as _attempt_evaluator
+from src.graph.schemas.feedback import EvaluateAttemptInput
+
+
+class GenerateRoutineRequest(_RoutineReqBaseModel):
+    """Body del endpoint POST /generate-routine.
+
+    `user_id` es requerido; `target_weakness` opcional (si falta, el subgrafo
+    elige la weakness de menor mastery del perfil — F5-T1 `select_weakness_node`).
+    """
+    user_id: str
+    target_weakness: Optional[str] = None
+
+
+@app.post("/generate-routine")
+async def generate_routine(request: Request, body: GenerateRoutineRequest):
+    """F5-T2: invoca el subgrafo de retos y devuelve el `RoutineOutput`.
+
+    Auth: `X-Internal-Token` (F4-T2 token compartido). Sin JWT — este endpoint
+    es interno, lo llama el Backend Negocio (no el Frontend directamente).
+    """
+    _routine_generator.verify_internal_token(request)
+    trace_id = _routine_generator.make_trace_id(request)
+    final = await _routine_generator.generate_routine_for_user(
+        user_id=body.user_id,
+        target_weakness=body.target_weakness,
+        trace_id=trace_id,
+    )
+    return final.model_dump()
+
+
+# ===================== /evaluate-attempt (F12-T3) ===========================
+# Cierre del ciclo pedagógico: alumno envía su intento, IA lo evalúa contra
+# la rúbrica entregada con el reto y devuelve un `RoutineFeedback` con score,
+# criterios met/partial/missing, fortalezas, áreas de mejora y comentario
+# socrático. Es invocado por Negocio (F12-T5) cuando el Frontend envía un
+# intento; el Frontend nunca habla con este endpoint directamente.
+
+@app.post("/evaluate-attempt")
+async def evaluate_attempt(request: Request, body: EvaluateAttemptInput):
+    """F12-T3: evalúa la respuesta del alumno contra la rúbrica del reto.
+
+    Reusa la auth `X-Internal-Token` del módulo `routine_generator` para que
+    el secreto se valide en un único lugar (mismo patrón de F5-T2).
+
+    Acepta opcionalmente `reflection` en el body — T3 NO la procesa; T4
+    añadirá el dispatch al Shadow Agent.
+    """
+    _routine_generator.verify_internal_token(request)
+    trace_id = _routine_generator.make_trace_id(request)
+    feedback = await _attempt_evaluator.evaluate_attempt_for_user(
+        body,
+        trace_id=trace_id,
+    )
+    return feedback.model_dump()
+
 
 # ===================== /test (mock) =====================
 @app.post("/test")

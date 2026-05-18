@@ -8,7 +8,18 @@ log = logging.getLogger("context_service")
 
 _HTTP = requests.Session()
 
-_BASE_URL = os.getenv("ARCHIA_API_BASE_URL", "").rstrip("/")
+def _base_url() -> str:
+    """Base URL del Backend Negocio. Unificada con `profile_sync.py`.
+
+    `BUSINESS_API_BASE_URL` ya incluye el prefijo `/api/v1` (ej.
+    `http://localhost:3000/api/v1`), así que los endpoints aquí solo concatenan
+    el sub-recurso. Se mantiene `ARCHIA_API_BASE_URL` como fallback legado.
+    """
+    return (
+        os.getenv("BUSINESS_API_BASE_URL")
+        or os.getenv("ARCHIA_API_BASE_URL")
+        or ""
+    ).rstrip("/")
 
 
 def fetch_project_context(project_id: str, api_token: str) -> dict:
@@ -17,9 +28,16 @@ def fetch_project_context(project_id: str, api_token: str) -> dict:
     Retorna {"techStack": [...], "businessRules": "..."} o {} en caso de error.
     Degradación silenciosa: cualquier excepción retorna {}.
     """
-    if not _BASE_URL or not project_id or not api_token:
+    base = _base_url()
+    if not base or not project_id or not api_token:
+        # F13-T1: el early-return era silencioso. Logueamos SOLO booleanos
+        # (jamás el token) para diagnosticar el fallo silencioso más común.
+        log.warning(
+            "fetch_project_context: skipped — missing_base=%s missing_project_id=%s missing_api_token=%s",
+            not base, not project_id, not api_token,
+        )
         return {}
-    url = f"{_BASE_URL}/api/v1/projects/{quote(project_id, safe='')}/context"
+    url = f"{base}/projects/{quote(project_id, safe='')}/context"
     try:
         resp = _HTTP.get(
             url,
@@ -42,9 +60,17 @@ def fetch_user_preferences(user_id: str, api_token: str) -> dict:
     Retorna {"explanationStyle": "ANALOGY|FORMAL|CONCISE", "verbosity": "LOW|MEDIUM|HIGH"} o {}.
     Degradación silenciosa: cualquier excepción retorna {}.
     """
-    if not _BASE_URL or not user_id or not api_token:
+    base = _base_url()
+    if not base or not user_id or not api_token:
+        # F13-T1: el early-return era silencioso (sin request, sin log) — la
+        # causa silenciosa #1 de que las preferencias no se reflejen. Logueamos
+        # SOLO booleanos; el token jamás se registra.
+        log.warning(
+            "fetch_user_preferences: skipped — missing_base=%s missing_user_id=%s missing_api_token=%s",
+            not base, not user_id, not api_token,
+        )
         return {}
-    url = f"{_BASE_URL}/api/v1/users/{quote(user_id, safe='')}/preferences"
+    url = f"{base}/users/{quote(user_id, safe='')}/preferences"
     try:
         resp = _HTTP.get(
             url,

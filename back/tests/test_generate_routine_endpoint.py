@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from src.graph import resources as resources_mod
-from src.graph.schemas.routine import RoutineOutput
+from src.graph.schemas.routine import RoutineOutput, RubricCriterion
 from src.services import routine_generator as orq
 
 
@@ -72,6 +72,9 @@ def _make_request(headers: dict | None = None) -> Request:
 
 
 def _good_routine_output() -> RoutineOutput:
+    """RoutineOutput válido tras F12-T2: incluye rubric (3 ítems) y
+    reference_solution (≥20 chars), ambos campos requeridos por el schema
+    extendido."""
     return RoutineOutput(
         title="Refactor LRU cache",
         target_weakness="Caching",
@@ -79,6 +82,27 @@ def _good_routine_output() -> RoutineOutput:
         expected_concepts=["LRU", "eviction"],
         difficulty=3,
         challenge_md="## Challenge\n\nImplement an LRU cache from scratch.",
+        rubric=[
+            RubricCriterion(
+                concept="LRU",
+                description="Implements eviction by least-recently-used order.",
+                weight=5,
+            ),
+            RubricCriterion(
+                concept="Capacity",
+                description="Respects the configured capacity bound at all times.",
+                weight=4,
+            ),
+            RubricCriterion(
+                concept="Correctness",
+                description="get/put operate in expected average complexity.",
+                weight=3,
+            ),
+        ],
+        reference_solution=(
+            "## Reference\n\n```python\nfrom collections import OrderedDict\n"
+            "class LRUCache: ...\n```\n\nUses OrderedDict for O(1) operations."
+        ),
     )
 
 
