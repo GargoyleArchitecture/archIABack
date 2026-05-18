@@ -238,7 +238,7 @@ def _extract_baseline(campo_4: str) -> dict:
 
 _FIELD_LABELS: dict[int, dict[str, str]] = {
     0: {"es": "requerimiento",        "en": "requirement"},
-    1: {"es": "componentes",          "en": "components"},
+    1: {"es": "alcance funcional",     "en": "functional scope"},
     2: {"es": "fuente del estímulo",  "en": "stimulus source"},
     3: {"es": "estímulo",             "en": "stimulus"},
     4: {"es": "ambientes",            "en": "environments"},

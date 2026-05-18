@@ -176,22 +176,26 @@ def style_confirm_node(state: GraphState) -> GraphState:
             f"✅ **Estilo confirmado:** {chosen_name} ({chosen_id}).\n\n"
             f"{('**Trade-off:** ' + tradeoff) if tradeoff else ''}\n\n"
             f"_Siguiente paso: seleccionar las **tácticas** que implementan este estilo "
-            f"para el ASR activo._"
+            f"para el ASR activo._\n\n"
+            f"¿Deseas que genere un **diagrama de arquitectura** con el estilo seleccionado, "
+            f"o prefieres continuar directamente a las **tácticas**?"
         ).strip()
         suggestions = [
+            "Genera el diagrama de arquitectura.",
             "Propón tácticas para este estilo.",
-            "Compara tácticas para este estilo y ASR.",
         ]
     else:
         body = (
             f"✅ **Style confirmed:** {chosen_name} ({chosen_id}).\n\n"
             f"{('**Trade-off:** ' + tradeoff) if tradeoff else ''}\n\n"
             f"_Next step: select the **tactics** that implement this style for the "
-            f"active ASR._"
+            f"active ASR._\n\n"
+            f"Would you like me to generate an **architecture diagram** with the "
+            f"selected style, or do you prefer to continue directly to **tactics**?"
         ).strip()
         suggestions = [
+            "Generate the architecture diagram.",
             "Propose tactics for this style.",
-            "Compare tactics for this style and ASR.",
         ]
 
     state["endMessage"]  = body

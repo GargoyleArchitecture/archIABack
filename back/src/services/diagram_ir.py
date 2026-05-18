@@ -311,6 +311,13 @@ def _extract_attr(attr_str: str, key: str) -> Optional[str]:
     return None
 
 
+def _normalize_cluster_label(label: str) -> str:
+    """Strip 'Generic' template artifact from cluster/node labels (Bug D)."""
+    if label.endswith(" Generic"):
+        label = label[:-len(" Generic")].strip()
+    return label.strip() or label
+
+
 def _guess_node_kind(node_id: str, label: str, attrs: str) -> NodeKind:
     """Heuristic: map node id/label/shape to a NodeKind."""
     combined = normalize_text(node_id + " " + label + " " + attrs).lower()
@@ -361,7 +368,8 @@ def parse_dot_to_model(dot_source: Any) -> DiagramModel:
         gid = cm.group(1)
         body = cm.group(2)
         glabel = _extract_attr(body, "label") or gid.replace("cluster_", "").replace("_", " ").title()
-        model.groups.append(DiagramGroup(id=gid, label=normalize_text(glabel)))
+        glabel = _normalize_cluster_label(normalize_text(glabel))  # Bug D: strip " Generic" etc.
+        model.groups.append(DiagramGroup(id=gid, label=glabel))
 
     # Build group membership from cluster bodies
     group_node_map: Dict[str, str] = {}  # node_id -> group_id
@@ -388,7 +396,7 @@ def parse_dot_to_model(dot_source: Any) -> DiagramModel:
             continue
         attrs = nm.group(2)
         nid = _safe_id(raw_id)
-        label = normalize_text(_extract_attr(attrs, "label") or raw_id.replace("_", " "))
+        label = _normalize_cluster_label(normalize_text(_extract_attr(attrs, "label") or raw_id.replace("_", " ")))  # Bug D
         kind = _guess_node_kind(nid, label, attrs)
         gid = group_node_map.get(nid) or group_node_map.get(raw_id)
         node = DiagramNode(id=nid, label=label, kind=kind, group_id=gid)
@@ -407,6 +415,8 @@ def parse_dot_to_model(dot_source: Any) -> DiagramModel:
         r'(?:\[([^\]]*)\])?\s*;?',
         re.M,
     )
+
+    seen_edges: Dict[Tuple[str, str, str], bool] = {}  # Bug B: dedup (src, tgt, label)
 
     for em in edge_re.finditer(normalized_dot):
         src_raw = _unquote(em.group(1))
@@ -438,12 +448,15 @@ def parse_dot_to_model(dot_source: Any) -> DiagramModel:
             elif any(k in ll for k in ("data", "replicate", "sync_data", "backup")):
                 ekind = EdgeKind.DATA
 
-        model.edges.append(DiagramEdge(
-            source_id=src_id,
-            target_id=tgt_id,
-            label=elabel,
-            kind=ekind,
-        ))
+        edge_key = (src_id, tgt_id, (elabel or "").lower().strip())
+        if edge_key not in seen_edges:
+            seen_edges[edge_key] = True
+            model.edges.append(DiagramEdge(
+                source_id=src_id,
+                target_id=tgt_id,
+                label=elabel,
+                kind=ekind,
+            ))
 
     # Deduplicate nodes (use the version with most info)
     final_nodes: Dict[str, DiagramNode] = {}
@@ -458,6 +471,41 @@ def parse_dot_to_model(dot_source: Any) -> DiagramModel:
                 final_nodes[node.id] = node
 
     model.nodes = list(final_nodes.values())
+
+    # Bug B: Fold node aliases — when a shorter ID is a trailing suffix of a longer ID
+    # AND they share the same non-GENERIC kind, fold the shorter alias into the canonical
+    # (longer/more-specific) ID.  e.g. "gateway" → "api_gateway" (both GATEWAY kind).
+    _alias_map: Dict[str, str] = {}
+    _node_id_list = sorted((n.id for n in model.nodes), key=len, reverse=True)
+    for _i, _long_id in enumerate(_node_id_list):
+        _long_node = final_nodes.get(_long_id)
+        if not _long_node or _long_node.kind == NodeKind.GENERIC:
+            continue
+        for _short_id in _node_id_list[_i + 1:]:
+            if _short_id in _alias_map:
+                continue
+            _short_node = final_nodes.get(_short_id)
+            if not _short_node or _short_node.kind != _long_node.kind:
+                continue
+            if _long_id.endswith("_" + _short_id):
+                _alias_map[_short_id] = _long_id
+    if _alias_map:
+        model.nodes = [n for n in model.nodes if n.id not in _alias_map]
+        _folded_edges: List[DiagramEdge] = []
+        _seen_folded: Dict[Tuple[str, str, str], bool] = {}
+        for _e in model.edges:
+            _src = _alias_map.get(_e.source_id, _e.source_id)
+            _tgt = _alias_map.get(_e.target_id, _e.target_id)
+            if _src == _tgt:
+                continue
+            _ekey = (_src, _tgt, (_e.label or "").lower().strip())
+            if _ekey not in _seen_folded:
+                _seen_folded[_ekey] = True
+                _folded_edges.append(DiagramEdge(
+                    source_id=_src, target_id=_tgt, label=_e.label, kind=_e.kind,
+                ))
+        model.edges = _folded_edges
+
     model.sort_deterministic()
     return model
 
@@ -625,6 +673,7 @@ def build_medium(
     detailed: DiagramModel,
     *,
     max_nodes: int = 30,
+    lang: str = "es",
 ) -> Tuple[DiagramModel, Dict[str, List[str]]]:
     """Collapse a detailed model into an intermediate (level-2) view."""
     if len(detailed.nodes) <= max_nodes:
@@ -666,11 +715,14 @@ def build_medium(
                 group = detailed.group_by_id(node.group_id)
                 grp_label = (group.label if group else node.group_id).strip()
             if grp_label:
-                label = f"{grp_label} {node.kind.value.title()}"
+                if node.kind == NodeKind.GENERIC:
+                    label = grp_label  # Bug D: don't append "Generic" suffix
+                else:
+                    label = f"{grp_label} {node.kind.value.title()}"
             elif node.kind != NodeKind.GENERIC:
                 label = f"{node.kind.value.title()} Services"
             else:
-                label = "Internal Services"
+                label = "Servicios Internos" if lang == "es" else "Internal Services"  # Bug D
             kind = NodeKind.CLUSTER
 
         mapping.setdefault(mid, []).append(node.id)
@@ -686,7 +738,7 @@ def build_medium(
 
     medium_nodes: Dict[str, DiagramNode] = {}
     for mid, member_ids in sorted(mapping.items()):
-        if len(member_ids) == 1 and medium_kind[mid] != NodeKind.CLUSTER:
+        if len(member_ids) == 1:  # Bug D: collapse single-child clusters to their original node
             original = detailed.node_by_id(member_ids[0])
             if original is not None:
                 medium_nodes[mid] = DiagramNode(
@@ -743,6 +795,7 @@ def build_diagram_model(
     *,
     overview_max_nodes: int = 15,
     medium_max_nodes: int = 30,
+    lang: str = "es",
 ) -> Tuple[DiagramModel, Dict[str, List[str]]]:
     """Build a level-specific model while keeping rendering logic independent."""
     parsed_level = parse_diagram_level(level)
@@ -750,7 +803,7 @@ def build_diagram_model(
     if parsed_level == DiagramLevel.OVERVIEW:
         model, mapping = build_overview(detailed, max_nodes=overview_max_nodes)
     elif parsed_level == DiagramLevel.MEDIUM:
-        model, mapping = build_medium(detailed, max_nodes=medium_max_nodes)
+        model, mapping = build_medium(detailed, max_nodes=medium_max_nodes, lang=lang)
     else:
         model = DiagramModel(
             nodes=list(detailed.nodes),

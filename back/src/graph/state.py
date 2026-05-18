@@ -238,7 +238,9 @@ class GraphState(TypedDict):
     # Persisted across turns by boot_node; populated by ADD 3.0 phase nodes.
     normal_operation_baseline: dict      # baseline metrics captured during diagnosis
     asr_candidates: list[dict]           # ASRs proposed in asr_table phase
-    selected_asrs: list[str]             # IDs of ASRs confirmed by the user
+    selected_asrs: list[str]             # IDs of ASRs confirmed by the user (alternates ULID/humanID)
+    asr_detail_ids: list[str]            # human IDs requested for detail-on-demand (asr_detail intent)
+    selected_qa_queue: list[str]         # ordered QA names for per-QA design loop (Issue 2-bis)
     style_candidates: list[dict]         # styles proposed for selected ASRs
     selected_tactics: list[str]          # IDs of tactics confirmed by the user
     tactics_candidates: list[dict]       # tactics proposed for the chosen style

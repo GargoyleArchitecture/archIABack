@@ -249,7 +249,7 @@ FUNNEL_INTENT_MIN_PHASE: dict[str, str] = {
     "style":   "style_table",
     "tactics": "tactics_table",
     "tech":    "tech_proposals",
-    "diagram": "diagram",
+    "diagram": "style_table",
 }
 
 PHASE_DISPLAY: dict[str, dict[str, str]] = {

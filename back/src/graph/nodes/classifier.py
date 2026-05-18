@@ -197,7 +197,9 @@ def classifier_node(state: GraphState) -> GraphState:
     # tiene referente y debe seguir el flujo normal.
     _has_existing_asr = bool(state.get("current_asr") or state.get("last_asr"))
     _in_asr_phase = (state.get("current_phase") or "") == "asr_table"
-    if _has_existing_asr and _in_asr_phase:
+    # Tutor mode invariant: do not seed selection state from tutor messages.
+    _not_tutor = (state.get("mode") or "professional") != "tutor"
+    if _has_existing_asr and _in_asr_phase and _not_tutor:
         asr_confirm_triggers = [
             "confirmo", "lo confirmo", "acepto este asr", "acepto ese asr",
             "ese asr está bien", "ese asr esta bien", "está bien ese asr", "esta bien ese asr",
@@ -229,12 +231,34 @@ def classifier_node(state: GraphState) -> GraphState:
         elif any(k in low for k in asr_reject_triggers) or is_asr_regenerate_request(msg):
             intent = "asr_reject"
 
+    # asr_detail: user requests the 6-part detail of an already-confirmed ASR.
+    # Fires across all phases so the phase guard does not block retrospective
+    # inspection once the design loop has advanced past asr_table.
+    if intent not in ("asr_confirm", "asr_reject"):
+        _detail_asr_id_matches = re.findall(r"\b[Aa](\d+)\b", msg)
+        _asr_detail_explicit = re.search(
+            r"\b(?:detalle|detail)\b.*\b[Aa]\d+\b"
+            r"|\bmuéstrame\s+el\s+detalle\b"
+            r"|\bmuestrame\s+el\s+detalle\b"
+            r"|\bshow\s+me\s+(?:the\s+)?detail\b",
+            msg, re.IGNORECASE
+        )
+        if _asr_detail_explicit and _detail_asr_id_matches:
+            _confirmed_ids = {
+                str(x).strip().upper() for x in (state.get("selected_asrs") or [])
+                if re.match(r"^A\d+$", str(x).strip().upper())
+            }
+            _requested_ids = [f"A{n}" for n in _detail_asr_id_matches]
+            if any(rid in _confirmed_ids for rid in _requested_ids):
+                intent = "asr_detail"
+                state["asr_detail_ids"] = [rid for rid in _requested_ids if rid in _confirmed_ids]
+
     # BUG-054 / BUG-055: style selection — mirror of the asr_confirm block.
     # When the user is in style_table and types `S1`, `Selecciono el estilo S2`,
     # etc., classify the intent as `style_confirm` and seed selected_style.
     _in_style_phase = (state.get("current_phase") or "") == "style_table"
     _has_style_candidates = bool(state.get("style_candidates") or [])
-    if _in_style_phase and _has_style_candidates:
+    if _in_style_phase and _has_style_candidates and _not_tutor:
         style_confirm_triggers = [
             "selecciono el estilo", "selecciono este estilo", "selecciono ese estilo",
             "elijo el estilo", "elijo este estilo", "voy con el estilo",
@@ -256,7 +280,7 @@ def classifier_node(state: GraphState) -> GraphState:
     # instead of firing "Bienvenido de vuelta".
     _in_tactics_phase_cand = (state.get("current_phase") or "") in ("tactics_table",)
     _has_tactics_candidates = bool(state.get("tactics_candidates") or [])
-    if _in_tactics_phase_cand and _has_tactics_candidates:
+    if _in_tactics_phase_cand and _has_tactics_candidates and _not_tutor:
         tactics_confirm_triggers = [
             "acepto las tácticas", "acepto esas tácticas", "acepto esos tácticas",
             "confirmo las tácticas", "confirmo esas tácticas",
@@ -367,6 +391,7 @@ def classifier_node(state: GraphState) -> GraphState:
         "asr",
         "asr_confirm",
         "asr_reject",
+        "asr_detail",
         "tactics",
         "tactics_confirm",
         "style",
