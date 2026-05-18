@@ -51,6 +51,10 @@ class EvaluateAttemptInput(BaseModel):
     reference_solution: str = Field(..., min_length=1)
     target_weakness: str = Field(..., min_length=1)
     reflection: Optional[ReflectionPayload] = None
+    # F16-T1: id del routine_attempt en Negocio. Opcional (clientes previos
+    # no lo envían). Si viene, IA hace sync-back idempotente del feedback a
+    # Negocio aunque el HTTP síncrono de Negocio haya expirado.
+    attempt_id: Optional[str] = Field(default=None, min_length=1)
 
 
 class CriterionResult(BaseModel):

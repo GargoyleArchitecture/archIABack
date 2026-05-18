@@ -32,6 +32,8 @@ from fastapi import HTTPException
 from src.graph.nodes.feedback import evaluate_attempt_node
 from src.graph.schemas.feedback import EvaluateAttemptInput, RoutineFeedback
 from src.services import reflection_dispatcher as _reflection_dispatcher
+from src.services import attempt_sync as _attempt_sync
+from src.services import score_reinforcement as _score_reinforcement
 
 log = logging.getLogger("attempt_evaluator")
 
@@ -97,29 +99,64 @@ async def evaluate_attempt_for_user(
     except Exception:
         pass
 
-    # F12-T4: reflexión metacognitiva → refuerzo del perfil (fire-and-forget).
-    # El dispatcher decide internamente si aplicar delta según score >= 70;
-    # de cualquier modo nunca lanza, por eso el try/except aquí cubre sólo el
-    # caso "no event loop" (tests síncronos que invocan esta función sin
-    # `asyncio.run`).
-    if payload.reflection is not None:
+    # F16-T1: sync-back idempotente del feedback a Negocio (fire-and-forget).
+    # Garantiza que el score/feedback se persista aunque el HTTP síncrono de
+    # Negocio haya expirado (el endpoint de Negocio es idempotente por
+    # attemptId). Solo si el caller envió attempt_id.
+    if payload.attempt_id:
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(
-                _reflection_dispatcher.dispatch_reflection_to_profile(
-                    user_id=payload.user_id,
-                    target_weakness=payload.target_weakness,
-                    score=feedback.score,
-                    reflection=payload.reflection,
-                    trace_id=trace_id,
+                _attempt_sync.sync_attempt_feedback(
+                    payload.attempt_id,
+                    feedback.model_dump(),
                 )
             )
             _pending_tasks.add(task)
             task.add_done_callback(_pending_tasks.discard)
         except RuntimeError:
             log.warning(
-                "reflection dispatch skipped: no running event loop "
+                "attempt sync-back skipped: no running event loop "
                 "(trace_id=%s)", trace_id,
             )
+
+    # F16-T2 + F12-T4: refuerzo de mastery (fire-and-forget, NUNCA bloquea
+    # la respuesta HTTP). Se ejecutan SECUENCIADOS en una sola task para
+    # serializar el read-modify-write sobre el mismo perfil del Store y
+    # evitar clobber entre ambos dispatchers:
+    #   1) EWMA por score (F16-T2, SIEMPRE): mastery_new =
+    #      α·(score/100) + (1-α)·mastery_prev. Bidireccional, idempotente
+    #      por attempt_id.
+    #   2) Bonus de reflexión (F12-T4, sólo si vino reflexión): se aplica
+    #      ENCIMA del valor ya EWMA-do (stacking correcto; no es doble conteo
+    #      del mismo señal — uno mezcla el score, el otro premia el acto
+    #      metacognitivo de reflexionar). Ambos dispatchers nunca lanzan.
+    async def _apply_mastery() -> None:
+        await _score_reinforcement.dispatch_score_to_profile(
+            user_id=payload.user_id,
+            target_weakness=payload.target_weakness,
+            score=feedback.score,
+            attempt_id=payload.attempt_id,
+            trace_id=trace_id,
+        )
+        if payload.reflection is not None:
+            await _reflection_dispatcher.dispatch_reflection_to_profile(
+                user_id=payload.user_id,
+                target_weakness=payload.target_weakness,
+                score=feedback.score,
+                reflection=payload.reflection,
+                trace_id=trace_id,
+            )
+
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_apply_mastery())
+        _pending_tasks.add(task)
+        task.add_done_callback(_pending_tasks.discard)
+    except RuntimeError:
+        log.warning(
+            "mastery reinforcement skipped: no running event loop "
+            "(trace_id=%s)", trace_id,
+        )
 
     return feedback

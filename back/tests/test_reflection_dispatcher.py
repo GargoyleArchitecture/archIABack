@@ -32,6 +32,7 @@ from src.graph.schemas.feedback import (
 from src.graph.schemas.routine import RubricCriterion
 from src.services import attempt_evaluator as orq
 from src.services import reflection_dispatcher as rd
+from src.services import score_reinforcement as sr
 
 
 # ---------------------------------------------------------------------------
@@ -324,15 +325,23 @@ def test_dispatch_defensive_when_store_aput_fails(monkeypatch):
 # ============================================================================
 
 def test_evaluate_attempt_dispatches_reflection_in_background(monkeypatch):
-    """Test golden del criterio del backlog: con reflection no vacía y score=80,
-    el Store muestra mastery incrementado tras `await asyncio.sleep(0.1)`."""
+    """F16-T2 + F12-T4 (stacking secuenciado): con reflection no vacía y
+    score=80, el Store muestra el mastery tras EWMA (F16-T2) y LUEGO el bonus
+    de reflexión (F12-T4) encima, en una sola task serializada.
+
+    Cálculo esperado (alpha default 0.3, prev=0.40, score=80):
+      EWMA      = 0.3*0.80 + 0.7*0.40 = 0.52
+      + reflex. = 0.52 + _mastery_delta(80)=0.05 = 0.57
+    """
     _patch_sync_and_telemetry(monkeypatch)
-    # Store fake compartido entre dispatcher y el assert.
+    # Store fake compartido entre AMBOS dispatchers y el assert.
     store = _FakeStore({
         (("user", "u-1", "profile"), "profile"): _profile_with_caching(mastery=0.40),
     })
-    # Patch get_store en el módulo del dispatcher para que use nuestro fake.
+    # Patch get_store en AMBOS módulos para que usen el mismo fake (el
+    # _apply_mastery de attempt_evaluator encadena EWMA → reflexión).
     monkeypatch.setattr(rd, "get_store", lambda: store)
+    monkeypatch.setattr(sr, "get_store", lambda: store)
 
     # Patch del nodo evaluador para que retorne un feedback con score=80
     # sin invocar LLM.
@@ -361,10 +370,10 @@ def test_evaluate_attempt_dispatches_reflection_in_background(monkeypatch):
     result = asyncio.run(_run())
     assert result.score == 80
 
-    # El Store debe mostrar Caching con mastery incrementado (0.40 + 0.05 = 0.45)
+    # EWMA (0.52) + bonus de reflexión (0.05) = 0.57
     raw = store._data[(("user", "u-1", "profile"), "profile")]
     caching = next(c for c in raw["evaluated_concepts"] if c["name"] == "Caching")
-    assert caching["mastery"] == pytest.approx(0.45)
+    assert caching["mastery"] == pytest.approx(0.57)
 
 
 # ============================================================================
