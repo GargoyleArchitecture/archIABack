@@ -60,18 +60,46 @@ def _conn_rw() -> sqlite3.Connection:
 
 
 def _apply_supersession(ledger: DesignLedger, new_decision: Decision) -> str | None:
-    """Mark any prior active same-kind same-parents decision as superseded. Returns its id."""
+    """Mark any prior active same-kind same-parents decision as superseded. Returns its id.
+
+    BUG-003 fix: after marking the old decision superseded, propagate
+    parent_status="parent_superseded" to every active child decision that
+    references the superseded id in its parents list.  Previously only the
+    superseded node itself was mutated; children kept parent_status="ok" even
+    though their parent was gone, causing compute_active_view to return stale
+    style/tactic decisions linked to a superseded ASR.
+
+    Issue 2a fix: ASRs are an unordered SELECTION SET, not a single-winner
+    decision. Two ASRs picked together (e.g. "A1,A2") are both legitimate
+    drivers for the design loop, and the user may later add/inspect more.
+    Treating each new ASR as a supersession of every previously active ASR
+    collapses the set to its latest member and drops earlier picks from the
+    active view. Short-circuit here to keep all ASRs active concurrently;
+    dedupe-by-candidate-id is handled by the asr_confirm node before write.
+    """
     kind = new_decision["kind"]
+    if kind == "asr":
+        return None
     new_parent_ids = frozenset(r["id"] for r in (new_decision.get("parents") or []))
 
+    superseded_id: str | None = None
     for d in ledger["decisions"]:
         if d["kind"] == kind and d["status"] == "active":
             existing_parent_ids = frozenset(r["id"] for r in (d.get("parents") or []))
             if existing_parent_ids == new_parent_ids:
                 d["status"] = "superseded"
                 d["superseded_by"] = new_decision["id"]
-                return d["id"]
-    return None
+                superseded_id = d["id"]
+                break
+
+    if superseded_id:
+        for d in ledger["decisions"]:
+            if d["status"] == "active":
+                parent_ids = {r["id"] for r in (d.get("parents") or [])}
+                if superseded_id in parent_ids:
+                    d["parent_status"] = "parent_superseded"
+
+    return superseded_id
 
 
 # ---------------------------------------------------------------------------

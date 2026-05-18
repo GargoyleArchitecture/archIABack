@@ -24,6 +24,7 @@ from src.graph.utils import (
 from src.graph.consts import TACTICS_JSON_EXAMPLE, MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.graph.qa_registry import normalize_qa
+from datetime import datetime, timezone
 from src.ledger import (
     append_decision,
     compute_active_view,
@@ -32,12 +33,30 @@ from src.ledger import (
     render_dossier,
     render_dossier_compact,
     render_phase_prompt,
+    transition_phase,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
-from src.ledger.types import Phase
+from src.ledger.types import Phase, PhaseTransition
 
 _tac_log = logging.getLogger("tactics_node")
+
+
+def _active_view_with_primary_asr(state: GraphState) -> dict:
+    # BUG-056: order matters here. The user types ASRs in priority order
+    # (selected_asrs[0] = highest); classifier→asr_confirm preserves that as
+    # ledger append order. But state["ledger_active"]["asr"] comes from
+    # compute_active_view(), which collapses every active ASR to the
+    # LAST-appended one (ledger/store.py:330-336 — ASRs intentionally do
+    # NOT supersede each other per store.py:72-82). Reading .asr from the
+    # raw view silently swaps in the wrong driver on multi-ASR selection.
+    view = dict(state.get("ledger_active") or {})
+    ledger = state.get("ledger") or {}
+    if ledger.get("decisions"):
+        asrs = get_all_active_asrs(ledger)
+        if asrs:
+            view["asr"] = asrs[0]
+    return view
 
 
 @lru_cache(maxsize=64)
@@ -179,6 +198,11 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
     qa            = asr.get("qa", "")
     asr_payload   = asr.get("payload") or {}
     rm            = asr_payload.get("response_measure", "")
+    # Bug A fix: prefer the human-friendly ID (A1/A2/…) over the ULID when
+    # building the prompt so the LLM cites "A2" in `traces_to_asr` instead of
+    # emitting the ULID, which leaks into the tactics table column.
+    human_id      = (asr_payload.get("candidate_id") or "").upper().strip()
+    asr_ref       = human_id or asr_id
     style_id      = style.get("id", "")
     style_payload = style.get("payload") or {}
     style_chosen  = style_payload.get("chosen", "")
@@ -188,13 +212,14 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
         return (
             f'\n{"=" * 60}\n'
             f'ACTIVE DESIGN DECISIONS — BINDING CONSTRAINTS FOR TACTICS:\n'
-            f'  ASR ID:            {asr_id}\n'
+            f'  ASR ID:            {asr_ref}\n'
             f'  Quality Attribute: {qa}\n'
             f'  Response Measure:  {rm}\n\n'
             f'  Active Style:      {style_chosen}  (id: {style_id})\n'
             f'  Style Tradeoffs:   {style_trades}\n\n'
             f'REQUIREMENTS:\n'
-            f'1. Each tactic\'s "traces_to_asr" field MUST cite: "{rm}"\n'
+            f'1. Each tactic\'s "traces_to_asr" field MUST be the ASR id "{asr_ref}" '
+            f'(NOT the ULID, NOT the response measure verbatim).\n'
             f'2. Tactics MUST realize style "{style_chosen}" — do NOT contradict its tradeoffs.\n'
             f'3. Tactics that conflict with "{style_chosen}" MUST be excluded with explanation.\n'
             f'{"=" * 60}\n'
@@ -202,13 +227,14 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
     return (
         f'\n{"=" * 60}\n'
         f'DECISIONES DE DISEÑO ACTIVAS — RESTRICCIONES VINCULANTES PARA TÁCTICAS:\n'
-        f'  ID del ASR:          {asr_id}\n'
+        f'  ID del ASR:          {asr_ref}\n'
         f'  Atributo de Calidad: {qa}\n'
         f'  Medida de Respuesta: {rm}\n\n'
         f'  Estilo Activo:       {style_chosen}  (id: {style_id})\n'
         f'  Compromisos:         {style_trades}\n\n'
         f'REQUISITOS:\n'
-        f'1. El campo "traces_to_asr" de cada táctica DEBE citar: "{rm}"\n'
+        f'1. El campo "traces_to_asr" de cada táctica DEBE ser el id del ASR "{asr_ref}" '
+        f'(NO el ULID, NO la medida de respuesta verbatim).\n'
         f'2. Las tácticas DEBEN realizar el estilo "{style_chosen}" — no contradigan sus compromisos.\n'
         f'3. Las tácticas que conflictúen con "{style_chosen}" DEBEN excluirse con explicación.\n'
         f'{"=" * 60}\n'
@@ -231,15 +257,37 @@ def _build_parent_refs(ledger_active: dict) -> list:
     return refs
 
 
-def _validate_tactic_traces(items: list, response_measure: str) -> list:
-    """Post-processing guard: if LLM emitted an empty traces_to_asr, fill a
-    sensible default so the ledger payload is structurally complete.
+_ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+
+
+def _validate_tactic_traces(
+    items: list,
+    response_measure: str,
+    human_asr_id: str = "",
+) -> list:
+    """Post-processing guard:
+    - If LLM emitted an empty traces_to_asr, fill a sensible default so the
+      ledger payload is structurally complete.
+    - Bug A fix: if the LLM emitted the bare ULID (26-char Crockford base32),
+      replace it with the human-friendly ASR id (e.g. "A2") so the rendered
+      "ASR al que aplica" column is readable.
     Mutates and returns the list.
     """
-    default = f"Satisfies Response Measure: {response_measure}" if response_measure else ""
+    fallback = (
+        human_asr_id
+        or (f"Satisfies Response Measure: {response_measure}" if response_measure else "")
+    )
+    human = (human_asr_id or "").strip()
     for item in items:
-        if isinstance(item, dict) and not (item.get("traces_to_asr") or "").strip():
-            item["traces_to_asr"] = default
+        if not isinstance(item, dict):
+            continue
+        val = (item.get("traces_to_asr") or "").strip()
+        if not val:
+            item["traces_to_asr"] = fallback
+            continue
+        if human and _ULID_RE.match(val):
+            # Bare ULID — swap for human id.
+            item["traces_to_asr"] = human
     return items
 
 
@@ -273,6 +321,41 @@ def _build_multi_asr_tactics_constraint(all_asrs: list[dict], lang: str) -> str:
         f'tradeoff. El arquitecto decide — no ocultes opciones.\n'
         f'{"=" * 60}\n'
     )
+
+
+def _sanitize_md_cell(text: str, max_chars: int = 120) -> str:
+    """Sanitize a string for safe use inside a Markdown table cell."""
+    text = (text or "").replace("\n", " ").replace("\r", " ")
+    text = text.replace("|", "\\|").replace("`", "'")
+    text = text.strip()
+    if len(text) > max_chars:
+        truncated = text[:max_chars].rsplit(" ", 1)[0]
+        text = (truncated or text[:max_chars]) + "…"
+    return text
+
+
+def _render_tactics_fallback_table(struct: list, lang: str) -> str:
+    """Render the tactics struct as the spec table when the LLM markdown is unusable."""
+    if lang == "es":
+        header = "| ID | Táctica | ASR al que aplica | Efecto esperado | Riesgo si se omite |"
+        sep    = "|----|---------|-------------------|-----------------|---------------------|"
+        prompt_q = "Escribe el ID (T1, T2, T3) de la(s) táctica(s) a profundizar."
+    else:
+        header = "| ID | Tactic | ASR addressed | Expected effect | Risk if omitted |"
+        sep    = "|----|--------|---------------|-----------------|-----------------|"
+        prompt_q = "Type the ID (T1, T2, T3) of the tactic(s) you want to expand."
+    rows = []
+    for i, it in enumerate(struct[:3], 1):
+        if not isinstance(it, dict):
+            continue
+        name      = _sanitize_md_cell(it.get("name", ""), 50)
+        asr_ref   = _sanitize_md_cell(it.get("traces_to_asr", ""), 60)
+        rationale = _sanitize_md_cell(it.get("rationale", ""), 80)
+        risk      = _sanitize_md_cell(it.get("consequences", "") or it.get("tradeoff", ""), 80)
+        rows.append(f"| T{i} | {name} | {asr_ref} | {rationale} | {risk} |")
+    if not rows:
+        return ""
+    return "\n".join([header, sep, *rows, "", prompt_q])
 
 
 def _render_conflict_flags(struct: list, all_asrs: list[dict], lang: str) -> str:
@@ -360,6 +443,17 @@ def tactics_node_impl(
         or state.get("last_asr")
         or ""
     )
+    # BUG-050: when state["current_asr"] is empty (e.g. context_loader didn't
+    # repopulate after an in-process turn), read the active ASR from the ledger
+    # so the user does NOT have to paste the ASR context manually.
+    if not asr_text:
+        _led_asr = (_active_view_with_primary_asr(state).get("asr") or {}).get("payload") or {}
+        asr_text = (
+            _led_asr.get("summary")
+            or _led_asr.get("scenario")
+            or _led_asr.get("response")
+            or ""
+        ).strip()
     if not asr_text:
         uq = state.get("userQuestion", "") or ""
         m = re.search(r"(?:^|\n)\s*ASR\s*:?\s*(.+)$", uq, flags=re.I | re.S)
@@ -367,6 +461,15 @@ def tactics_node_impl(
 
     qa = resolve_qa_for_tactics(state, asr_text=asr_text, qa_override=qa_override)
     style_text = state.get("style") or state.get("selected_style") or state.get("last_style") or ""
+    # BUG-050: mirror the ASR fallback for style — pull from ledger_active.style
+    # before falling back to the raw user message.
+    if not style_text:
+        _led_style = ((state.get("ledger_active") or {}).get("style") or {}).get("payload") or {}
+        style_text = (
+            _led_style.get("chosen")
+            or _led_style.get("name")
+            or ""
+        ).strip()
 
     src_meta: tuple = ()
     if doc_only and ctx_doc:
@@ -454,11 +557,12 @@ Mention specific technologies from the stack when describing how each tactic wou
 """
 
     # ── Dossier design binding (P4) ─────────────────────────────────────────
-    dossier_binding_block = _build_dossier_design_binding(
-        state.get("ledger_active") or {}, lang
-    )
+    # BUG-056: pass the primary-ASR-corrected view so the dossier binds tactics
+    # to selected_asrs[0], not to whichever ASR was last-appended to the ledger.
+    _primary_view = _active_view_with_primary_asr(state)
+    dossier_binding_block = _build_dossier_design_binding(_primary_view, lang)
     # Extract response_measure for traces validation fallback
-    _active_asr = (state.get("ledger_active") or {}).get("asr")
+    _active_asr = _primary_view.get("asr")
     _response_measure = ((_active_asr or {}).get("payload") or {}).get("response_measure", "")
 
     # ── Multi-ASR consistency constraint (P7) ──────────────────────────────
@@ -466,11 +570,31 @@ Mention specific technologies from the stack when describing how each tactic wou
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_constraint = _build_multi_asr_tactics_constraint(_all_asrs, lang)
 
+    # BUG-048: produce a tactics CANDIDATE TABLE (T1/T2/T3), not multi-section
+    # prose with code blocks. Internal JSON payload is still required for the
+    # ledger but goes inside a fenced block that we strip BEFORE the user sees
+    # the message (BUG-049).
+    _active_asr_payload = _active_asr or {}
+    _asr_id_for_tactics = (_active_asr_payload.get("payload") or {}).get("candidate_id") or "A1"
+
+    if lang == "es":
+        _col_header = "| ID | Táctica | ASR al que aplica | Efecto esperado | Riesgo si se omite |"
+        _table_sep  = "|----|---------|-------------------|-----------------|---------------------|"
+        _row_hint   = f"| T1 | <nombre> | {_asr_id_for_tactics} | <una oración> | <una oración> |"
+        _select_q   = "Escribe el ID (T1, T2, T3) de la(s) táctica(s) a profundizar."
+        _final_rmd  = "RECORDATORIO FINAL: responde completamente en español."
+    else:
+        _col_header = "| ID | Tactic | ASR addressed | Expected effect | Risk if omitted |"
+        _table_sep  = "|----|--------|---------------|-----------------|-----------------|"
+        _row_hint   = f"| T1 | <name> | {_asr_id_for_tactics} | <one sentence> | <one sentence> |"
+        _select_q   = "Type the ID (T1, T2, T3) of the tactic(s) you want to expand."
+        _final_rmd  = "FINAL REMINDER: answer entirely in English."
+
     prompt = f"""{directive}
 You are an expert software architect applying Attribute-Driven Design 3.0 (ADD 3.0).
 
-We ALREADY HAVE an ASR / Quality Attribute Scenario. That ASR is an ADD 3.0 architectural driver.
-Your job now is to continue the ADD 3.0 process by selecting architectural tactics.
+We ALREADY HAVE an ASR (Quality Attribute Scenario) and a selected architecture style.
+Your job now is to propose the TOP-3 tactics that realise the ASR under that style.
 {proj_ctx_block}
 {dossier_binding_block}
 {multi_asr_constraint}
@@ -492,29 +616,42 @@ GROUNDING (use ONLY this context; if DOC-ONLY, this is the exclusive source):
 
 If DOC-ONLY is ON, do not rely on knowledge beyond the PROJECT DOCUMENT even if you "know" typical tactics. If the document does not support a tactic, state "not supported by the document".
 {restriction_clause}
-You MUST output THREE sections, in EXACT order.
-Use Markdown formatting for sections (0) and (1). Section (2) is JSON only.
-{MARKDOWN_FORMAT_DIRECTIVE}
+OUTPUT FORMAT (MANDATORY) — output the Markdown table below FIRST, then the
+selection prompt, then a ```json fence with the internal payload.
 
-## ASR & Style Context
-3-5 concise lines. Explicitly link back to the ASR's **Source**, **Stimulus**, **Artifact**, **Environment** and **Response Measure**. Also its architectonic style.
+{_col_header}
+{_table_sep}
+{_row_hint}
 
-## Tactics (TOP-3)
-Select EXACTLY THREE architectural tactics that maximally satisfy this ASR GIVEN the selected style.
-For EACH tactic use a ### heading with the tactic name and include: **Rationale**, **Consequences / Trade-offs**, **When to use**, **Why it ranks in TOP-3**, **Success probability**.
+Hard rules for the table:
+- EXACTLY 3 rows (T1, T2, T3). No more, no less.
+- Each cell is ONE short sentence. No bullet lists, no sub-headings, no code fences inside cells.
+- "ASR addressed" MUST be the ASR ID(s) (e.g. {_asr_id_for_tactics}), never free-text.
+- NEVER include YAML, Go, Python, JSON, k6, checklists or any prose outside the table itself.
+- Tactic names MUST be canonical (e.g. "Circuit Breaker", "Ping/Echo", "Load Shedding", "Bulkhead").
 
-(2) JSON:
-Return ONE code fence starting with ```json and ending with ``` that contains ONLY a JSON array with EXACTLY 3 objects.
-- Use dot as decimal separator (e.g., 0.82), never commas.
-- Do not use percent signs, just 0..1 floats for success_probability.
-- Each object MUST include a "traces_to_asr" field: one sentence citing the ASR's Response Measure that this tactic helps satisfy.
-- If the ALLOWED/PRIORITY list is RESTRICTIVE (i.e., tactics must be chosen only from it), then each JSON object's "name" MUST exactly match one allowed canonical tactic name from that list. Otherwise, you SHOULD PREFER names from the PRIORITY list but MAY use other reasonable canonical tactics when appropriate.
-- Do not add any prose or markdown outside the JSON fence.
+After the table, on a new line, write EXACTLY this selection prompt:
+{_select_q}
 
-Example shape (values are illustrative — adjust to your tactics):
+ABSOLUTE STOP RULE: After the line above you MUST output ONLY the ```json fence
+and NOTHING ELSE. Do NOT add any "Solución concreta", checklists, implementation
+details, YAML, code snippets, deployment configs, or trade-off paragraphs in this
+response. Implementation details belong to a LATER step (post-confirmation), not here.
+
+THEN — and only then — append one ```json fenced block containing a JSON array of
+EXACTLY 3 objects (T1, T2, T3) for internal ledger use:
+- Use dot as decimal separator (0.82, never 0,82).
+- success_probability is a float in [0, 1].
+- Each object MUST include "name", "rationale", "traces_to_asr" (one sentence citing the ASR's Response Measure), "consequences", and "success_probability".
+- If the ALLOWED/PRIORITY list is restrictive, each object's "name" MUST match one allowed canonical name.
+- The JSON fence is internal; the user never sees it. Do NOT add any extra prose around it.
+
+Example JSON shape (values are illustrative — adjust to your tactics):
 {TACTICS_JSON_EXAMPLE}
 
-{"RECORDATORIO FINAL: toda tu respuesta (secciones de texto y valores JSON) debe estar en español." if lang == "es" else "FINAL REMINDER: your entire response (text sections and JSON string values) must be in English."}
+{MARKDOWN_FORMAT_DIRECTIVE}
+
+{_final_rmd}
 """
     resp = llm.invoke(apply_mode_prompt(state, prompt))
     raw = getattr(resp, "content", str(resp)).strip()
@@ -562,22 +699,51 @@ Example shape (values are illustrative — adjust to your tactics):
 
         struct = normalize_tactics_json(struct, top_n=3)
 
+    # BUG-049: never expose the raw JSON payload to the user. The JSON is
+    # internal ledger payload; debugging relies on logs, not chat output.
     md_only = strip_first_json_fence(raw)
-    if os.getenv("SHOW_TACTICS_JSON", "0") == "1":
-        md_only = f"{md_only}\n\n```json\n{json.dumps(struct, ensure_ascii=False, indent=2)}\n```"
-    else:
-        md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
+    md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
+    # Bug A fix: if the LLM emitted the ASR's ULID in the "ASR al que aplica"
+    # column instead of the friendly id (A1/A2/…), swap it back. The ULID is
+    # internal; users should see "A2", not "01KRQE2BCJ34FPYVT302BYZY3N".
+    # We swap in three places:
+    #   (1) struct items' `traces_to_asr` field — for the fallback renderer and
+    #       any downstream consumers that read struct directly.
+    #   (2) the markdown the LLM produced — for the user-visible chat bubble.
+    #   (3) the ledger write later in the function (handled via the
+    #       `human_asr_id` arg to _validate_tactic_traces).
+    # BUG-056: swap ULID→human-id using the primary ASR (selected_asrs[0]),
+    # not whatever last-appended ASR ledger_active.asr happens to point at.
+    _active_asr_for_swap = _active_view_with_primary_asr(state).get("asr") or {}
+    _ulid_for_swap = (_active_asr_for_swap.get("id") or "").strip()
+    _human_for_swap = ((_active_asr_for_swap.get("payload") or {}).get("candidate_id") or "").upper().strip()
+    if _ulid_for_swap and _human_for_swap and _ULID_RE.match(_ulid_for_swap):
+        md_only = md_only.replace(_ulid_for_swap, _human_for_swap)
+        if isinstance(struct, list):
+            for _it in struct:
+                if isinstance(_it, dict):
+                    _val = (_it.get("traces_to_asr") or "").strip()
+                    if _val == _ulid_for_swap or _ULID_RE.match(_val):
+                        _it["traces_to_asr"] = _human_for_swap
+    # BUG-S3-002: truncate anything the LLM appended after the selection prompt.
+    _select_marker = _select_q.strip()
+    if _select_marker and _select_marker in md_only:
+        _idx = md_only.index(_select_marker)
+        md_only = md_only[: _idx + len(_select_marker)].rstrip()
     if (not md_only) and isinstance(struct, list) and struct:
-        md_only = "\n".join(f"- {it.get('name','')}: {it.get('rationale','')}" for it in struct if isinstance(it, dict))
+        # BUG-048 fallback: render as a one-row table per item with the same
+        # column schema as the spec, not a bullet list.
+        md_only = _render_tactics_fallback_table(struct, lang)
 
     # ── Post-LLM conflict flags (P7) ──────────────────────────────────────
     _conflict_block = _render_conflict_flags(struct, _all_asrs, lang)
     if _conflict_block:
         md_only += _conflict_block
 
+    # BUG-016: never expose server filesystem paths in references.
     src_lines = [
-        _clip_text(f"- {title}{page_str} — {path}", 60)
-        for title, page_str, path in src_meta
+        _clip_text(f"- {title}{page_str}", 60)
+        for title, page_str, _path in src_meta
     ]
     src_lines = list(dict.fromkeys(src_lines))[:6]
     src_block = "SOURCES:\n" + ("\n".join(src_lines) if src_lines else "- (no local sources)")
@@ -590,8 +756,12 @@ Example shape (values are illustrative — adjust to your tactics):
 
     # ── Scalar writes (unconditional) ────────────────────────────────────────
     state["tactics_md"] = md_only
-    state["tactics_struct"] = struct if isinstance(struct, list) else []
-    state["tactics_list"] = [(it.get("name") or "").strip() for it in (struct or []) if isinstance(it, dict) and it.get("name")]
+    _struct_list = struct if isinstance(struct, list) else []
+    state["tactics_struct"] = _struct_list
+    # BUG-010/012: populate tactics_candidates so the classifier's tactics_confirm
+    # block can resolve T1/T2/T3 IDs without needing tactics_struct separately.
+    state["tactics_candidates"] = _struct_list
+    state["tactics_list"] = [(it.get("name") or "").strip() for it in (_struct_list or []) if isinstance(it, dict) and it.get("name")]
     state["quality_attribute"] = qa
     if asr_text:
         state["current_asr"] = asr_text
@@ -605,8 +775,10 @@ Example shape (values are illustrative — adjust to your tactics):
             _items   = _validate_tactic_traces(
                 list(state.get("tactics_struct") or []),
                 _response_measure,
+                human_asr_id=_asr_id_for_tactics,
             )
-            _parents = _build_parent_refs(state.get("ledger_active") or {})
+            # BUG-056: parent ref must point at the PRIMARY active ASR.
+            _parents = _build_parent_refs(_active_view_with_primary_asr(state))
             _qa      = state.get("quality_attribute") or qa
             _new_decision: dict = {
                 "id":               "",

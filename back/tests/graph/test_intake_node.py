@@ -34,8 +34,12 @@ def _result(fields):
 
 def test_build_repair_prompt_for_metrics_is_targeted():
     msg = build_repair_prompt(4, "es", "Faltan métricas de sobrecarga.")
-    assert "carga normal, sobrecarga y mantenimiento" in msg
+    msg_low = msg.lower()
+    # All three scenarios must be mentioned (BUG-016: prompt uses "Y" for emphasis).
+    assert "normal" in msg_low and "sobrecarga" in msg_low and "mantenimiento" in msg_low
     assert "ms" in msg or "rps" in msg
+    # BUG-016: prompt must instruct user to re-send the COMPLETE field.
+    assert "completa" in msg_low or "complete" in msg_low
 
 
 def test_intake_skips_questions_already_answered_in_same_message():
@@ -45,9 +49,9 @@ def test_intake_skips_questions_already_answered_in_same_message():
                 status="answered_valid",
                 extracted_text="El sistema de pagos debe procesar transacciones con latencia menor a 200ms usando API y base de datos.",
             ),
-            "campo_1_componentes": FieldAssessment(
+            "campo_1_alcance_funcional": FieldAssessment(
                 status="answered_valid",
-                extracted_text="API gateway, servicio de pagos, base de datos PostgreSQL y cola Kafka para eventos de confirmación.",
+                extracted_text="Procesar pagos, gestionar confirmaciones y notificar a usuarios sobre el estado de las transacciones.",
             ),
             "campo_2_fuente": FieldAssessment(status="not_addressed"),
             "campo_3_estimulo": FieldAssessment(status="not_addressed"),
@@ -69,7 +73,7 @@ def test_intake_skips_questions_already_answered_in_same_message():
 
     assert result["intake_current_field"] == 2
     assert "campo_0_requerimiento" in result["intake_fields"]
-    assert "campo_1_componentes" in result["intake_fields"]
+    assert "campo_1_alcance_funcional" in result["intake_fields"]
     assert INTAKE_SCRIPT[2]["question_es"] in result["endMessage"]
     assert INTAKE_SCRIPT[1]["question_es"] not in result["endMessage"]
 

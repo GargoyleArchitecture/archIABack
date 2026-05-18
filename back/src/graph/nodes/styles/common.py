@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,6 +12,7 @@ from src.graph.qa_registry import normalize_qa
 from src.graph.prompts.mode_prompts import apply_mode_prompt
 from src.rag_agent import get_indexed_retriever
 from src.graph.utils import _dedupe_snippets
+from datetime import datetime, timezone
 from src.ledger import (
     append_decision,
     compute_active_view,
@@ -19,12 +21,30 @@ from src.ledger import (
     render_dossier,
     render_dossier_compact,
     render_phase_prompt,
+    transition_phase,
     LedgerValidationError,
     LedgerConcurrencyError,
 )
-from src.ledger.types import Phase
+from src.ledger.types import Phase, PhaseTransition
 
 log = logging.getLogger("style_node")
+
+
+def _active_view_with_primary_asr(state: GraphState) -> dict:
+    # BUG-056: order matters here. The user types ASRs in priority order
+    # (selected_asrs[0] = highest); classifier→asr_confirm preserves that as
+    # ledger append order. But state["ledger_active"]["asr"] comes from
+    # compute_active_view(), which collapses every active ASR to the
+    # LAST-appended one (ledger/store.py:330-336 — ASRs intentionally do
+    # NOT supersede each other per store.py:72-82). Reading .asr from the
+    # raw view silently swaps in the wrong driver on multi-ASR selection.
+    view = dict(state.get("ledger_active") or {})
+    ledger = state.get("ledger") or {}
+    if ledger.get("decisions"):
+        asrs = get_all_active_asrs(ledger)
+        if asrs:
+            view["asr"] = asrs[0]
+    return view
 
 
 def _sanitize_md_cell(text: str, max_chars: int = 60) -> str:
@@ -307,7 +327,7 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
 
     # Ground styles with the final QA resolved for the turn, not with a stale
     # classifier index that may drift on follow-up turns.
-    book_snippets = _fetch_styles_rag(qa, qa, k=6)
+    book_snippets = _fetch_styles_rag(qa, state.get("resolved_index") or qa, k=6)
 
     proj_ctx_block = ""
     if proj_ctx:
@@ -323,14 +343,49 @@ the specific technologies listed. Business rules must be respected in all trade-
 """
 
     # ── Dossier ASR binding (P4) ────────────────────────────────────────────
-    dossier_binding_block = _build_dossier_asr_binding(
-        state.get("ledger_active") or {}, lang
-    )
+    # BUG-056: bind the prompt to selected_asrs[0] (the user's highest-priority
+    # ASR), not to whatever ASR was last-appended in the ledger.
+    _primary_view = _active_view_with_primary_asr(state)
+    dossier_binding_block = _build_dossier_asr_binding(_primary_view, lang)
 
-    # ── Multi-ASR consistency constraint (P7) ──────────────────────────���──
+    # ── Multi-ASR consistency constraint (P7) ──────────────────────────
     _ledger = state.get("ledger") or {}
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
+
+    # BUG-053 defense-in-depth: if the user explicitly selected an ASR but
+    # the active primary ASR doesn't match, refuse to render and ask them to
+    # re-select. Prevents silent wrong-QA generation if a future change
+    # breaks the supersession logic in asr_confirm_node.
+    _selected_asrs_check = [str(x).strip().upper() for x in (state.get("selected_asrs") or [])]
+    _active_asr_payload = (_primary_view.get("asr") or {}).get("payload") or {}
+    _active_candidate_id = str(_active_asr_payload.get("candidate_id") or "").strip().upper()
+    _active_ledger_id    = str((_primary_view.get("asr") or {}).get("id") or "").strip().upper()
+    if _selected_asrs_check and (_active_candidate_id or _active_ledger_id):
+        _matches = (
+            _active_candidate_id in _selected_asrs_check
+            or _active_ledger_id in _selected_asrs_check
+        )
+        if not _matches:
+            log.warning(
+                "style_node: selected_asrs=%s does not match active ASR (candidate_id=%s, id=%s)",
+                _selected_asrs_check, _active_candidate_id, _active_ledger_id,
+            )
+            _err = (
+                "Detecté una inconsistencia entre el ASR que seleccionaste y el ASR activo "
+                "en el ledger. Por favor vuelve a indicar el ID del ASR que quieres usar "
+                "(ej. `A1`)."
+                if lang == "es" else
+                "I detected an inconsistency between the ASR you selected and the ASR "
+                "currently active in the ledger. Please re-select the ASR ID you want to "
+                "use (e.g. `A1`)."
+            )
+            return {
+                **state,
+                "endMessage": _err,
+                "nextNode": "unifier",
+                "intent": "general",
+            }
 
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
@@ -363,19 +418,19 @@ Mention specific technologies only inside the "impact" or "rationale" fields.
 
 You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:
 
-{{
-  "style_1": {{
+{{{{
+  "style_1": {{{{
     "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
     "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
     "tradeoff": "One sentence (max 15 words) stating the main trade-off."
-  }},
-  "style_2": {{
+  }}}},
+  "style_2": {{{{
     "name": "Short name of style 2",
     "justification": "One sentence (max 15 words) explaining why this style addresses the ASR.",
     "tradeoff": "One sentence (max 15 words) stating the main trade-off."
-  }},
+  }}}},
   "best_style": "style_1 or style_2 (choose ONE)"
-}}
+}}}}
 
 Do NOT add comments or any text outside of this JSON object.
 All string values in the JSON (name, justification, tradeoff) MUST be written in {"English" if lang == "en" else "español"}.
@@ -406,7 +461,11 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     style2_justification = style2.get("justification", "").strip()
     style2_tradeoff = style2.get("tradeoff", "").strip()
     best_key = (data.get("best_style") or "").strip()
-    rationale = data.get("rationale", "").strip()
+    # BUG-001 fix: the LLM JSON schema has no top-level "rationale" field.
+    # Use the chosen style's own "tradeoff" field as the rationale so the
+    # ledger payload's "tradeoffs" and tactics binding block are never empty.
+    _chosen_data = style2 if best_key == "style_2" else style1
+    rationale = _chosen_data.get("tradeoff", "").strip()
 
     chosen_name = style2_name if best_key == "style_2" else style1_name
 
@@ -415,6 +474,22 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
     state["quality_attribute"] = qa
+    # BUG-022: populate style_candidates so the dossier and future queries
+    # can surface both options without re-invoking the LLM.
+    state["style_candidates"] = [
+        {
+            "id": "S1",
+            "name": style1_name,
+            "justification": style1_justification,
+            "tradeoff": style1_tradeoff,
+        },
+        {
+            "id": "S2",
+            "name": style2_name,
+            "justification": style2_justification,
+            "tradeoff": style2_tradeoff,
+        },
+    ]
 
     # ── Ledger write-back (P4) ───────────────────────────────────────────────
     _user_id    = (state.get("user_id_for_prefs") or "").strip()
@@ -423,7 +498,8 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     if _user_id:
         try:
             _payload = _build_style_payload(data, chosen_name, style1, style2, rationale)
-            _parents = _build_asr_parent_ref(state.get("ledger_active") or {})
+            # BUG-056: parent ref must point at the PRIMARY active ASR.
+            _parents = _build_asr_parent_ref(_active_view_with_primary_asr(state))
             _new_decision: dict = {
                 "id":               "",
                 "kind":             "style",
@@ -481,17 +557,38 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
             "Compare these two styles in more depth for this ASR.",
         ]
 
-    _ledger_asr_payload = ((state.get("ledger_active") or {}).get("asr") or {}).get("payload") or {}
-    _raw_asr_name = (
-        (_ledger_asr_payload.get("summary") or "").strip()
-        or next(
-            (ln.strip() for ln in
-             (state.get("current_asr") or state.get("last_asr") or "").splitlines()
-             if ln.strip() and not ln.strip().startswith("#")),
-            ("ASR activo" if lang == "es" else "Active ASR"),
-        )
+    # BUG-046: show the ASR ID the user selected (e.g. "A1 (Latencia)"), not a
+    # truncated free-text scenario. The architect already saw the scenario in
+    # the ASR table; what they need here is to recognise which row was picked.
+    # BUG-056: read from the primary-ASR view, not raw ledger_active.
+    _ledger_asr_payload = (_active_view_with_primary_asr(state).get("asr") or {}).get("payload") or {}
+    _selected_asr_ids = state.get("selected_asrs") or []
+    _selected_id = ""
+    if _selected_asr_ids:
+        # BUG-006: prefer the human-readable ID (e.g. "A1") over the ULID.
+        # asr_confirm stores [ULID, "A1"] — scan for the readable one first.
+        for _sid in _selected_asr_ids:
+            _s = str(_sid).strip()
+            if re.match(r"^[Aa]\d+$", _s):
+                _selected_id = _s.upper()
+                break
+        if not _selected_id:
+            # Fall back: look up candidate_id from ledger_active ASR payload.
+            _selected_id = (_ledger_asr_payload.get("candidate_id") or "").upper()
+        if not _selected_id:
+            # Last resort: match in asr_candidates list.
+            _first = str(_selected_asr_ids[0]).strip()
+            for _c in (state.get("asr_candidates") or []):
+                if isinstance(_c, dict) and _c.get("id") == _first:
+                    _selected_id = (_c.get("candidate_id") or "").upper()
+                    break
+    if not _selected_id:
+        _selected_id = (_ledger_asr_payload.get("candidate_id") or "A?").upper()
+    _qa_label = (_ledger_asr_payload.get("qa") or qa or "").strip()
+    _asr_name = _sanitize_md_cell(
+        f"{_selected_id} ({_qa_label})" if _qa_label else _selected_id,
+        max_chars=40,
     )
-    _asr_name = _sanitize_md_cell(_raw_asr_name, max_chars=60)
     _col_style = "Estilo arquitectónico" if lang == "es" else "Architecture Style"
     _col_asr   = "ASR al que responde"   if lang == "es" else "ASR addressed"
     _col_just  = "Justificación"         if lang == "es" else "Justification"

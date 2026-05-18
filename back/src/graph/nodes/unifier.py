@@ -207,19 +207,19 @@ async def unifier_node(state: GraphState) -> GraphState:
         data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
         if lang == "es":
             head = "## Diagrama"
-            footer = "¿Qué te gustaría hacer ahora con este diagrama?"
+            footer = "El diagrama ha sido generado. ¿Qué deseas hacer ahora?"
             tips = [
-                "Generar un diagrama de componentes a partir de este sistema.",
-                "Generar un diagrama de despliegue para este mismo sistema.",
-                "Formular un nuevo ASR basado en este sistema.",
+                "Regenerar el diagrama con ajustes.",
+                "Continuar a la siguiente fase (tácticas arquitectónicas).",
+                "Hacer una pregunta sobre el diagrama.",
             ]
         else:
             head = "## Diagram"
-            footer = "What would you like to do next with this diagram?"
+            footer = "The diagram has been generated. What would you like to do now?"
             tips = [
-                "Generate a component diagram from this system.",
-                "Generate a deployment diagram for this same system.",
-                "Define a new ASR based on this system.",
+                "Regenerate the diagram with adjustments.",
+                "Continue to the next phase (architectural tactics).",
+                "Ask a question about the diagram.",
             ]
 
         end_text = f"""{head}
@@ -323,6 +323,26 @@ async def unifier_node(state: GraphState) -> GraphState:
         state["turn_messages"] = state.get("turn_messages", []) + [
             {"role": "assistant", "name": "unifier", "content": end_text}
         ]
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
+    if intent == "asr_confirm":
+        end_text = state.get("endMessage") or ""
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state["suggestions"] = state.get("suggestions") or []
+        state = _finalize_turn(state, end_text)
+        return {**state, "endMessage": end_text}
+
+    # BUG-054 / BUG-055: same pass-through as asr_confirm — the confirmation
+    # node already produced the user-facing message in `endMessage`.
+    if intent == "style_confirm":
+        end_text = state.get("endMessage") or ""
+        state["turn_messages"] = state.get("turn_messages", []) + [
+            {"role": "assistant", "name": "unifier", "content": end_text}
+        ]
+        state["suggestions"] = state.get("suggestions") or []
         state = _finalize_turn(state, end_text)
         return {**state, "endMessage": end_text}
 

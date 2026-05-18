@@ -11,6 +11,7 @@ from src.graph.consts import (
     DOT_SYSTEM_OVERVIEW,
     EXPAND_TARGET_DETAILED,
     EXPAND_TARGET_MEDIUM,
+    PHASE_INT,
 )
 from src.graph.resources import llm, log
 from src.graph.state import GraphState
@@ -97,8 +98,8 @@ def _render_dot_svg_b64(dot_code: str) -> str:
         return base64.b64encode(svg_bytes).decode("ascii")
 
 
-def _infer_level_from_user_request(user_q: str) -> DiagramLevel:
-    """Infer diagram level from natural language request."""
+def _infer_level_from_user_request(user_q: str) -> DiagramLevel | None:
+    """Infer diagram level from natural language request, or None when no signal."""
     low_q = normalize_text(user_q).lower()
 
     explicit = re.search(r"\b(?:level|nivel)\s*([1-3])\b", low_q)
@@ -128,11 +129,11 @@ def _infer_level_from_user_request(user_q: str) -> DiagramLevel:
     if any(kw in low_q for kw in medium_keywords):
         return DiagramLevel.MEDIUM
 
-    return DiagramLevel.OVERVIEW
+    return None
 
 
 def _resolve_diagram_level(state: GraphState, user_q: str) -> DiagramLevel:
-    """Resolve level from explicit state override or user prompt."""
+    """Resolve level from explicit state override, user prompt, or phase-aware default."""
     level_override = state.get("diagram_level")
     if level_override is None:
         level_override = state.get("diagram_detail_level")
@@ -143,7 +144,17 @@ def _resolve_diagram_level(state: GraphState, user_q: str) -> DiagramLevel:
         except ValueError:
             log.warning("diagram_orchestrator_node: invalid diagram level override %r", level_override)
 
-    return _infer_level_from_user_request(user_q)
+    inferred = _infer_level_from_user_request(user_q)
+    if inferred is not None:
+        return inferred
+
+    current_phase = state.get("current_phase") or "intro"
+    if PHASE_INT.get(current_phase, 0) >= PHASE_INT["tactics_table"]:
+        history = state.get("diagram_history") or {}
+        if history.get(1) or history.get("1"):
+            return DiagramLevel.MEDIUM
+
+    return DiagramLevel.OVERVIEW
 
 
 def _build_diagram_parent_refs(state: GraphState) -> list[dict]:
@@ -282,6 +293,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
                 requested_level,
                 overview_max_nodes=15,
                 medium_max_nodes=30,
+                lang=_lang,
             )
 
             final_dot = render_dot(ir_model)

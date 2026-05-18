@@ -148,7 +148,7 @@ class GraphState(TypedDict):
     
     nextNode: Literal[
         "investigator", "evaluator", "diagram_agent",
-        "tactics", "asr", "style", "unifier",
+        "tactics", "asr", "asr_confirm", "style", "style_confirm", "unifier",
         "style_tactics_parallel",  # transient: emitido por supervisor, consumido por router
         "intake",
         "tech",
@@ -182,7 +182,7 @@ class GraphState(TypedDict):
 
     # control de idioma/intención/forcing RAG
     language: Literal["en","es"]
-    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style","intake","tech"]
+    intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","asr_confirm","asr_reject","tactics","style","style_confirm","intake","tech"]
     force_rag: bool
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 
@@ -223,6 +223,10 @@ class GraphState(TypedDict):
     intake_fields: dict          # campos recolectados del guión de 8 preguntas
     intake_current_field: int    # índice activo 0–8 (8 = esperando respuesta de ASRs)
     intake_complete: bool        # True cuando los 8 campos han sido validados
+    # BUG-025: set by supervisor when it detects a fresh project intro on a stale
+    # checkpoint. Tells context_loader to skip phase/active-view restore from the
+    # prior-session ledger so the new intake flow runs on clean state.
+    new_project_flow: bool
 
     # ── Routing phase (BUG-013) ──────────────────────────────────────────────
     # Tracks which graph-routing phase the session has reached so boot_node can
@@ -234,7 +238,9 @@ class GraphState(TypedDict):
     # Persisted across turns by boot_node; populated by ADD 3.0 phase nodes.
     normal_operation_baseline: dict      # baseline metrics captured during diagnosis
     asr_candidates: list[dict]           # ASRs proposed in asr_table phase
-    selected_asrs: list[str]             # IDs of ASRs confirmed by the user
+    selected_asrs: list[str]             # IDs of ASRs confirmed by the user (alternates ULID/humanID)
+    asr_detail_ids: list[str]            # human IDs requested for detail-on-demand (asr_detail intent)
+    selected_qa_queue: list[str]         # ordered QA names for per-QA design loop (Issue 2-bis)
     style_candidates: list[dict]         # styles proposed for selected ASRs
     selected_tactics: list[str]          # IDs of tactics confirmed by the user
     tactics_candidates: list[dict]       # tactics proposed for the chosen style
