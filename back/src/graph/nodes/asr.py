@@ -665,16 +665,17 @@ Your job is to produce a PRIORITIZED TABLE of candidate Architecture Significant
 Requirements (ASRs). The architect will pick one ID to expand later — do NOT
 expand them now.
 
-Generate between 6 and 8 candidate rows covering the quality attributes
-(latency, scalability, availability, security, modifiability, etc.) that are
-problematic for THIS system. Read the intake context below and infer which QAs
-are at stake. Each row must be traceable to a concrete stakeholder problem or a
-specific system metric from the intake context; if a QA cannot be justified
-with intake evidence, omit it. The same QA may legitimately drive more than one
-ASR when there are distinct scenarios (e.g. read-path latency vs. write-path
-latency, or steady-state availability vs. failover availability) — in that case
-emit one row per scenario, each with its own measurable threshold. Use IDs A1
-through A8 in order (stop when you run out of justified scenarios).
+Generate between 4 and 8 candidate rows covering ONLY these three quality
+attributes: Latencia (Latency), Escalabilidad (Scalability), and Disponibilidad
+(Availability). DO NOT generate rows for any other quality attribute — security,
+modifiability, observability, recoverability, and any other QA are strictly
+forbidden in this table. Each row must be traceable to a concrete stakeholder
+problem or a specific system metric from the intake context; if a QA cannot be
+justified with intake evidence, omit it. The same QA may legitimately drive more
+than one ASR when there are distinct scenarios (e.g. read-path latency vs.
+write-path latency, or steady-state availability vs. failover availability) — in
+that case emit one row per scenario, each with its own measurable threshold. Use
+IDs A1 through A8 in order (stop when you run out of justified scenarios).
 
 {"=" * 60}
 PROJECT CONTEXT — YOU MUST RESPECT THESE CONSTRAINTS:
@@ -708,6 +709,9 @@ selection question, and nothing else. No prose before or after.
 {_row_hint}
 
 Hard rules:
+- ALLOWED quality attributes: ONLY Latencia, Escalabilidad, Disponibilidad (or their
+  English equivalents Latency, Scalability, Availability). Any row with a different QA
+  (Security, Modifiability, Observability, Recoverability, etc.) MUST be omitted.
 - Each row's "Scenario description" cell MUST contain a single sentence ≤ 120 characters
   with a concrete, measurable threshold (p95/p99, RPS, error rate, availability %, etc.).
 - "Business importance" and "Technical risk" are EXACTLY one of: H, M, L.
@@ -737,6 +741,35 @@ After the table, on a new line, write EXACTLY this selection prompt:
     # BUG-042/043/044: parse the candidate table. If parsing fails (no rows
     # detected) fall back to the single-ASR coercion to keep degraded mode.
     _table_rows = _parse_asr_table_rows(content)
+
+    # Post-parse safety filter: keep only the three allowed QAs.
+    _ALLOWED_QA_IDS = {"latencia", "escalabilidad", "disponibilidad",
+                       "latency", "scalability", "availability"}
+    _filtered_rows = [
+        r for r in _table_rows
+        if normalize_qa(r.get("qa", "")) in _ALLOWED_QA_IDS
+        or r.get("qa", "").strip().lower() in _ALLOWED_QA_IDS
+    ]
+    if _filtered_rows and len(_filtered_rows) < len(_table_rows):
+        for i, row in enumerate(_filtered_rows, start=1):
+            row["id"] = f"A{i}"
+        _lines = content.splitlines()
+        _header_lines = [l for l in _lines if l.startswith("|") and
+                         any(h in l.lower() for h in ("id", "atributo", "quality"))]
+        _sep_lines = [l for l in _lines if re.match(r"^\s*\|[-| ]+\|\s*$", l)]
+        _body = [
+            f"| {r['id']} | {r['qa']} | {r['scenario']} | {r['business']} | {r['risk']} |"
+            for r in _filtered_rows
+        ]
+        _trailing = [l for l in _lines if not l.startswith("|") and l.strip()]
+        content = "\n".join(
+            (_header_lines[:1] if _header_lines else []) +
+            (_sep_lines[:1] if _sep_lines else []) +
+            _body +
+            _trailing
+        )
+        _table_rows = _filtered_rows
+
     _is_candidate_table = len(_table_rows) >= 1
     _asr_discarded = False
     if not _is_candidate_table:
