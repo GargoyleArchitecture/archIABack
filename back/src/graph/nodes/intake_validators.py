@@ -305,7 +305,7 @@ class MultiFieldAssessmentResult(BaseModel):
 
 
 _ADD3_CRITERIA: dict[int, str] = {
-    0: "Must describe a concrete system requirement — not generic. Needs objective, quality expectation, or involved components. 'A system that handles requests' is NOT sufficient.",
+    0: "Must describe a concrete system requirement — not generic. Needs objective, functional scope, or quality expectation. 'A system that handles requests' is NOT sufficient. Do NOT require the user to name architectural components (services, APIs, modules, databases) — those are ADD design outputs, not intake inputs.",
     1: "Must describe concrete functionalities or areas of responsibility the system must support. Whether building from scratch or describing an existing system, the answer must state what the system does or should do — not how it is structured. 'It handles requests' is NOT sufficient. Needs specific capabilities such as payment processing, user authentication, inventory management, or hotel search. Do NOT require the user to name architectural components (services, APIs, modules, databases) — those are ADD design outputs, not intake inputs.",
     2: "Must explicitly identify the source category (user / external system / internal event / time/timer) AND contextualize it to the actual system. Just 'usuario' with no context is NOT sufficient.",
     3: "Two-tier rule — diagnosis level only, not solution design. (A) Triggers WITH performance metrics (latency, TPM, concurrent users, timeouts): identify the system component that receives the event, indicate sync or async interaction, reference the endpoint or event name (approximate is acceptable), and include the associated metric (p95, TPM, timeout). (B) Triggers WITHOUT metrics (timers, webhooks, deployments, security events, internal events): sufficient to name the trigger and the component that processes it — no exact endpoint, retry policy, or cooldown required. The validator must NOT require in any case: autoscaling policies (threshold, cooldown, min/max replicas), HTTP response codes, retry or backoff policies, detailed failover mechanisms, or rollback behavior. These are solution details, not diagnosis details.",
@@ -412,7 +412,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
 
     if _lang == "es":
         templates = {
-            0: "Reescribe tu respuesta indicando el objetivo principal del sistema, los componentes involucrados y al menos una expectativa de calidad concreta.",
+            0: "Reescribe tu respuesta indicando el objetivo principal del sistema, el alcance funcional y al menos una expectativa de calidad concreta. No nombres componentes arquitectónicos — esos emergen del proceso de diseño ADD, no en esta etapa.",
             1: "Reescribe tu respuesta describiendo las funcionalidades principales o áreas de responsabilidad del sistema. Si estás construyendo desde cero, menciona las capacidades que quieres que el sistema tenga. No nombres componentes arquitectónicos — eso se determina durante el proceso de diseño ADD, no en esta etapa.",
             2: "Reescribe tu respuesta indicando quién genera el estímulo y su contexto en tu sistema, por ejemplo usuario final, sistema externo, evento interno o timer.",
             3: "Reescribe tu respuesta describiendo el evento específico que dispara el comportamiento. Si tiene métricas (latencia, TPM, usuarios concurrentes, timeouts), indica el componente que lo procesa y si la llamada es síncrona o asíncrona. Si no tiene métricas (timer, webhook, despliegue, actor malicioso), basta con nombrar el evento de forma concreta.",
@@ -423,7 +423,7 @@ def build_repair_prompt(index: int, lang: str, reason: str = "") -> str:
         }
     else:
         templates = {
-            0: "Rewrite your answer stating the system's main goal, the components involved, and at least one concrete quality expectation.",
+            0: "Rewrite your answer stating the system's main goal, the functional scope, and at least one concrete quality expectation. Do not name architectural components — those emerge from the ADD design process, not at this stage.",
             1: "Rewrite your answer describing the main functionalities or areas of responsibility of the system. If you are building from scratch, mention the capabilities you want the system to have. Do not name architectural components — those are determined during the ADD design process, not at this stage.",
             2: "Rewrite your answer stating who produces the stimulus and its context in your system, for example an end user, external system, internal event, or timer.",
             3: "Rewrite your answer describing the specific event that triggers the behavior. If it has associated metrics (latency, TPM, concurrent users, timeouts), indicate which component it interacts with and whether the call is sync or async. If it has no metrics (timer, webhook, deployment, malicious actor), naming the event specifically is sufficient.",
