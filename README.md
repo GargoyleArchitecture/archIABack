@@ -144,7 +144,7 @@ Para garantizar la protección de Información de Identificación Personal (PII)
 - **Supresión Definitiva:** Se utiliza enmascaramiento sólido en lugar de desenfoque para garantizar la irrecuperabilidad de los datos sensibles en las imágenes procesadas.
 
 ### 2. Anonimización de Texto
-- Utiliza **Reconocimiento de Entidades Nombradas (NER)** con `spaCy` y expresiones regulares para reemplazar nombres, correos y localizaciones por identificadores anónimos (`[PERSONA]`, `[EMAIL]`) antes de la indexación vectorial.
+- Sustituye técnicas clásicas por el modelo generativo **GPT-4o-mini**, el cual extrae con alta precisión semántica las entidades PII (nombres propios, instituciones) directamente de las transcripciones crudas. Posteriormente, expresiones regulares de alta velocidad inyectan identificadores anónimos (`[REDACTADO]`) antes de la indexación vectorial.
 
 ### 3. Resiliencia y Sanitización de Sistema
 - **Sincronización ChromaDB:** Resuelve colisiones de nombres y sincroniza los metadatos de los vectores de forma coherente con el estado real de los archivos de imagen.
@@ -195,7 +195,7 @@ Para compartir el estado actual del backend y evitar tener que re-indexar los do
 
 ### 📥 Instrucciones para restaurar en otra máquina:
 1. Clonar el repositorio normalmente.
-2. Descargar el archivo ZIP con las bases de datos.
+2. Descargar el archivo ZIP con las bases de datos pre-computadas desde la pestaña de **Releases** de este repositorio de GitHub.
 3. Extraer el contenido del ZIP directamente dentro de la carpeta `back/` de modo que se ubiquen en sus rutas correspondientes (`back/chroma_db`, `back/videos/...`, etc.).
 4. Ejecutar el backend normalmente (`poetry run uvicorn src.main:app --port 8000`). El sistema detectará las bases de datos indexadas y funcionará inmediatamente sin requerir procesos de carga previos o credenciales API activas de forma obligatoria para búsquedas locales.
 
