@@ -155,7 +155,7 @@ class EVRAGPipeline:
         if processed_info_path.exists() and not force_reprocess:
             import json
             print(f"Using cached EVRAG processing for {video_path.name}")
-            data = json.loads(processed_info_path.read_text())
+            data = json.loads(processed_info_path.read_text(encoding="utf-8"))
             return EVRAGResult(
                 video_path=data["video_path"],
                 scenes_detected=data["scenes_detected"],
@@ -194,7 +194,12 @@ class EVRAGPipeline:
         frame_embeddings = None
         if self.clip_available:
             print("\nStep 3: Generating CLIP embeddings...")
-            frame_embeddings = self.clip_embedder.embed_images(frames)
+            try:
+                frame_embeddings = self.clip_embedder.embed_images(frames)
+            except (RuntimeError, ImportError, Exception) as e:
+                print(f"  Warning: CLIP embeddings failed ({e}). Continuing in text-only mode.")
+                self.clip_available = False
+                frame_embeddings = None
         else:
             print("\nStep 3: Skipping CLIP embeddings (not available)")
         
@@ -231,7 +236,7 @@ class EVRAGPipeline:
         processed_info_path.parent.mkdir(parents=True, exist_ok=True)
         
         import json
-        processed_info_path.write_text(json.dumps(result.to_dict(), indent=2))
+        processed_info_path.write_text(json.dumps(result.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
         
         # Update stats
         self.stats["videos_processed"] += 1

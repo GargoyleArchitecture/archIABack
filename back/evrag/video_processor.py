@@ -11,13 +11,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import re
+import unicodedata
 
 
 @dataclass
 class Scene:
     """
     Represents a detected scene in a video.
-    
+
     Attributes:
         start_frame: Frame number where scene starts
         end_frame: Frame number where scene ends
@@ -32,7 +34,7 @@ class Scene:
     end_time_sec: float
     representative_frame: Path | None = None
     frame_index: int = 0
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -43,12 +45,12 @@ class Scene:
             "representative_frame": str(self.representative_frame) if self.representative_frame else None,
             "frame_index": self.frame_index,
         }
-    
+
     @property
     def duration_sec(self) -> float:
         """Returns scene duration in seconds."""
         return self.end_time_sec - self.start_time_sec
-    
+
     @property
     def frame_count(self) -> int:
         """Returns number of frames in scene."""
@@ -58,53 +60,54 @@ class Scene:
 class VideoProcessor:
     """
     Video processor with scene-change detection.
-    
+
     Uses OpenCV to detect scene changes and extract representative frames.
     This is more efficient than fixed-rate sampling (1-2 fps) while preserving
     key visual content.
-    
+
     Attributes:
         config: Configuration dictionary
     """
-    
+
     def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize video processor.
-        
+
         Args:
             config: Configuration dictionary (default: EVRAG_CONFIG)
         """
         from .config import EVRAG_CONFIG
         self.config = config or EVRAG_CONFIG
-        
+
         self.scenes: list[Scene] = []
         self.video_path: Path | None = None
         self.video_duration_sec: float = 0
         self.total_frames: int = 0
         self.fps: float = 0
-    
+        self.sanitized_video_stem: str = ""
+
     def compute_video_hash(self, video_path: Path) -> str:
         """
         Compute SHA256 hash of video file.
-        
+
         Args:
             video_path: Path to video file
-            
+
         Returns:
             SHA256 hash as hex string
         """
         sha256_hash = hashlib.sha256()
-        
+
         with open(video_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(chunk)
-        
+
         return sha256_hash.hexdigest()
-    
+
     def detect_scenes(self, video_path: Path | str) -> list[Scene]:
         """
         Detect scene changes in video using OpenCV.
-        
+
         Optimizado para videos largos: muestrea 1 frame cada N frames.
         """
         import cv2
@@ -128,7 +131,7 @@ class VideoProcessor:
         # OPTIMIZACIÓN: Para videos largos, muestrear frames
         # Para video de 70 min (104k frames), procesar 1 cada 10 frames = ~10k frames
         sample_rate = max(1, self.total_frames // 10000)  # Máximo 10k frames a procesar
-        
+
         print(f"  Sample rate: 1 every {sample_rate} frames (optimization for long videos)")
 
         # Scene detection parameters
@@ -141,7 +144,7 @@ class VideoProcessor:
 
         frame_idx = 0
         processed = 0
-        
+
         # Progress bar
         pbar = tqdm(total=self.total_frames, desc="Detecting scenes", unit="frames")
 
@@ -187,13 +190,13 @@ class VideoProcessor:
         ))
 
         cap.release()
-        
+
         self.scenes = scenes
-        
+
         print(f"  Detected scenes: {len(scenes)}")
-        
+
         return scenes
-    
+
     def extract_representative_frames(
         self,
         output_dir: Path | None = None,
@@ -201,56 +204,74 @@ class VideoProcessor:
     ) -> list[Path]:
         """
         Extract representative frame from each scene.
-        
+
         For each detected scene, extracts the middle frame as representative.
-        
+
         Args:
             output_dir: Directory to save frames (default: config.frames_dir)
             max_frames: Maximum frames to extract (for long videos)
-            
+
         Returns:
             List of paths to extracted frames
         """
         import cv2
-        
+
         if not self.scenes:
             raise ValueError("No scenes detected. Call detect_scenes() first.")
-        
+
         output_dir = output_dir or Path(self.config["frames_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Limit frames if needed
         scenes_to_process = self.scenes
         if max_frames and len(scenes_to_process) > max_frames:
             # Select evenly distributed scenes
             indices = np.linspace(0, len(scenes_to_process) - 1, max_frames, dtype=int)
             scenes_to_process = [self.scenes[i] for i in indices]
-        
+
         cap = cv2.VideoCapture(str(self.video_path))
         extracted_frames: list[Path] = []
-        
+
         for scene_idx, scene in enumerate(scenes_to_process):
             # Extract middle frame of scene
             middle_frame_idx = (scene.start_frame + scene.end_frame) // 2
             scene.frame_index = middle_frame_idx
-            
+
             cap.set(cv2.CAP_PROP_POS_FRAMES, middle_frame_idx)
             ret, frame = cap.read()
-            
+
             if ret:
+                # --- APLICAR PRIVACIDAD (CENSURA DE ROSTROS) ---
+                try:
+                    from .privacy import PrivacyProcessor
+                    frame, faces_hidden = PrivacyProcessor.anonymize_frame_faces(frame)
+                    if faces_hidden > 0:
+                        print(f"    Privacy: Censored {faces_hidden} faces in frame {middle_frame_idx}")
+                except Exception as e:
+                    print(f"    Privacy Warning: Could not anonymize frame: {e}")
+
                 # Save frame
-                frame_path = output_dir / f"{self.video_path.stem}_scene_{scene_idx:03d}_frame_{middle_frame_idx:05d}.jpg"
-                cv2.imwrite(str(frame_path), frame)
-                
-                scene.representative_frame = frame_path
-                extracted_frames.append(frame_path)
-        
+                # Strictly sanitize stem to avoid file system issues with special characters/accents on Windows
+                if self.sanitized_video_stem:
+                    stem = self.sanitized_video_stem
+                else:
+                    stem = unicodedata.normalize('NFKD', self.video_path.stem).encode('ascii', 'ignore').decode('ascii')
+                    stem = re.sub(r'[^a-zA-Z0-9_-]', '_', stem)
+
+                frame_path = output_dir / f"{stem}_scene_{scene_idx:03d}_frame_{middle_frame_idx:05d}.jpg"
+                success = cv2.imwrite(str(frame_path), frame)
+                if not success:
+                    print(f"Warning: Failed to save frame to {frame_path}")
+                else:
+                    scene.representative_frame = frame_path
+                    extracted_frames.append(frame_path)
+
         cap.release()
-        
+
         print(f"  Extracted frames: {len(extracted_frames)}")
-        
+
         return extracted_frames
-    
+
     def process_video(
         self,
         video_path: Path | str,
@@ -258,33 +279,59 @@ class VideoProcessor:
     ) -> dict[str, Any]:
         """
         Complete video processing pipeline.
-        
+
         Args:
             video_path: Path to video file
             force_reprocess: If True, reprocess even if already processed
-            
+
         Returns:
             Dictionary with processing results
         """
         video_path = Path(video_path)
-        
+
         # Check if already processed
         processed_info_path = Path(self.config["processed_dir"]) / f"{video_path.stem}_info.json"
-        
+
         if processed_info_path.exists() and not force_reprocess:
             import json
-            print(f"Using cached processing info for {video_path.name}")
-            return json.loads(processed_info_path.read_text())
-        
+            # Try UTF-8 first, fall back to cp1252/latin-1 for older cached files
+            data = None
+            for enc in ("utf-8", "cp1252", "latin-1"):
+                try:
+                    data = json.loads(processed_info_path.read_text(encoding=enc))
+                    break
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+            if data is None:
+                print(f"Warning: Could not read cache for {video_path.name}, reprocessing...")
+            else:
+                # Verify that frames actually exist
+                frames_exist = True
+                for frame_path_str in data.get("frame_paths", []):
+                    if not Path(frame_path_str).exists():
+                        frames_exist = False
+                        break
+                
+                if frames_exist:
+                    print(f"Using cached processing info for {video_path.name}")
+                    return data
+                else:
+                    print(f"Cached frames missing for {video_path.name}, ignoring cache and reprocessing...")
+
         # Process video
         print(f"\nProcessing video: {video_path.name}")
-        
+
+        # Sanitize video_path.stem for filenames to avoid issues with special characters
+        # Remove accents and replace non-alphanumeric characters with underscore
+        clean_stem = unicodedata.normalize('NFKD', video_path.stem).encode('ascii', 'ignore').decode('ascii')
+        self.sanitized_video_stem = re.sub(r'[^a-zA-Z0-9_-]', '_', clean_stem)
+
         # Detect scenes
         scenes = self.detect_scenes(video_path)
-        
+
         # Extract frames
-        frames = self.extract_representative_frames()
-        
+        frames = self.extract_representative_frames(max_frames=self.config["max_frames_per_video"])
+
         # Build result
         result = {
             "video_path": str(video_path),
@@ -297,25 +344,25 @@ class VideoProcessor:
             "scenes": [s.to_dict() for s in scenes],
             "frame_paths": [str(f) for f in frames],
         }
-        
+
         # Save processing info
         processed_info_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         import json
-        processed_info_path.write_text(json.dumps(result, indent=2))
-        
+        processed_info_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+
         return result
-    
+
     def get_scenes_summary(self) -> str:
         """
         Returns human-readable summary of detected scenes.
-        
+
         Returns:
             Formatted string with scene information
         """
         if not self.scenes:
             return "No scenes detected"
-        
+
         lines = [
             f"Video: {self.video_path.name if self.video_path else 'Unknown'}",
             f"Duration: {self.video_duration_sec:.1f}s",
@@ -323,14 +370,14 @@ class VideoProcessor:
             "",
             "Scenes:",
         ]
-        
+
         for i, scene in enumerate(self.scenes[:10], 1):  # Show first 10
             lines.append(
                 f"  {i:2d}. [{scene.start_time_sec:5.1f}s - {scene.end_time_sec:5.1f}s] "
                 f"({scene.duration_sec:5.1f}s, {scene.frame_count:3d} frames)"
             )
-        
+
         if len(self.scenes) > 10:
             lines.append(f"  ... and {len(self.scenes) - 10} more scenes")
-        
+
         return "\n".join(lines)

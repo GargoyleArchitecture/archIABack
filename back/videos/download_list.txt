@@ -1,0 +1,17 @@
+# Videos recomendados para EVRAG - ArchIA
+# Formato: URL # Categoria # Prioridad
+
+# ===== SOFTWARE ARCHITECTURE PATTERNS (Alta Prioridad) =====
+https://www.youtube.com/watch?v=pOlA4nkkbbI # System Design Patterns # ALTA
+https://www.youtube.com/watch?v=fhT8mZWEc10 # Event-Driven Architecture # ALTA
+https://www.youtube.com/watch?v=_2HCk8jyFEo # Event Sourcing & CQRS # ALTA
+https://www.youtube.com/watch?v=SYokMS3viPA # Event-Driven vs CRUD # ALTA
+https://www.youtube.com/watch?v=Fb_0UOD2X2I # Event Driven Architecture 15min # ALTA
+
+# ===== GOTO CONFERENCES (Alta Prioridad) =====
+https://www.youtube.com/watch?v=ZCrCqbblXjk # Master Software Architecture GOTO 2025 # ALTA
+https://www.youtube.com/watch?v=bRPIImvTZ64 # Scalable and Resilient Architectures # ALTA
+https://www.youtube.com/watch?v=8KntBPOdfWA # Software Architecture for Developers # ALTA
+
+# ===== QUALITY ATTRIBUTES & TACTICS (Media-Alta) =====
+https://www.youtube.com/watch?v=pUGvXUBfvEE # CQRS and Microservices # MEDIA

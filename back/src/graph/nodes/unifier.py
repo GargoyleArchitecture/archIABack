@@ -1,11 +1,17 @@
-﻿# -*- coding: utf-8 -*-
-
 import re
+import logging
+# pyrefly: ignore [missing-import]
 from langchain_core.messages import AIMessage
-
+# pyrefly: ignore [missing-import]
 from src.graph.state import GraphState
+# pyrefly: ignore [missing-import]
 from src.graph.resources import llm
+# pyrefly: ignore [missing-import]
+from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
+# pyrefly: ignore [missing-import]
 from src.graph.utils import _push_turn, _strip_tactics_sections
+
+log = logging.getLogger("graph")
 
 def _last_ai_by(state: GraphState, name: str) -> str:
     for m in reversed(state["messages"]):
@@ -19,10 +25,8 @@ def _last_turn_by(state: GraphState, name: str) -> str:
             return str(m.get("content"))
     return ""
 
-def _strip_all_markdown(text: str) -> str:
-    text = re.sub(r"```.*?```", "", text, flags=re.S)
-    text = re.sub(r"^\s*#.*$", "", text, flags=re.M)
-    text = text.replace("**", "")
+def _strip_mermaid_artifacts(text: str) -> str:
+    """Remove accidental Mermaid diagram syntax that the LLM might produce."""
     out = []
     for ln in text.splitlines():
         if re.search(r"^\s*(graph\s+(LR|TB)|flowchart|sequenceDiagram|classDiagram)\b", ln, re.I):
@@ -33,15 +37,22 @@ def _strip_all_markdown(text: str) -> str:
     return "\n".join(out).strip()
 
 def _extract_rag_sources_from(text: str) -> str:
-    m = re.search(r"SOURCES:\s*(.+)$", text, flags=re.S | re.I)
-    if not m:
-        return ""
-    raw = m.group(1)
     lines = []
-    for ln in raw.splitlines():
-        ln = ln.strip(" -\t")
-        if ln:
-            lines.append(ln)
+    
+    # Extract TEXT_SOURCES
+    m_text = re.search(r"TEXT_SOURCES:\s*(.+?)(?=\n[A-Z_]+:|)$", text, flags=re.S | re.I)
+    if m_text:
+        for ln in m_text.group(1).splitlines():
+            ln = ln.strip(" -\t")
+            if ln: lines.append(ln)
+            
+    # Extract VIDEO_SOURCES
+    m_vid = re.search(r"VIDEO_SOURCES:\s*(.+?)(?=\n[A-Z_]+:|)$", text, flags=re.S | re.I)
+    if m_vid:
+        for ln in m_vid.group(1).splitlines():
+            ln = ln.strip(" -\t")
+            if ln: lines.append(ln)
+            
     return "\n".join(lines[:8])
 
 def _split_sections(text: str) -> dict:
@@ -49,11 +60,17 @@ def _split_sections(text: str) -> dict:
     current = None
     for ln in text.splitlines():
         if re.match(r"^Answer:", ln, re.I):
-            current = "Answer"; sections[current] = ln.split(":", 1)[1].strip(); continue
+            current = "Answer"
+            sections[current] = ln.split(":", 1)[1].strip()
+            continue
         if re.match(r"^References:", ln, re.I):
-            current = "References"; sections[current] = ln.split(":", 1)[1].strip(); continue
+            current = "References"
+            sections[current] = ln.split(":", 1)[1].strip()
+            continue
         if re.match(r"^Next:", ln, re.I):
-            current = "Next"; sections[current] = ln.split(":", 1)[1].strip(); continue
+            current = "Next"
+            sections[current] = ln.split(":", 1)[1].strip()
+            continue
         if current:
             sections[current] += ("\n" + ln)
     for k in sections:
@@ -61,6 +78,7 @@ def _split_sections(text: str) -> dict:
     return sections
 
 def unifier_node(state: GraphState) -> GraphState:
+    log.info("[unifier_node] Consolidating final answer.")
     lang = state.get("language", "es")
     intent = state.get("intent", "general")
 
@@ -95,26 +113,26 @@ def unifier_node(state: GraphState) -> GraphState:
         blocks = []
         if lang == "es":
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"ASR:\n{asr_txt}")
+                blocks.append(f"## ASR\n\n{asr_txt}")
             if style_txt and "style" in requested_set:
-                blocks.append(f"Estilos arquitectónicos:\n{style_txt}")
+                blocks.append(f"## Estilos Arquitectónicos\n\n{style_txt}")
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"Tácticas:\n{tactics_txt}")
+                blocks.append(f"## Tácticas\n\n{tactics_txt}")
             if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("Diagrama: renderizado listo en esta misma respuesta.")
+                blocks.append("## Diagrama\n\nRenderizado listo en esta misma respuesta.")
             followups = [
                 "Refinar el ASR con métricas más estrictas.",
                 "Aterrizar estas tácticas en un plan de implementación por fases.",
             ]
         else:
             if asr_txt and "asr" in requested_set:
-                blocks.append(f"ASR:\n{asr_txt}")
+                blocks.append(f"## ASR\n\n{asr_txt}")
             if style_txt and "style" in requested_set:
-                blocks.append(f"Architecture styles:\n{style_txt}")
+                blocks.append(f"## Architecture Styles\n\n{style_txt}")
             if tactics_txt and "tactics" in requested_set:
-                blocks.append(f"Tactics:\n{tactics_txt}")
+                blocks.append(f"## Tactics\n\n{tactics_txt}")
             if has_diagram and "diagram_agent" in requested_set:
-                blocks.append("Diagram: rendered output is included in this same response.")
+                blocks.append("## Diagram\n\nRendered output is included in this same response.")
             followups = [
                 "Refine the ASR with stricter metrics.",
                 "Turn these tactics into a phased implementation plan.",
@@ -128,13 +146,12 @@ def unifier_node(state: GraphState) -> GraphState:
             ]
             return {**state, "endMessage": end_text, "intent": ("diagram" if "diagram_agent" in requested_set else intent)}
 
-    # 0) Show rendered diagram if available
-    # 0) Mostrar el diagrama si existe (intención "diagram") - LÓGICA ANTIGUA, LA MANTENEMOS
+    # Mostrar el diagrama si existe
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
         data_url = f'data:image/svg+xml;base64,{d["svg_b64"]}'
         if lang == "es":
-            head = "Aquí tienes el diagrama solicitado:"
+            head = "## Diagrama"
             footer = "¿Qué te gustaría hacer ahora con este diagrama?"
             tips = [
                 "Generar un diagrama de componentes a partir de este sistema.",
@@ -142,7 +159,7 @@ def unifier_node(state: GraphState) -> GraphState:
                 "Formular un nuevo ASR basado en este sistema.",
             ]
         else:
-            head = "Here is your requested diagram:"
+            head = "## Diagram"
             footer = "What would you like to do next with this diagram?"
             tips = [
                 "Generate a component diagram from this system.",
@@ -151,6 +168,7 @@ def unifier_node(state: GraphState) -> GraphState:
             ]
 
         end_text = f"""{head}
+
 ![diagram]({data_url})
 
 {footer}
@@ -158,7 +176,7 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = tips
         return {**state, "endMessage": end_text, "intent": "diagram"}
 
-    # ðŸ”´ Caso especial para ESTILOS
+    # Caso especial para ESTILOS
     if intent == "style":
         style_txt = (
             _last_ai_by(state, "style_recommender")
@@ -183,7 +201,7 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": style_txt}
 
-    # ðŸ"´ Caso especial para TÁCTICAS
+    # Caso especial para TÁCTICAS
     if intent == "tactics":
         tactics_md = (
             state.get("tactics_md")
@@ -198,15 +216,15 @@ def unifier_node(state: GraphState) -> GraphState:
                 "Genera un diagrama de componentes aplicando estas tácticas.",
                 "Genera un diagrama de despliegue alineado con estas tácticas.",
             ]
-            refs_label = "Referencias"
+            refs_label = "### Referencias"
         else:
             followups = [
                 "Generate a component diagram applying these tactics.",
                 "Generate a deployment diagram aligned with these tactics.",
             ]
-            refs_label = "References"
+            refs_label = "### References"
 
-        end_text = f"{tactics_md}\n\n{refs_label}:\n{refs_block}"
+        end_text = f"{tactics_md}\n\n---\n\n{refs_label}\n\n{refs_block}"
 
         state["suggestions"] = followups
         state["turn_messages"] = state.get("turn_messages", []) + [
@@ -214,14 +232,13 @@ def unifier_node(state: GraphState) -> GraphState:
         ]
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial para ASR
+    # Caso especial para ASR
     if intent == "asr" or intent == "ASR":
         raw_asr = (
             _last_ai_by(state, "asr_recommender")
             or state.get("endMessage")
             or "No ASR content found for this turn."
         )
-        # si el LLM coló tácticas, las quitamos del ASR
         last_asr = _strip_tactics_sections(raw_asr)
 
         asr_src_txt = _last_ai_by(state, "asr_sources")
@@ -232,15 +249,15 @@ def unifier_node(state: GraphState) -> GraphState:
                 "Propón estilos arquitectónicos para este ASR.",
                 "Refina este ASR con métricas y escenarios más específicos.",
             ]
-            refs_label = "Referencias"
+            refs_label = "### Referencias"
         else:
             followups = [
                 "Propose architecture styles for this ASR.",
                 "Refine this ASR with more specific metrics and scenarios.",
             ]
-            refs_label = "References"
+            refs_label = "### References"
 
-        end_text = f"{last_asr}\n\n{refs_label}:\n{refs_block}"
+        end_text = f"{last_asr}\n\n---\n\n{refs_label}\n\n{refs_block}"
 
         state["turn_messages"] = state.get("turn_messages", []) + [
             {"role": "assistant", "name": "unifier", "content": end_text}
@@ -248,37 +265,37 @@ def unifier_node(state: GraphState) -> GraphState:
         state["suggestions"] = followups
         return {**state, "endMessage": end_text}
 
-    # ðŸ”´ Caso especial: saludo / smalltalk
+    # Caso especial: saludo / smalltalk
     if intent in ("greeting", "smalltalk"):
         if lang == "es":
-            hello = "¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"
+            hello = "## Bienvenido a ArchIA\n\n¡Hola! ¿Sobre qué tema de arquitectura quieres profundizar?"
             nexts = [
                 "Formular un ASR (requerimiento de calidad) para mi sistema.",
                 "Revisar un ASR que ya tengo.",
             ]
             footer = (
-                "Si quieres, podemos empezar el ciclo ADD 3.0 formulando "
-                "un ASR (por ejemplo de latencia, disponibilidad o seguridad)."
+                "> Si quieres, podemos empezar el ciclo **ADD 3.0** formulando "
+                "un ASR (por ejemplo de *latencia*, *disponibilidad* o *seguridad*)."
             )
         else:
-            hello = "Hi! What software-architecture topic would you like to explore?"
+            hello = "## Welcome to ArchIA\n\nHi! What software-architecture topic would you like to explore?"
             nexts = [
                 "Define an ASR (quality attribute requirement) for my system.",
                 "Review an ASR I already have.",
             ]
             footer = (
-                "If you want, we can start the ADD 3.0 cycle by defining "
-                "an ASR (for example latency, availability or security)."
+                "> If you want, we can start the **ADD 3.0** cycle by defining "
+                "an ASR (for example *latency*, *availability* or *security*)."
             )
 
         end_text = hello + "\n\n" + footer
         state["suggestions"] = nexts
         return {**state, "endMessage": end_text}
 
-    # ðŸ"µ Caso por defecto: síntesis de investigador / evaluador / etc.
-    researcher_txt = _last_ai_by(state, "researcher")
-    evaluator_txt = _last_ai_by(state, "evaluator")
-    asr_src_txt = _last_ai_by(state, "asr_sources")
+    # Caso por defecto: síntesis de investigador / evaluador / etc.
+    researcher_txt = _last_ai_by(state, "researcher") if state.get("hasVisitedInvestigator") else ""
+    evaluator_txt = _last_ai_by(state, "evaluator") if state.get("hasVisitedEvaluator") else ""
+    asr_src_txt = _last_ai_by(state, "asr_sources") if state.get("hasVisitedASR") else ""
 
     rag_refs = ""
     if researcher_txt:
@@ -306,13 +323,14 @@ def unifier_node(state: GraphState) -> GraphState:
 You are writing the FINAL chat reply.
 
 - Give a complete, direct solution tailored to the question and context.
-- Use 6–12 concise lines (bullets or short sentences). No code fences, no diagrams.
-- If useful, at the end include a short 'References:' block listing 3–6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
+- Use Markdown formatting: ## for sections, **bold** for key terms, - for lists.
+- Keep it concise (6-12 lines of content).
+- If useful, at the end include a '### References' section listing 3-6 items from RAG_SOURCES (one per line). If not useful, you may omit it.
 
 Constraints:
 - Use the user's language.
 - Do not invent sources outside RAG_SOURCES.
-- Keep it clean: no '#', no '**', no code blocks.
+{MARKDOWN_FORMAT_DIRECTIVE}
 
 Conversation memory (for continuity): {memory_hint}
 
@@ -325,7 +343,7 @@ SOURCE:
 
     resp = llm.invoke(prompt)
     final_text = getattr(resp, "content", str(resp))
-    final_text = _strip_all_markdown(final_text)
+    final_text = _strip_mermaid_artifacts(final_text)
 
     secs = _split_sections(final_text)
     chips = []
@@ -340,5 +358,3 @@ SOURCE:
     _push_turn(state, role="assistant", name="unifier", content=final_text)
 
     return {**state, "endMessage": final_text}
-
-

@@ -1,0 +1,20 @@
+{
+  "report_id": "layer3_videos_20260325_171709",
+  "evaluated_at": "2026-03-25T17:17:09.381550",
+  "layer_name": "layer3_videos",
+  "document_results": [
+    {
+      "document_path": "back\\videos\\raw\\YTDown.com_YouTube_Clase-abierta-Maestria-en-Ingenieria-de-_Media_M8XT7F8DZdg_001_1080p.mp4",
+      "dataset_info": {
+        "total_qa_pairs": 0,
+        "verified_qa_pairs": 0,
+        "generated_at": "2026-03-25T17:12:22.449521"
+      },
+      "qa_results": [],
+      "aggregate_metrics": {},
+      "evaluated_at": "2026-03-25T17:17:09.379045"
+    }
+  ],
+  "aggregate_metrics": {},
+  "comparison_with_previous": {}
+}

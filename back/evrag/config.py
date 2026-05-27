@@ -4,6 +4,7 @@ EVRAG Configuration
 Configuración para procesamiento de videos con EVRAG.
 """
 
+import os
 from typing import Literal
 
 
@@ -24,14 +25,14 @@ EVRAG_CONFIG = {
     # Audio Transcription
     # -------------------------------------------------------------------------
     "transcriber": "whisper_local",  # whisper_local, whisper_api
-    "whisper_model": "base",  # tiny, base, small, medium, large
+    "whisper_model": "tiny",  # tiny, base, small, medium, large
     "language": "es",  # Idioma del audio (es, en)
 
     # -------------------------------------------------------------------------
     # CLIP Embeddings
     # -------------------------------------------------------------------------
     "clip_model": "ViT-B/32",  # ViT-B/32, ViT-B/16, ViT-L/14
-    "clip_enabled": True,  # Now available with openai-clip
+    "clip_enabled": os.getenv("CLIP_ENABLED", "True").lower() == "true",  # Now available with openai-clip
     "embed_batch_size": 32,  # Batch size for embeddings
 
     # -------------------------------------------------------------------------
@@ -87,4 +88,4 @@ def is_multimodal_evaluation() -> bool:
     """
     Returns True if EVRAG should evaluate both text and visual content.
     """
-    return True
+    return EVRAG_CONFIG.get("clip_enabled", False)

@@ -1,4 +1,4 @@
-
+import operator
 from typing import Annotated, Literal, List, Dict, Any
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
@@ -143,7 +143,7 @@ class GraphState(TypedDict):
 
     # buffers / RAG / memoria liviana
     turn_messages: list
-    retrieved_docs: list
+    retrieved_docs: Annotated[list, operator.add]
     memory_text: str
     suggestions: list
 
@@ -155,6 +155,8 @@ class GraphState(TypedDict):
     language: Literal["en","es"]
     intent: Literal["general","greeting","smalltalk","architecture","diagram","asr","tactics","style"]
     force_rag: bool
+    rag_mode: str  # "text" = solo local_RAG, "video" = solo video_RAG, "both" = ambos
+    evrag_mode: str # "visual", "descriptive", "hybrid"
     resolved_index: str  # Índice QA resuelto en classifier (e.g., "escalabilidad", "latencia", "general")
 
     # etapa actual del pipeline ASR -> estilos -> tacticas -> despliegue
@@ -169,6 +171,10 @@ class GraphState(TypedDict):
     style: str # estilo actual
     selected_style: str
     last_style: str
+
+    # Diagram history for consistent cross-level expansion
+    # {1: "dot_level_1", 2: "dot_level_2", 3: "dot_level_3"}
+    diagram_history: dict
 
 class AgentState(TypedDict):
     messages: list

@@ -5,12 +5,16 @@
 CLIP ahora funciona con Python 3.13 usando torch CPU.
 
 **Dependencias instaladas:**
+
 - torch (CPU) - 2.11.0
+- opencv-python - 4.x.x
 - torchvision (CPU) - 0.26.0
 - openai-clip - 1.0.1
 - pillow - 12.1.1
+- chromadb
+- langchain-chroma
 
-**Costo: $0** (todo local, sin APIs)
+**Costo: Bajo** (Procesamiento local + Whisper/GPT API)
 
 ## Configuración Actual
 
@@ -39,14 +43,14 @@ results = pipeline.query("¿Qué dice sobre latencia?")
 
 ## Costos Estimados
 
-| Componente | Costo |
-|------------|-------|
-| Scene detection | $0 (local) |
-| CLIP embeddings | $0 (local) |
-| Whisper API | $0.36/hora (o $0 con local) |
-| QA generation | $0.15 (gpt-4o-mini) |
-| Evaluación | $0.60 (gpt-4o) |
-| **Total por video 1hr** | **~$1.11** |
+| Componente              | Costo                       |
+| ----------------------- | --------------------------- |
+| Scene detection         | $0 (local)                  |
+| CLIP embeddings         | $0 (local)                  |
+| Whisper API             | $0.36/hora (o $0 con local) |
+| QA generation           | $0.15 (gpt-4o-mini)         |
+| Evaluación              | $0.60 (gpt-4o)              |
+| **Total por video 1hr** | **~$1.11**                  |
 
 ## Siguientes Pasos
 

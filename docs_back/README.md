@@ -4,11 +4,12 @@ Esta carpeta contiene toda la documentación técnica relacionada con el backend
 
 ## 📚 Contenido
 
-### 1. [Documentacion_Tecnica_ArchIA.md](./Documentacion_Tecnica_ArchIA.md)
+### 1. [Arquitectura.md](./Arquitectura.md)
 
-**Documentación técnica completa del sistema ArchIA**
+**Especificación Técnica de Arquitectura Completa (v4.0)**
 
 Incluye:
+
 - Arquitectura del sistema
 - Grafo de estados (LangGraph)
 - Módulos principales (RAG, Diagramas, Recomendación)
@@ -25,6 +26,7 @@ Incluye:
 **Documentación de la Interfaz Web ChromaDB Explorer**
 
 Incluye:
+
 - Qué es y por qué se creó
 - Arquitectura de la interfaz
 - Requisitos para ejecutarla
@@ -32,6 +34,20 @@ Incluye:
 - Casos de uso y troubleshooting
 
 **Audiencia**: Desarrolladores que necesiten explorar/depurar la base de datos vectorial
+
+---
+
+### 3. diagram_pipeline.md
+
+**Guía del Pipeline de Generación de Diagramas**
+
+Incluye:
+
+- Arquitectura del renderizado (IR)
+- Niveles de detalle y expansión progresiva
+- Guía para importar en draw.io
+
+**Audiencia**: Desarrolladores trabajando en la visualización o exportación de diagramas
 
 ---
 
@@ -48,15 +64,16 @@ Esta carpeta (`docs_back/`) centraliza toda la documentación técnica del backe
 
 ## 📝 Mantenimiento
 
-**Responsable**: Equipo de desarrollo ArchIA  
+**Responsable**: Equipo de desarrollo ArchIA
 **Frecuencia de actualización**: Cada vez que se agregue una nueva funcionalidad o se modifique la arquitectura
 
 ### Versionado de Documentos
 
 Los documentos incluyen metadatos de versión en su encabezado:
+
 ```markdown
-> **Versión**: 1.0  
-> **Fecha**: Febrero 2026
+> **Versión**: 4.0
+> **Fecha**: Abril 2026
 ```
 
 ---

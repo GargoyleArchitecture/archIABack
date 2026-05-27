@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from tqdm import tqdm
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -37,7 +38,7 @@ from ..config import (
 class QAPair:
     """
     Represents a single Question-Answer pair for evaluation.
-    
+
     Attributes:
         question: The evaluation question
         answer: Ground truth answer
@@ -54,7 +55,7 @@ class QAPair:
     requires_multimodal: bool = False
     verified: bool = False
     verification_notes: str = ""
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -67,7 +68,7 @@ class QAPair:
             "verified": self.verified,
             "verification_notes": self.verification_notes,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "QAPair":
         """Create QAPair from dictionary."""
@@ -87,7 +88,7 @@ class QAPair:
 class DocumentDataset:
     """
     Represents a complete evaluation dataset for a single document.
-    
+
     Attributes:
         document_path: Path to the source document
         document_hash: SHA256 hash of the document (for change detection)
@@ -100,7 +101,7 @@ class DocumentDataset:
     qa_pairs: list[QAPair] = field(default_factory=list)
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     generation_model: str = ""
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -110,11 +111,11 @@ class DocumentDataset:
             "generated_at": self.generated_at,
             "generation_model": self.generation_model,
         }
-    
+
     def to_json(self, indent: int = 2) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DocumentDataset":
         """Create DocumentDataset from dictionary."""
@@ -125,17 +126,17 @@ class DocumentDataset:
             generated_at=data.get("generated_at", ""),
             generation_model=data.get("generation_model", ""),
         )
-    
+
     @classmethod
     def from_json(cls, json_str: str) -> "DocumentDataset":
         """Create DocumentDataset from JSON string."""
         return cls.from_dict(json.loads(json_str))
-    
+
     @property
     def total_qa_pairs(self) -> int:
         """Returns total number of QA pairs."""
         return len(self.qa_pairs)
-    
+
     @property
     def verified_count(self) -> int:
         """Returns number of verified QA pairs."""
@@ -149,6 +150,8 @@ class DocumentDataset:
 GENERATOR_PROMPT_TEMPLATE = """You are an expert at creating evaluation questions for RAG systems.
 
 Your task is to generate {num_questions} questions of type "{question_type}" based on the provided document context.
+
+**IMPORTANT: You MUST respond with ONLY a valid JSON array. No text before or after the JSON.**
 
 **Question Type Guidelines:**
 
@@ -171,8 +174,8 @@ Your task is to generate {num_questions} questions of type "{question_type}" bas
 **Document Context:**
 {context}
 
-**Output Format:**
-Generate a JSON array with this exact structure:
+**Output Format - Respond with ONLY this JSON array:**
+```json
 [
   {{
     "question": "The question text",
@@ -181,8 +184,10 @@ Generate a JSON array with this exact structure:
     "confidence": 0.95
   }}
 ]
+```
 
 Generate exactly {num_questions} questions of type "{question_type}".
+RESPOND ONLY WITH THE JSON ARRAY, NO OTHER TEXT.
 """
 
 VERIFIER_PROMPT_TEMPLATE = """You are an adversarial verifier for RAG evaluation datasets.
@@ -235,18 +240,18 @@ Be strict - if there's any doubt about the QA pair's validity, REJECT it.
 class DatasetGenerator:
     """
     MiRAGE-style dataset generator using multi-agent approach.
-    
+
     This generator creates evaluation datasets for RAG systems by:
     1. Extracting text from documents
     2. Generating QA pairs using a Generator LLM
     3. Verifying QA pairs using an Adversarial Verifier LLM
-    
+
     Attributes:
         generation_model: LLM model for generating QA pairs
         verification_model: LLM model for verification
         config: Configuration dictionary
     """
-    
+
     def __init__(
         self,
         generation_model: str | None = None,
@@ -261,26 +266,32 @@ class DatasetGenerator:
             verification_model: Model name for verification (default: from config)
             config: Configuration dictionary (default: EVAL_CONFIG)
         """
-        from back.services.llm_factory import get_llm
-        
+        from back.src.services.llm_factory import get_chat_model
+
         self.config = config or EVAL_CONFIG
-        
+
         # Usar Ollama (local) o OpenAI según config
-        provider = self.config.get("llm_provider", "ollama")
-        model = self.config.get("llm_model", "llama3.1")
-        
+        provider = self.config.get("llm_provider", "openai")
+        model = self.config.get("llm_model", "gpt-4o-mini")
+        gen_model = self.config.get("generation_model", model)
+        eval_model = self.config.get("evaluation_model", "gpt-4o")
+
         # Initialize LLMs
-        self.generator_llm = get_llm(
+        self.generator_llm = get_chat_model(
             provider=provider,
-            model=model,
+            model=gen_model,
             temperature=self.config.get("generation_temperature", 0.7),
         )
 
-        self.verifier_llm = get_llm(
+        self.verifier_llm = get_chat_model(
             provider=provider,
-            model=model,
+            model=eval_model,
             temperature=self.config.get("evaluation_temperature", 0.0),
         )
+
+        # Store model names for metadata
+        self.generation_model_name = gen_model
+        self.verification_model_name = eval_model
 
         # Statistics
         self.stats = {
@@ -289,51 +300,51 @@ class DatasetGenerator:
             "qa_pairs_verified": 0,
             "qa_pairs_rejected": 0,
         }
-    
+
     def compute_document_hash(self, document_path: Path) -> str:
         """
         Compute SHA256 hash of a document for change detection.
-        
+
         Args:
             document_path: Path to the document
-            
+
         Returns:
             SHA256 hash as hex string
         """
         sha256_hash = hashlib.sha256()
-        
+
         with open(document_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(chunk)
-        
+
         return sha256_hash.hexdigest()
-    
+
     def extract_text_from_pdf(
-        self, 
+        self,
         document_path: Path,
         max_chars: int = 50000,
     ) -> tuple[str, list[dict[str, Any]]]:
         """
         Extract text from PDF document with page metadata.
-        
+
         Args:
             document_path: Path to the PDF file
             max_chars: Maximum characters to extract
-            
+
         Returns:
             Tuple of (full_text, page_info_list)
             where page_info_list contains {"page": int, "text": str, "start_char": int}
         """
         import fitz  # PyMuPDF
-        
+
         doc = fitz.open(document_path)
         full_text = ""
         page_info = []
-        
+
         for page_num, page in enumerate(doc, 1):
             page_text = page.get_text()
             start_char = len(full_text)
-            
+
             if len(full_text) + len(page_text) > max_chars:
                 # Truncate if exceeds max
                 remaining = max_chars - len(full_text)
@@ -345,33 +356,33 @@ class DatasetGenerator:
                     "start_char": start_char,
                 })
                 break
-            
+
             full_text += page_text
             page_info.append({
                 "page": page_num,
                 "text": page_text,
                 "start_char": start_char,
             })
-        
+
         doc.close()
-        
+
         return full_text, page_info
-    
+
     def _chunk_context(
-        self, 
+        self,
         page_info: list[dict[str, Any]],
         max_chunk_chars: int = 8000,
     ) -> list[dict[str, Any]]:
         """
         Split document into chunks for QA generation.
-        
+
        Chunks are created to fit within LLM context limits while
         maintaining page boundaries for accurate citations.
-        
+
         Args:
             page_info: List of page information from PDF extraction
             max_chunk_chars: Maximum characters per chunk
-            
+
         Returns:
             List of chunks with page metadata
         """
@@ -379,11 +390,11 @@ class DatasetGenerator:
         current_chunk = ""
         current_pages = []
         current_start = 0
-        
+
         for page_data in page_info:
             page_text = page_data["text"]
             page_num = page_data["page"]
-            
+
             if len(current_chunk) + len(page_text) <= max_chunk_chars:
                 # Add to current chunk
                 current_chunk += page_text
@@ -399,12 +410,12 @@ class DatasetGenerator:
                         "pages": current_pages.copy(),
                         "start_char": current_start,
                     })
-                
+
                 # Start new chunk with current page
                 current_chunk = page_text
                 current_pages = [page_num]
                 current_start = page_data["start_char"]
-        
+
         # Don't forget the last chunk
         if current_chunk:
             chunks.append({
@@ -412,9 +423,9 @@ class DatasetGenerator:
                 "pages": current_pages,
                 "start_char": current_start,
             })
-        
+
         return chunks
-    
+
     def _generate_qa_for_type(
         self,
         chunk: dict[str, Any],
@@ -423,12 +434,12 @@ class DatasetGenerator:
     ) -> list[QAPair]:
         """
         Generate QA pairs for a specific question type.
-        
+
         Args:
             chunk: Document chunk with text and metadata
             question_type: Type of questions to generate
             num_questions: Number of questions to generate
-            
+
         Returns:
             List of generated QAPair objects
         """
@@ -437,24 +448,30 @@ class DatasetGenerator:
             question_type=question_type,
             context=chunk["text"][:15000],  # Limit context for LLM
         )
-        
+
         messages = [
             SystemMessage(content="You are an expert at creating evaluation questions for RAG systems."),
             HumanMessage(content=prompt),
         ]
-        
+
         response = self.generator_llm.invoke(messages)
         response_text = response.content
-        
-        # Parse JSON from response
+
+        # Parse JSON from response with multiple strategies
         try:
-            # Try to extract JSON array from response
+            # Strategy 1: Try to extract JSON array from response
             json_match = re.search(r'\[\s*\{.*\}\s*\]', response_text, re.DOTALL)
             if json_match:
                 qa_data = json.loads(json_match.group())
             else:
-                qa_data = json.loads(response_text)
-            
+                # Strategy 2: Try to extract from markdown code block
+                code_block_match = re.search(r'```json\s*(\[.*?\])\s*```', response_text, re.DOTALL)
+                if code_block_match:
+                    qa_data = json.loads(code_block_match.group(1))
+                else:
+                    # Strategy 3: Try parsing the entire response
+                    qa_data = json.loads(response_text.strip())
+
             qa_pairs = []
             for qa in qa_data:
                 qa_pair = QAPair(
@@ -466,13 +483,14 @@ class DatasetGenerator:
                     requires_multimodal=False,  # TODO: Detect diagrams/images
                 )
                 qa_pairs.append(qa_pair)
-            
+
             return qa_pairs
-            
+
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Error parsing QA generation response: {e}")
+            print(f"Response preview: {response_text[:200]}...")
             return []
-    
+
     def _verify_qa_pair(
         self,
         qa_pair: QAPair,
@@ -480,11 +498,11 @@ class DatasetGenerator:
     ) -> tuple[bool, str]:
         """
         Verify a QA pair using adversarial verification.
-        
+
         Args:
             qa_pair: QA pair to verify
             context: Source document context
-            
+
         Returns:
             Tuple of (is_valid, verification_notes)
         """
@@ -495,15 +513,15 @@ class DatasetGenerator:
             question_type=qa_pair.question_type,
             page_numbers=qa_pair.page_numbers,
         )
-        
+
         messages = [
             SystemMessage(content="You are an adversarial verifier for RAG evaluation datasets."),
             HumanMessage(content=prompt),
         ]
-        
+
         response = self.verifier_llm.invoke(messages)
         response_text = response.content
-        
+
         # Parse JSON response
         try:
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -511,19 +529,19 @@ class DatasetGenerator:
                 verification = json.loads(json_match.group())
             else:
                 verification = json.loads(response_text)
-            
+
             is_accepted = verification.get("status", "REJECT") == "ACCEPT"
             issues = verification.get("issues", [])
             feedback = verification.get("feedback", "")
-            
+
             notes = f"Issues: {', '.join(issues) if issues else 'None'}. Feedback: {feedback}"
-            
+
             return is_accepted, notes
-            
+
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Error parsing verification response: {e}")
             return False, f"Parse error: {e}"
-    
+
     def generate_dataset(
         self,
         document_path: Path | str,
@@ -532,90 +550,100 @@ class DatasetGenerator:
     ) -> DocumentDataset:
         """
         Generate evaluation dataset for a document.
-        
+
         Args:
             document_path: Path to the PDF document
             force_regenerate: If True, regenerate even if cached
             cache_dir: Directory for caching datasets
-            
+
         Returns:
             DocumentDataset with generated QA pairs
         """
         document_path = Path(document_path)
         cache_dir = cache_dir or Path(self.config["datasets_dir"])
-        
+
         # Check cache
         cache_file = cache_dir / f"{document_path.stem}_eval.json"
         if cache_file.exists() and not force_regenerate:
-            cached_data = DocumentDataset.from_json(cache_file.read_text())
-            
+            cached_data = DocumentDataset.from_json(cache_file.read_text(encoding='utf-8'))
+
             # Check if document has changed
             current_hash = self.compute_document_hash(document_path)
             if cached_data.document_hash == current_hash:
                 print(f"Using cached dataset for {document_path.name}")
                 return cached_data
-        
+
         print(f"Generating dataset for {document_path.name}...")
-        
+
         # Compute document hash
         doc_hash = self.compute_document_hash(document_path)
-        
+
         # Extract text
         full_text, page_info = self.extract_text_from_pdf(document_path)
-        
+
         # Create chunks
         chunks = self._chunk_context(page_info)
-        
+
         # Get question type distribution
         qa_distribution = get_question_type_distribution()
-        
+
+        # Calculate total QA pairs to generate
+        total_qa_expected = sum(qa_distribution.values())
+        pbar = tqdm(total=total_qa_expected, desc="Generating QA pairs", unit="QA")
+
         # Generate QA pairs
         dataset = DocumentDataset(
             document_path=str(document_path),
             document_hash=doc_hash,
             generation_model=self.generation_model_name,
         )
-        
+
         for chunk_idx, chunk in enumerate(chunks):
             print(f"  Processing chunk {chunk_idx + 1}/{len(chunks)}...")
-            
+
             for q_type, num_qa in qa_distribution.items():
                 # Distribute questions across chunks
                 qa_per_chunk = max(1, num_qa // len(chunks))
-                
+
                 qa_pairs = self._generate_qa_for_type(
                     chunk=chunk,
                     question_type=q_type,
                     num_questions=qa_per_chunk,
                 )
-                
+
                 # Verify each QA pair
                 for qa_pair in qa_pairs:
                     is_valid, notes = self._verify_qa_pair(
                         qa_pair=qa_pair,
                         context=chunk["text"],
                     )
-                    
+
                     if is_valid:
                         qa_pair.verified = True
                         qa_pair.verification_notes = notes
                         dataset.qa_pairs.append(qa_pair)
                         self.stats["qa_pairs_verified"] += 1
+                        pbar.update(1)
                     else:
                         self.stats["qa_pairs_rejected"] += 1
-                
+                        pbar.update(1)
+
+                    pbar.set_postfix({"verified": len(dataset.qa_pairs), "rejected": self.stats["qa_pairs_rejected"]})
+
                 self.stats["qa_pairs_generated"] += len(qa_pairs)
-        
+
+        pbar.close()
+
         # Save to cache
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(dataset.to_json(), encoding="utf-8")
-        
+
         self.stats["documents_processed"] += 1
-        
+
         print(f"  Generated {dataset.total_qa_pairs} QA pairs ({dataset.verified_count} verified)")
-        
+
         return dataset
-    
+
     def generate_datasets_for_all_docs(
         self,
         docs_dir: Path | None = None,
@@ -623,38 +651,38 @@ class DatasetGenerator:
     ) -> list[DocumentDataset]:
         """
         Generate evaluation datasets for all PDF documents in a directory.
-        
+
         Args:
             docs_dir: Directory containing PDF documents
             force_regenerate: If True, regenerate all datasets
-            
+
         Returns:
             List of DocumentDataset objects
         """
         docs_dir = docs_dir or Path(self.config["docs_dir"])
-        
+
         pdf_files = list(docs_dir.glob("*.pdf"))
-        
+
         if not pdf_files:
             print(f"No PDF files found in {docs_dir}")
             return []
-        
+
         print(f"Found {len(pdf_files)} PDF files to process")
-        
+
         datasets = []
-        for pdf_file in pdf_files:
+        for pdf_file in tqdm(pdf_files, desc="Processing documents"):
             dataset = self.generate_dataset(
                 document_path=pdf_file,
                 force_regenerate=force_regenerate,
             )
             datasets.append(dataset)
-        
+
         return datasets
-    
+
     def get_stats(self) -> dict[str, Any]:
         """
         Returns generation statistics.
-        
+
         Returns:
             Dictionary with generation statistics
         """

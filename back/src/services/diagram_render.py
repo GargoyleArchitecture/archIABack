@@ -220,11 +220,23 @@ def render_svg(dot_string: str, engine: str = "dot") -> bytes:
         from graphviz import Source
         src = Source(normalize_text(dot_string), format="svg", engine=engine)
         return normalize_text(src.pipe(format="svg")).encode("utf-8")
-    except ImportError:
-        raise RuntimeError(
-            f"Neither system '{engine}' binary nor python-graphviz is available. "
-            "Install Graphviz: https://graphviz.org/download/"
+    except Exception as exc:
+        log.warning("Both primary and fallback Graphviz rendering failed. Returning placeholder SVG. Error: %s", exc)
+        placeholder = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="150" viewBox="0 0 600 150">\n'
+            '  <rect width="100%" height="100%" fill="#1A202C" rx="8" stroke="#4A5568" stroke-width="2"/>\n'
+            '  <text x="50%" y="40%" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="bold" fill="#E2E8F0" text-anchor="middle">\n'
+            '    Graphviz no detectado en el PATH del sistema\n'
+            '  </text>\n'
+            '  <text x="50%" y="65%" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#A0AEC0" text-anchor="middle">\n'
+            '    Para ver este diagrama, instala Graphviz (choco install graphviz) y agrégalo al PATH.\n'
+            '  </text>\n'
+            '  <text x="50%" y="85%" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="middle">\n'
+            '    El código DOT y draw.io siguen estando disponibles para exportar.\n'
+            '  </text>\n'
+            '</svg>'
         )
+        return placeholder.encode("utf-8")
 
 
 def render_svg_b64(dot_string: str, engine: str = "dot") -> str:

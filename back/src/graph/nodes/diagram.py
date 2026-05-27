@@ -1,13 +1,25 @@
 import base64
 import os
 import re
+import logging
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.graph.consts import DOT_SYSTEM, DOT_SYSTEM_OVERVIEW
-from src.graph.resources import llm, log
+# pyrefly: ignore [missing-import]
+from src.graph.consts import (
+    DOT_SYSTEM,
+    DOT_SYSTEM_EXPAND,
+    DOT_SYSTEM_OVERVIEW,
+    EXPAND_TARGET_DETAILED,
+    EXPAND_TARGET_MEDIUM,
+)
+# pyrefly: ignore [missing-import]
+from src.graph.resources import llm
+# pyrefly: ignore [missing-import]
 from src.graph.state import GraphState
+# pyrefly: ignore [missing-import]
 from src.services.diagram_ir import (
     DiagramLevel,
     build_diagram_model,
@@ -16,9 +28,13 @@ from src.services.diagram_ir import (
     parse_dot_to_model,
     to_detail_level,
 )
+# pyrefly: ignore [missing-import]
 from src.services.diagram_render import render_dot, render_dot_drawio, render_svg_b64
 
+log = logging.getLogger("graph")
+
 try:
+    # pyrefly: ignore [missing-import]
     from graphviz import Source
 except Exception:
     Source = None
@@ -52,9 +68,13 @@ def _sanitize_dot(raw: Any) -> str:
     return normalize_text(txt).strip()
 
 
-def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel) -> str:
-    """Generate DOT code via LLM."""
-    system_prompt = DOT_SYSTEM_OVERVIEW if level == DiagramLevel.OVERVIEW else DOT_SYSTEM
+def _llm_nl_to_dot(natural_prompt: str, *, level: DiagramLevel, expand: bool = False) -> str:
+    """Generate DOT code via LLM. Uses expansion prompt when building on a prior level."""
+    if expand:
+        target_desc = EXPAND_TARGET_MEDIUM if level == DiagramLevel.MEDIUM else EXPAND_TARGET_DETAILED
+        system_prompt = DOT_SYSTEM_EXPAND.format(target_description=target_desc)
+    else:
+        system_prompt = DOT_SYSTEM_OVERVIEW if level == DiagramLevel.OVERVIEW else DOT_SYSTEM
     msgs = [SystemMessage(content=normalize_text(system_prompt)), HumanMessage(content=normalize_text(natural_prompt))]
     resp = llm.invoke(msgs)
     raw = getattr(resp, "content", str(resp)) or ""
@@ -66,7 +86,8 @@ def _render_dot_svg_b64(dot_code: str) -> str:
     engine = os.getenv("GRAPHVIZ_ENGINE", "dot").strip() or "dot"
     try:
         return render_svg_b64(dot_code, engine=engine)
-    except Exception:
+    except Exception as e:
+        log.warning(f"[_render_dot_svg_b64] Primary renderer failed, falling back to python-graphviz: {e}")
         if Source is None:
             raise RuntimeError("python-graphviz is not installed")
         src = Source(normalize_text(dot_code), format="svg", engine=engine)
@@ -83,24 +104,14 @@ def _infer_level_from_user_request(user_q: str) -> DiagramLevel:
         return DiagramLevel(int(explicit.group(1)))
 
     detailed_keywords = [
-        "detailed",
-        "detallado",
-        "full",
-        "completo",
-        "complete",
-        "all components",
-        "todos los componentes",
+        "detailed", "detallado", "full", "completo", "complete",
+        "all components", "todos los componentes",
     ]
     if any(kw in low_q for kw in detailed_keywords):
         return DiagramLevel.DETAILED
 
     medium_keywords = [
-        "more detail",
-        "más detalle",
-        "mas detalle",
-        "expand",
-        "expandir",
-        "ampliar",
+        "more detail", "más detalle", "mas detalle", "expand", "expandir", "ampliar",
     ]
     if any(kw in low_q for kw in medium_keywords):
         return DiagramLevel.MEDIUM
@@ -118,17 +129,29 @@ def _resolve_diagram_level(state: GraphState, user_q: str) -> DiagramLevel:
         try:
             return parse_diagram_level(level_override)
         except ValueError:
-            log.warning("diagram_orchestrator_node: invalid diagram level override %r", level_override)
+            log.warning(f"[_resolve_diagram_level] invalid diagram level override: {level_override}")
 
     return _infer_level_from_user_request(user_q)
 
 
 def diagram_orchestrator_node(state: GraphState) -> GraphState:
+    log.info("[diagram_orchestrator_node] Generating diagram.")
     user_q = normalize_text(state.get("localQuestion") or state.get("userQuestion") or "").strip()
     requested_level = _resolve_diagram_level(state, user_q)
 
-    # Keep existing prompt behavior intact for detailed path (level 3).
-    prompt_level = DiagramLevel.OVERVIEW if requested_level == DiagramLevel.OVERVIEW else DiagramLevel.DETAILED
+    # --- Expansion mode: reuse previous level's diagram as base for consistency ---
+    diagram_history = dict(state.get("diagram_history") or {})
+    expand_mode = False
+    expand_from_dot = ""
+    prev_level_num = int(requested_level) - 1
+    if prev_level_num >= 1:
+        expand_from_dot = str(
+            diagram_history.get(prev_level_num)
+            or diagram_history.get(str(prev_level_num))
+            or ""
+        )
+        if expand_from_dot.strip():
+            expand_mode = True
 
     asr_text = normalize_text(state.get("current_asr") or state.get("last_asr") or "").strip()
     style_text = normalize_text(
@@ -181,13 +204,23 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
         "User diagram request:\n"
         + (user_q or "Generate a deployment/component diagram aligned with the ASR and tactics.")
     )
+
+    if expand_mode and expand_from_dot:
+        expansion_header = (
+            f"PREVIOUS DIAGRAM (Level {prev_level_num}) — your base to expand:\n\n"
+            f"{expand_from_dot}\n\n"
+            f"Expand ALL the above components to Level {int(requested_level)} detail. "
+            f"Keep every original component and add finer-grained sub-components."
+        )
+        sections.insert(0, expansion_header)
+
     full_prompt = "\n\n---\n\n".join(sections)
 
     dot_code = ""
     try:
-        dot_code = _llm_nl_to_dot(full_prompt, level=prompt_level)
+        dot_code = _llm_nl_to_dot(full_prompt, level=requested_level, expand=expand_mode)
     except Exception as exc:
-        log.warning("diagram_orchestrator_node: DOT generation failed: %s", exc)
+        log.exception(f"[diagram_orchestrator_node] DOT generation failed: {exc}")
 
     diagram_obj: dict[str, Any] = {}
     if dot_code:
@@ -221,8 +254,12 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
             if requested_level != DiagramLevel.DETAILED:
                 diagram_obj["overview_mapping"] = level_mapping
 
+            diagram_history[int(requested_level)] = final_dot
+            for lvl in range(int(requested_level) + 1, 4):
+                diagram_history.pop(lvl, None)
+
         except Exception as exc:
-            log.warning("diagram_orchestrator_node: Graphviz render failed: %s", exc)
+            log.exception(f"[diagram_orchestrator_node] Graphviz render failed: {exc}")
             diagram_obj = {
                 "ok": False,
                 "format": "svg",
@@ -234,6 +271,7 @@ def diagram_orchestrator_node(state: GraphState) -> GraphState:
             }
 
     state["diagram"] = diagram_obj
+    state["diagram_history"] = diagram_history
     state["hasVisitedDiagram"] = True
     state["intent"] = "diagram"
     return state

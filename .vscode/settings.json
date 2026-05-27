@@ -5,5 +5,9 @@
             "envManager": "ms-python.python:pyenv",
             "packageManager": "ms-python.python:pip"
         }
-    ]
+    ],
+    "python.analysis.extraPaths": [
+        "./back"
+    ],
+    "python.analysis.autoSearchPaths": true
 }

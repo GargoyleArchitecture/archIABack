@@ -16,9 +16,13 @@ EVAL_CONFIG = {
     # -------------------------------------------------------------------------
     # LLM Provider: Ollama (local, gratis) o OpenAI
     # -------------------------------------------------------------------------
-    "llm_provider": "ollama",      # "ollama" o "openai"
-    "llm_model": "llama3.1",       # Modelos: "llama3.1", "mistral", "gemma2"
-    
+    "llm_provider": "openai",      # "ollama" o "openai"
+    "llm_model": "gpt-4o-mini",    # Modelos: "llama3.1", "gpt-4o-mini", "gpt-4o"
+
+    # Modelos para generación y evaluación (se usan para ambos providers)
+    "generation_model": "gpt-4o-mini",  # Para generar respuestas (más rápido/barato)
+    "evaluation_model": "gpt-4o",       # Para evaluar (más estricto/calidad)
+
     # OpenAI (solo si usas provider="openai")
     # "generation_model": "gpt-4o-mini",
     # "evaluation_model": "gpt-4o",

@@ -266,14 +266,59 @@ El sistema está diseñado para evaluar en 3 capas:
 
 - PDFs en `back/docs/`
 - Ya implementada y funcional
+- Comandos:
+  ```bash
+  poetry run python -m back.eval --layer layer1_books
+  ```
 
 ### Capa 2: Nuevos Documentos
 
+- PDFs adicionales en `back/docs_new/`
 - Misma lógica que Capa 1
+- Comandos:
+  ```bash
+  poetry run python -m back.eval --layer layer2_new_docs
+  ```
 
 ### Capa 3: Videos (EVRAG)
 
 - Videos en `back/videos/raw/`
+- Procesa videos para extraer:
+  - **Transcripción de audio** (Whisper)
+  - **Frames representativos** (OpenCV + detección de escenas)
+  - **QA pairs** desde contenido audiovisual
+- Comandos:
+  ```bash
+  poetry run python -m back.eval --layer layer3_videos
+  ```
+
+**Flujo de procesamiento de videos:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    VIDEO PROCESSING                          │
+├─────────────────────────────────────────────────────────────┤
+│  1. VIDEO → Audio extraído (FFmpeg)                          │
+│  2. AUDIO → Transcripción (Whisper)                          │
+│  3. VIDEO → Detección de escenas (OpenCV histogramas)        │
+│  4. ESCENAS → Frames representativos                         │
+│  5. TRANSCRIPT + FRAMES → QA pairs (LLM)                     │
+│  6. QA pairs → Evaluación RAG                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Estructura de carpetas para videos:**
+
+```
+back/videos/
+├── raw/              # Videos originales (.mp4, .avi, .mkv)
+├── processed/        # Metadata y transcripciones
+│   ├── *_info.json       # Info de escenas, frames, duración
+│   └── *_transcript.txt  # Transcripción del audio
+├── frames/           # Frames representativos extraídos
+│   └── *_scene_XXX_frame_YYY.jpg
+└── chroma_db/        # Vector store para videos (futuro)
+```
 
 ---
 
@@ -286,6 +331,9 @@ poetry run python -m back.eval --layer layer1_books --mock
 # Evaluar con RAG real
 poetry run python -m back.eval --layer layer1_books
 
+# Evaluar videos (EVRAG)
+poetry run python -m back.eval --layer layer3_videos
+
 # Forzar regeneración
 poetry run python -m back.eval --layer layer1_books --regenerate
 
@@ -294,6 +342,29 @@ poetry run python -m back.eval --stats
 
 # Ejecutar tests
 poetry run pytest back/tests/test_eval_framework.py -v
+```
+
+### Evaluación de Videos (Capa 3)
+
+```bash
+# Evaluar videos con RAG real
+poetry run python -m back.eval --layer layer3_videos
+
+# Forzar reprocesamiento de videos
+poetry run python -m back.eval --layer layer3_videos --regenerate
+
+# Desde Python
+from back.eval import evaluate_layer_3_videos
+
+def mi_rag_func(question, session_id):
+    # Tu lógica RAG para videos
+    return {"retrieved_context": "...", "generated_answer": "..."}
+
+report = evaluate_layer_3_videos(
+    rag_invoke_func=mi_rag_func,
+    qa_pairs_per_video=10,  # Configurar cantidad de QA pairs
+)
+print(report.to_markdown())
 ```
 
 ---

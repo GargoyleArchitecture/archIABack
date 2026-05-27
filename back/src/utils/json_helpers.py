@@ -4,49 +4,6 @@ import json, re
 from typing import Any, Iterable, List, Dict, Tuple
 
 _JSON_FENCE_RE = re.compile(r"```(?:jsonc?|JSONC?|Json|JSON)?\s*([\s\S]*?)\s*```", re.M)
-_SLASH_SLASH_RE = re.compile(r"^\s*//.*?$", re.M)
-_SLASH_STAR_RE = re.compile(r"/\*.*?\*/", re.S)
-
-def _strip_code_fences(text: str) -> Tuple[str, bool]:
-    """
-    Si hay un bloque ```json ...```, devuelve su contenido y True.
-    Si no, devuelve el texto original y False.
-    """
-    m = _JSON_FENCE_RE.search(text or "")
-    if not m:
-        return text, False
-    return m.group(1), True
-
-def _sanitize_jsonc(s: str) -> str:
-    """
-    - Quita comentarios // y /* ... */
-    - Quita comas colgantes
-    - Normaliza comillas “ ” a "
-    - No intenta convertir a sintaxis Python (nada de True/False/None)
-    """
-    s = s or ""
-    s = _SLASH_STAR_RE.sub("", s)
-    s = _SLASH_SLASH_RE.sub("", s)
-    # comas colgantes antes de ] o }
-    s = re.sub(r",\s*([}\]])", r"\1", s)
-    # comillas tipográficas → dobles
-    s = s.replace("“", "\"").replace("”", "\"").replace("’", "'")
-    return s.strip()
-
-def _first_braced_fragment(text: str) -> str | None:
-    """
-    Busca el primer {...} o [...] (no balancea a nivel de parser, pero funciona bien para casos típicos).
-    Prefiere arrays; si no hay, toma objeto.
-    """
-    if not text:
-        return None
-    m = re.search(r"\[[\s\S]*?\]", text)
-    if m:
-        return m.group(0)
-    m = re.search(r"\{[\s\S]*?\}", text)
-    if m:
-        return m.group(0)
-    return None
 
 def extract_json_array(text: str):
     """

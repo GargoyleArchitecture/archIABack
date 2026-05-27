@@ -1,0 +1,2587 @@
+{
+  "text": "Bueno, muy bien, como les decía, teníamos un objetivo esta semana a partir del trabajo que ustedes seguramente realizaron durante estos ocho días. Ustedes tenían que trabajar en su cuaderno de trabajo y avanzar con algunas ideas que nos prepararan para la sesión de diseño que queremos tener hoy. Esas ideas eran ir haciendo el ALD, ¿no es cierto?, ese cuaderno de trabajo nos lleva a través de este proceso que hemos estudiado, que estaremos revisando en las diferentes instalaciones y los diferentes proyectos que hagamos durante el curso. Y empezamos, para que lo recuerden, con esa revisión de las entradas, que eran nuestras restricciones motivadoras, definimos los ASRs, ¿no es cierto?, entonces los ASRs que fueran importantes, que ustedes los identificaran a partir del enunciado del proyecto, que hay bastante información y bastantes temas para cubrir ahí, y que identificaran, desde el punto de vista de la latencia y de la escalabilidad, como esos ASRs que deberían guiar nuestro diseño. Entonces, al estar trabajando en el cuaderno de trabajo, seguramente en uno de los elementos decía, bueno, ¿cuál es la motivación de esta iteración? Recuerden que nosotros podemos hacer una iteración sobre nuestro proceso. Esa iteración, para esta oportunidad, nos pide solucionar esos problemas que tenemos, esos retos que tenemos de latencia y escalabilidad. Ese sería nuestro objetivo de la motivación. Y luego también nos decía un poco el cuaderno de trabajo, ¿qué va a descomponer? Si estuviéramos iterando varias veces, ya tendríamos el modelo definido previamente y podríamos pensar en que alguno de esos subsistemas o esos componentes es el que queremos entrar a descomponer. Pero la primera vez que no tenemos nada, pues decimos que es nuestro sistema, es lo que voy a entrar a descomponer. Muy bien. Luego el cuaderno también nos planteaba, bueno, ¿qué estilos de arquitectura y qué tácticas de arquitectura se van a utilizar? Entonces ahí ya tenemos un trabajo ahí ya un poquito más importante, porque antes de mandarnos a construir un modelo, a construir un diseño, escojamos qué tácticas y qué estilos de arquitectura del catálogo de posibles estilos yo podría utilizar. Pero no es una selección aleatoria, no es lo que más me guste, sino que es lo que me interesa. Me interesa escoger un estilo de arquitectura que favorezca los atributos de calidad que yo tengo que trabajar en esta iteración. Ya en un proyecto real, grande, pues en cada iteración está trabajando un estilo, otro atributo de calidad, otro atributo de calidad. Y acá nos toca claramente enseñarnos la latencia y la escalabilidad. Entonces, buscar cómo con los estilos de arquitectura que vamos a utilizar favorecemos la latencia y la escalabilidad. En principio, es difícil entender cuáles estilos favorecen, cuáles desfavorecen. En general tenemos estilos de arquitectura como el de tres niveles o como los microservicios que naturalmente ayudan con la escalabilidad. Sin embargo, cada vez que queremos escalar también, hay decisiones de arquitectura que afectan también un poco la latencia. Entonces, es importante tener en cuenta ese trade-off que puede haber ahí entre escoger un estilo que parcialmente ayude a la latencia y parcialmente a la escalabilidad. Recuerden, el estilo de arquitectura me va a marcar como la plantilla general, la primera descomposición dominante. Es la primera forma en la que yo veo mi sistema y usualmente será un modelo componente conector de la vista funcional. Es como el primero que queremos construir. Entonces, en el cuaderno por ahora nos decían cuál estilo va a usar, es nombrarlo. Pero para poderlo escribir ahí, tengo que realizar los diferentes estilos, entenderlos, saber qué favorecen, qué desfavorecen. Esa era una primera tarea que se tenía. Luego, una tarea más difícil, me dicen, y qué tácticas quiere utilizar. Y nosotros vimos algunas tácticas en la sesión anterior. Recuerden, había como un grupo de tácticas que buscaba ayudarme cuando mis recursos son limitados y no pueden crecer. Entonces, más bien priorice las cosas, no atienda todo al mismo tiempo, limite los tiempos de ejecución de las actividades, porque su recurso no puede crecer. Está de alguna manera limitado en crecimiento. Pero por otro lado, estaban un grupo de tácticas que sí me permite crecer, que me permite tener múltiples copias de procesamiento, múltiples copias de datos, que me permite tener concurrencia, que me permite crecer o escalar verticalmente, o crecer y escalar horizontalmente, verticalmente y horizontalmente, entre otras tácticas que se tienen ahí. Ya el hecho de que no tenga que decir, bueno, en principio voy a tratar de aplicar esta táctica y esta táctica, sin haberse mandado a hacer nada en el diseño, nos ayuda. El hecho de que tengamos que poner en blanco y negro cuál estilo y cuáles tácticas, ya nos hace pensar en cómo se va a ver ese modelo. Y no es sencillamente como llegar, enfrentarse a una hoja en blanco y yo qué diseño, qué pinto aquí, qué hago. Esa parte es más difícil. Pero si yo pienso primero qué estilo, qué tácticas voy a usar, pues claramente nos ayuda, ¿no es cierto? Nos ayuda a no llegar como tan a enfrentarnos a ese problema de la hoja en blanco, sino que yo ya llego con una idea en mi cabeza y trato de aplicarlo. Entonces hasta ahí debimos haber llegado a ese cuadro de trabajo. Yo quería preguntarles en este punto, ¿cómo les fue con la selección de estas tácticas y de estos estilos de arquitectura? ¿Les fue bien? ¿Tuvieron algún inconveniente, algún problema? Buenas, Darío, ¿cómo vas? Sí, hola. El grupo 3 nos fue bien, ¿cierto? Tenemos por ahí pues un dilema de pronto si al momento de la justificación de estas tácticas, habría pues como que llevarla más a un tema de pronto de datos puntuales, ¿cierto? Por ejemplo, digamos, escalar a mil peticiones, pues por decir, o es más un sentido conceptual. En algunas las llevamos a unos somos de datos pues con respecto a lo que habíamos definido como ACRs y si mantenemos como un tema muy de pronto conceptual, ¿cierto? Ustedes teníamos pues como esa duda, pero se nos generó en el proceso pues de cuando estuvimos desarrollando como la actividad. Bien, aquí Juan Felipe no hay que justificar más allá de decir pues porque esta táctica favorece la escalabilidad, va a favorecer la latencia de alguna manera y casi que lo único que nos queda a nosotros es al hacer el experimento, al diseñar nuestro experimento y ejecutar el experimento, nuestra hipótesis de diseño, ¿cuál es? Que esa táctica soluciona mi problema. Es una hipótesis, ¿cierto? La justificación no es más, suena sencillo, pero no hay que explicar el por qué. Si lo fuéramos a hacer como una evaluación cualitativa, tal vez, pero como luego nosotros vamos a experimentar esa hipótesis de diseño, casi que el experimento nos va a demostrar si teníamos razón o no, y esa es nuestra justificación. Entonces vean el uso de una táctica o de un conjunto de tácticas como eso, como una hipótesis de diseño, es decir, yo creo que con estas tácticas soluciona el problema, pero alguien podría decirme yo no estoy de acuerdo, yo creo que usted no la soluciona. Se vuelve un dilema de, bueno, ¿quién tiene la razón? Ninguno, no lo vamos a discutir. Vamos a experimentar y vamos a construir un experimento para validar la hipótesis. En últimas, ese experimento, ¿qué va a decir? ¿Usted escogió la táctica correcta o no? Y si me da no, pues bueno, yo no me equivoqué, esa no era. Me toca cambiar en la siguiente iteración de táctica o de hipótesis de diseño, y si me da que sí era el experimento, pues esa es mi justificación, mira acá está mi experimento y yo, esta hipótesis, esta idea que yo tenía de que esta táctica me iba a ayudar, pues funcionó, es correcta. ¿Eso es estadísticamente válido? No, es un experimento, es una prueba de concepto, claramente no lograríamos saber técnicamente si esa hipótesis es la correcta o no, pero el experimento nos dice que vamos por buen camino. Quedémonos con esas tácticas, es un poco el ejercicio. Ok, perfecto, dale, gracias Darío. Bueno, muy bien, entonces yo quisiera saber, ¿todos los grupos llegaron a ese punto, escogieron un estilo y escogieron unas tácticas y las tienen ahí en su cuaderno de trabajo o algún grupo no logró hacer eso? Profe, qué pena, yo tengo otra pregunta, pues pertenezco al mismo equipo 3. Había otra duda que nos surgió allí como equipo, o por lo menos a mí me surgió, y era si nosotros en ese cuaderno de trabajo definimos, digamos, varios estilos de arquitectura, por capas, bróker, ¿eso quiere decir que las vamos a implementar o quiere decir que son válidas implementarlas? Perdón, ya entendí, quiere decir que las vamos a implementar o que se permite implementar una u otra, por ejemplo, o ambas. No, no, no, claramente aquí lo que decimos que vamos a escoger como estilo de arquitectura principal y sobre todo en el modelo de componentes de la vista funcional, es lo que vamos a hacer, ¿de acuerdo? No hay como alternativas ni opciones, claro, hay procesos en los que uno primero plantea alternativas, pero en este caso estamos diciendo, bueno, yo tengo una iteración pequeña de diseño, tengo que resolver estos dos ASR, es una iteración pequeña, ¿qué hago acá? ¿Cuál es la primera descomposición que voy a utilizar? ¿Cuál es el estilo que voy a utilizar aquí principal? Después de pronto yo puedo tomar uno de esos elementos y descomponerlo y allá aplique al interior de ese componente otro estilo, pero vamos a escoger el estilo de arquitectura principal, el que guía toda la arquitectura, ¿no? Es como el esencial, que les llamamos esa descomposición dominante. Esa es una, entonces me tengo que cazar, me tengo que ir por uno en particular, si pongo varios voy a entrar en un conflicto y cuál de ellos uso, entonces no, aquí hay que pensar en uno. Ahora, en una siguiente iteración, que el tiempo no nos da, estamos muy poco tiempo, entonces nosotros hacemos una iteración, pero este es un proceso iterativo, entonces en una siguiente iteración yo diría, bueno, ahora tomo este módulo que está aquí y lo voy a diseñar por dentro y ahí puede que utilice otro estilo de arquitectura y luego coja otro para otra parte y entre y ahí utilice otra, ¿no? Eso sí puede pasar, pero por ahora para nosotros es la primera descomposición, plantear un estilo, seleccionar uno, si tienen más de una alternativa, cazarse con uno y entonces uno dice, acá, pero es como un riesgo, claro, es una hipótesis de diseño, la palabra suena un poco más sofisticada para decir, este es mi corazonada y que por aquí funciona la cosa, ¿no? Dice eso, es una hipótesis, ¿yo estoy seguro que ese es el estilo que va a solucionar todo? No, no, tal vez no estoy seguro, por eso es una hipótesis que yo voy a entrar a validar, yo sé, si no, pues hago mi diseño y lo entrego y digo, listo, acá ve, pero está tranquilo su incertidumbre, claro, estamos intranquilos, no sé si eso va a funcionar de verdad o no, es la idea que tengo, entonces aquí vamos a, esta hipótesis la vamos a tratar de validar, pero es una, una hipótesis, con este estilo y estas tácticas que yo estoy proponiendo acá, yo soluciono este problema, estos ASR que me plantearon, esa es la, como la gran decisión que estamos tomando acá. Listo, gracias. Bueno, muy bien, entonces, yo les propongo lo siguiente, vamos a tratar de hacer unas dos pasadas para que vayamos viendo cómo trabajamos este reto que nos estamos planteando. Como todos los grupos ya dijeron, bueno, este es el estilo y estas son las tácticas que vamos a seleccionar, voy a abrir las salas y los voy a asignar, pues me regalan ahorita un momentico mientras yo asigno las personas a las diferentes salas y abro las salas para que se vayan a trabajar. ¿Cuál es la primera iteración? Pues vamos cambiando a las salas y volviendo a la sala general y un proceso de trabajar en grupo un momento y volver y exponer el avance del trabajo en la sala general. En esta primera oportunidad, ¿qué es lo que yo quisiera hacer? Toman el estilo de arquitectura y lo usan para hablarlos de componentes de alto nivel que ustedes ven en la solución de los ASR que ustedes van a trabajar, ¿de acuerdo? Es solamente aplicar el estilo, no tácticas todavía, no tácticas. Entonces, únicamente una primera versión general, ¿cuáles son estos componentes que yo veo y cómo los voy a conectar? Eso, el estilo me debería ayudar a hacer eso. Recuerden que a veces entran con el micrófono abierto, entonces, si hay una mano levantada, Carlos. Una pregunta, Darío, buenas tardes y buenas tardes para todos. En lo que quieres alcanzar con el ejercicio, ¿estos componentes te refieres a un diagrama de componentes o a un texto que nosotros coloquemos, por ejemplo, módulo tal? Sí, si podrías, por favor, hacer. Con gusto, claro que sí. Permítanme un segundo, me conecto desde el iPad y lo revisamos en más detalle. Permítanme un momento. Muy bien, vamos a hacer un aquí. Vamos a hacer como un ejemplo de lo que debería pasarnos, en el cuaderno de trabajo a mi me me dijeron, bueno, ¿qué estilos de arquitectura va a utilizar para la arquitectura que va a plantear? Entonces yo diría, yo voy a utilizar un estilo de arquitectura de tres niveles, y tácticas, ¿qué tácticas va a utilizar? Entonces, tácticas yo digo, bueno, yo voy a utilizar concurrencia, introducción de la concurrencia, yo voy a aplicarlo de múltiples copias de procesamiento, y voy a trabajar con múltiples copias de datos. Esas son las tres tácticas que yo voy a aplicar en este estilo, ¿de acuerdo? Entonces, la propuesta es la siguiente, nos vamos a la primera iteración de diseño, mini-iteración de diseño que vamos a hacer. Nos vamos por grupos y decimos, bueno, nosotros dijimos que vamos a trabajar una arquitectura de tres niveles. Esa arquitectura en el formato general nos dice, los tres niveles se ven así, y estos tres niveles se pueden conectar entre sí. Esto es lo que me dice el estilo de arquitectura. Entonces, el estilo me dice, usted tiene tres niveles que se pueden conectar bidireccionalmente entre ellos. Estos se llaman niveles, no capas, ¿se acuerdan? Capas es un estilo de otra familia, es otra cosa. ¿Qué características tiene uno de estos niveles? Que es un conjunto de procesos que están ejecutándose en paralelo todos, que se puede tener comunicación en este sentido, por ejemplo, también. Yo puedo saltar de un nivel n-2 a un nivel n, por ejemplo, no tengo que pasar a un nivel n-1. Estas son como las reglas de juego de los tres niveles. Pero esta es la figura genérica. ¿Cómo se ve un tres niveles? Así. Bueno, apliquémoslo al contexto del proyecto. Normalmente esto es presentación, esto es lógica de negocio y esto es persistencia, ¿no cierto? Pero a veces para mí este nivel puede ser un nivel de exposición de unas APIs que se conectan a la lógica de negocio. Para efectos prácticos, la interfaz, la presentación, la experiencia del usuario para nosotros ahorita no es importante. Vamos a diseñar más hacia el banco. Entonces, yo digo, bueno, pero esto ¿cómo lo vuelvo algo un poquito más aterrizado a lo que yo necesito? Entonces digo, bueno, pues yo tengo un componente de gestión de inventarios. Estoy hablando de un ejemplo para no sesgarlos en el contexto de su proyecto. Yo tengo un tema de inventarios. Yo tengo un componente de inventarios. Yo tengo un componente de compras. Yo tengo un componente de pagos. Y efectivamente aquí voy a bajar a un componente que maneja la persistencia. Estos se van a conectar. Y yo tengo acá una API Gateway que va a conectar o va a recibir todas las llamadas de los clientes. Este es mi nivel 1. Este es mi nivel 2. Y este es mi nivel 3. Y aquí sigo viendo los tres niveles. ¿De acuerdo? Pero ahora ya pasé del dibujito que yo había hecho antes que decía, sí, ¿cómo es una de estilo tres niveles? Así. Sí, pero son unas cajas vacías que no dicen nada. Entonces nos vamos a poner en contexto del proyecto. Hágame los tres niveles, pero identifique qué va sobre todo en el nivel de lógica de negocio, qué componentes identifica. Ah, el de inventarios, el de compra y el de pagos. Esta sería la iteración 1 para nosotros. Componentes de alto nivel en el estilo de arquitectura que hayas seleccionado. ¿De acuerdo? Esta es la primera tarea. La primera iteración, ¿qué vamos a hacer? No se puede seguir. Siguen llegando todavía los estudiantes y son las 3 y 20. Es complicado estar dándole todavía acceso a las personas a las 3 y 20. Yo sí les voy a pedir que, por favor, máximo 3 y 10 estemos llegando a la sesión. Sí, Santiago. Daría otra consulta. Bueno, ahí mostraste un estilo particular, ¿cierto? ¿Yo podría tener los mismos componentes en otro estilo diferente sin ningún problema? Claro. No, Santiago, es que eso es lo que va a pasar. Claro. Son los mismos pintados de otra forma porque es otro estilo. Ok. ¿Y en la reiteración? ¿En la segunda iteración los estilos pueden cambiar? No. En realidad los estilos siempre son fijos. Ya. Esa es la descomposición dominante. Como tomé este camino y fue la primera descomposición que hice, ese estilo grande general no va a cambiar. ¿Qué podría? Sí, ¿qué podría pasar? Entonces, acá estamos con nuestro estilo tres niveles. Este no cambió. En una segunda iteración yo podría decir, bueno, pero Pagos, ¿qué será Pagos? Eso está muy grande. Pagos, yo quiero mirar a Pagos por dentro. Entonces entro a diseñar Pagos y Pagos resulta que se va a comportar como otro estilo que se llama Pipeline Filter. Este por dentro puede tener otro estilo, pero el estilo general de la aplicación, que ya lo decidí, ese no va a cambiar. ¿Sí? Eso es bien. Y respecto a lo que nos decía Santiago, esta fue una decisión. Otro grupo, y ya le doy la palabra a Carlos, otro grupo pudo haber dicho, no, yo tres niveles no voy a usar. Yo voy a usar Hub & Spoke. Bueno, entonces resulta que dice, acá está Pagos, acá está Compras, acá está Inventario, y yo voy a tener aquí un concentrador que se llama Hub, y estos son los Spokes, y todo lo que pase en Compras, en Pagos o en Inventario se conecta y se transmite a través del Hub. Completamente diferente, es otro estilo. Mismos componentes. En eso Santiago hizo una muy buena apreciación. Son los mismos. Eso no cambia, porque la asignación de las responsabilidades, de la aplicación, sabe hacer eso. Es lo único que sabe hacer. No, si yo cambio el estilo, no cambia la funcionalidad. La funcionalidad es la misma. Sabe hacer compras, sabe hacer pagos y sabe manejar unos inventarios. ¿Cómo los conecto? Es lo que cambia con el estilo. Son los conectores lo que cambia toda la película. Entonces se ve así en tres niveles, se ve así en Hub & Spoke, y alguien pudo decir, no, yo lo voy a hacer en otros microservicios. Entonces se ve de otra forma. Pero son los mismos. Compras, Pagos, Inventarios. Entonces lo que yo les pido, es en esta primera iteración, dado el estilo que ustedes ya dijeron que iban a usar, ¿cómo creen que se verían esos componentes principales que ustedes identifican en su modelo? Carlos, ahora sí, su pregunta. Sí, señor. Es que me confundí un poquito, porque digamos, en el cuaderno que estamos siguiendo, en la iteración en la que estamos, se nos pedía en el punto 3, escoger uno o más elementos del sistema Refinat, y en ese caso eran pues relacionados con los ASR. En los casos de nosotros, digamos que es el módulo de emparejamiento o de notificación. Nosotros escogimos una arquitectura para que supliera precisamente ese ASR. Pero lo que entiendo que me estás mostrando en este momento, es que esta arquitectura debe englobar todo el proyecto, y ahí es donde me confundo. No, no. Tal vez si lo dije así, lo entendió así, fue mi error. No, el motivador de esta iteración es satisfacer sus ASR. Uno de latencia, uno de escalabilidad. Sí, señor. En eso está usted en lo correcto. Cuando les digo, vamos a comenzar a diseñar, son los componentes que usted identifique para solucionar esos dos ASR. Entonces es muy raro que de pronto les dé el mismo modelo a todos los grupos, ¿no? Son los componentes que usted identifica en el proyecto a nivel general, pero asociados a la solución de esos dos ASR. En el caso del ejemplo que yo dije ahorita, aquí estaba inventario, estaba pagos, estaba compras. Pero me faltó ventas, me faltó mercadeo. No, porque esos no me interesan para mi ASR ahorita. Estos tres son los que tienen que ver con mis dos ASR. Entonces, he identificado los componentes y ahora tengo que ver cómo los conecto para que se vean como el estilo que yo dije que iba a usar. La forma inicial me la debe dar el estilo. Cuando digo la primera iteración, es la primera iteración aquí de la clase de hoy. La primera vez que nos vayamos a los grupos a diseñar y volvamos en esa iteración, les estoy pidiendo que trabajemos en los pasos 5 y 6 de la ADD, pero que lo vamos a hacer en dos situaciones. En la primera vamos a decir, bueno, voy a coger el estilo que yo ya dije que iba a usar. Entonces voy a decir en tres niveles. Entonces tengo aquí mi API Gateway y entonces acá tengo el componente A, el componente B, el componente C y acá tengo el tema de la persistencia. Y estos se comunican así y así y esto puede ser así. Entonces fíjense que ya ahí los tres niveles se ven un poquito diferentes. Uno tiene que hacer un poquito de imaginación para darse cuenta. Este era el primer nivel del patrón, del estilo. Este es el segundo nivel del estilo y este es el tercer nivel del estilo. Ahí están los niveles. Muchas veces incluso se ponen así en el símbolo del paquetico que nos da WML. Y los llaman aquí nivel tal, nivel tal. Y ahí están mis tres niveles. A veces uno los mete dentro de este símbolo del paquete de WML para ayudar a alguien a darse cuenta que ahí hay unos niveles. Porque ya cuando lo instancié con mis componentes se pilló un poquito la figura. Entonces cuando digo la primera iteración nuestra de diseño, nos vamos a los grupos, hacemos este primer dibujo y como como viendo lo que hagan ahorita, sólo de los componentes necesarios para satisfacer sus ASRs. No de todo el proyecto. En la segunda iteración que hagamos, ¿qué vamos a hacer? Vamos a, sobre este, vamos a aplicar tácticas. Entonces, supongamos que sí, bueno, vamos a aplicar la táctica de múltiples copias de procesamiento. ¿Cómo aplico esa táctica? Me voy a ir a la vista de despliegue. Me voy a la vista de despliegue y voy a instalar o voy a diseñar con los símbolos de la vista de despliegue, de diagrama de despliegue, tres máquinas y voy a decir que el componente B está instanciado tres veces porque estoy aplicando la táctica de múltiples copias de procesamiento y que por allá en otra máquina estará instalado el componente C y el componente A, de ellos no hay múltiples copias de procesamiento y que a lo mejor entonces yo aquí voy a necesitar balanceo de carga y que estos componentes se van a hablar con este y que esto yo lo voy a instanciar así y que la persistencia va a estar por acá en otra máquina y que acá se puede llegar a la persistencia y que este API Gateway que estaba por allá entonces está instalado por aquí, este es mi API Gateway y que el API Gateway puede llegar acá, puede llegar directamente acá y que este es mi diagrama de despliegue solo para ilustrar esta táctica que está acá, entonces fíjense que vamos a empezar de lo general a lo específico, empezamos primero el estilo, ok, esa es la decisión más grande que estamos tomando ahora en el estilo identifique los componentes, acá, en el diagrama de componentes principales y en la siguiente iteración empiece a meter las tácticas, ¿qué pasa cuando meto las tácticas? desordeno el modelo por completo, miren, ahora miren cómo se volvió, ¿dónde están aquí los tres niveles? ya me cuesta más trabajo identificar ahí los tres niveles, pero debería ser capaz de decir esto todavía yo veo mis tres niveles ahí, pero cuando entró una táctica, la táctica me desbarató la táctica me desbarató, mueve, daña, pero para bien, porque la táctica es la que de verdad me hace satisfacer una SES, entonces la necesito, luego voy a aplicar la táctica de concurrencia en la vista de concurrencia, luego voy a aplicar la táctica de múltiples copias de datos entonces dónde van a estar esas múltiples copias de datos, entonces voy a necesitar otras que estaban acá y ya el dibujo, este diseño se me empezó a descomponer, empezó a crecer, empezó a entrar nuevas cosas empezó a volver más complicado, ¿dónde está mi estilo? ahí está el estilo de tres niveles, pero las tácticas desordenan, las tácticas desordenan, pero las necesito, las necesito para solucionar mis ASRs entonces esto es lo que vamos a hacer en la segunda iteración, la primera nos debería dar un modelo todo bonito, limpio, con la figura del estilo y los principales componentes, conectados como me diga el estilo que se deben conectar, en la segunda pasada, el caos, ahí vamos a meter las prácticas y el dibujo se va a poner feo, pero ese es el que de verdad sí nos va a solucionar los ASRs esa es la meta para hoy, ¿cómo les parece? ¿listos? bueno, entonces manos a la obra, ¿tienen claro, preguntas técnicas, tienen claro en qué van a diseñar estos modelos? ojalá fuera algo colaborativo para que todos puedan al tiempo estar viendo su modelo, su diseño entonces yo les sugiero, no sé si a través de, si ustedes tienen o usan alguna herramienta que todos puedan tener al alcance, sino una herramienta como Lucidchart podría ayudar, la versión gratuita de Visual Paradigm también, que son editores que están en línea, que son colaborativos, que entonces todos pueden ver lo que uno modifica, lo que el otro modifica, el mismo Draw.io, el de Google, etcétera, o sea, no sé si hay alguna limitación por parte de ustedes desde el banco o algo para entrar a uno de estos sitios a diseñar, ahora que los pasen a trabajar en grupos, la primera actividad que deberían hacer es, ¿dónde vamos a hacer este dibujo? Puede ser que alguno comparta la pantalla y lo hagan sobre algún editor, en PowerPoint, lo que sea, y todos van diciéndole a alguien, puede ser, pero ojalá un editor VML que fuera colaborativo, entonces, mientras yo voy designando los grupos, y cuando abra los grupos, por favor, primera actividad, es coger dónde van a diseñar y segunda actividad que hacen en esta iteración, tomar su estilo, tomar sus ASRs y tratar de identificar esos primeros componentes y ponerlos ahí. Terminamos ese ejercicio, todos los grupos nos hacen una presentación rápida de cómo va este estilo, pasamos a la segunda iteración, al menos introducir una táctica, modificar y volvemos a la sala general y volvemos a mirar cómo vamos. ¿Les parece? Listo, aprobado. Entonces, les pido un poquito de paciencia, mientras comienzo a armar los grupos y los voy asignando a las diferentes salas, mientras yo estoy haciendo eso, va a tomar unos minutos, por favor, ustedes traten de ir en grupo pensando cuál herramienta vamos a usar para editar. Tan pronto metas ya todos los grupos, los dejes armados y abra los salones, pues ya saben qué hacer, yo después trato de ir pasando salón por salón a ver cómo los puedo ir ayudando. Mientras hago esa asignación, pues que siempre son 30 personas que tengo que asignar a las diferentes salones, por favor, ustedes vayan pensando esa herramienta de diseño que van a utilizar. Ya estoy con ustedes, voy a asignar a cada uno de ustedes en su respectivo grupo, abro los salones y nos vamos para allá. ¡Ya nos vemos! Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org Subtítulos realizados por la comunidad de Amara.org",
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 9.619999885559082,
+      "text": " Bueno, muy bien, como les decía, teníamos un objetivo esta semana a partir del trabajo"
+    },
+    {
+      "start": 9.619999885559082,
+      "end": 15.619999885559082,
+      "text": " que ustedes seguramente realizaron durante estos ocho días. Ustedes tenían que trabajar"
+    },
+    {
+      "start": 15.619999885559082,
+      "end": 21.299999237060547,
+      "text": " en su cuaderno de trabajo y avanzar con algunas ideas que nos prepararan para la sesión de"
+    },
+    {
+      "start": 21.299999237060547,
+      "end": 27.739999771118164,
+      "text": " diseño que queremos tener hoy. Esas ideas eran ir haciendo el ALD, ¿no es cierto?,"
+    },
+    {
+      "start": 27.739999771118164,
+      "end": 32.560001373291016,
+      "text": " ese cuaderno de trabajo nos lleva a través de este proceso que hemos estudiado, que estaremos"
+    },
+    {
+      "start": 32.560001373291016,
+      "end": 36.880001068115234,
+      "text": " revisando en las diferentes instalaciones y los diferentes proyectos que hagamos durante"
+    },
+    {
+      "start": 36.880001068115234,
+      "end": 42.380001068115234,
+      "text": " el curso. Y empezamos, para que lo recuerden, con esa revisión de las entradas, que eran"
+    },
+    {
+      "start": 42.380001068115234,
+      "end": 47.91999816894531,
+      "text": " nuestras restricciones motivadoras, definimos los ASRs, ¿no es cierto?, entonces los ASRs"
+    },
+    {
+      "start": 47.91999816894531,
+      "end": 54.0,
+      "text": " que fueran importantes, que ustedes los identificaran a partir del enunciado del proyecto, que hay"
+    },
+    {
+      "start": 54.0,
+      "end": 61.63999938964844,
+      "text": " bastante información y bastantes temas para cubrir ahí, y que identificaran, desde el"
+    },
+    {
+      "start": 61.63999938964844,
+      "end": 67.0,
+      "text": " punto de vista de la latencia y de la escalabilidad, como esos ASRs que deberían guiar nuestro"
+    },
+    {
+      "start": 67.0,
+      "end": 73.0,
+      "text": " diseño. Entonces, al estar trabajando en el cuaderno de trabajo, seguramente en uno"
+    },
+    {
+      "start": 73.0,
+      "end": 77.80000305175781,
+      "text": " de los elementos decía, bueno, ¿cuál es la motivación de esta iteración? Recuerden"
+    },
+    {
+      "start": 77.80000305175781,
+      "end": 84.44000244140625,
+      "text": " que nosotros podemos hacer una iteración sobre nuestro proceso. Esa iteración, para"
+    },
+    {
+      "start": 84.44000244140625,
+      "end": 91.44000244140625,
+      "text": " esta oportunidad, nos pide solucionar esos problemas que tenemos, esos retos que tenemos"
+    },
+    {
+      "start": 91.44000244140625,
+      "end": 97.87999725341797,
+      "text": " de latencia y escalabilidad. Ese sería nuestro objetivo de la motivación. Y luego también"
+    },
+    {
+      "start": 97.87999725341797,
+      "end": 104.63999938964844,
+      "text": " nos decía un poco el cuaderno de trabajo, ¿qué va a descomponer? Si estuviéramos iterando"
+    },
+    {
+      "start": 104.63999938964844,
+      "end": 111.0,
+      "text": " varias veces, ya tendríamos el modelo definido previamente y podríamos pensar en que alguno"
+    },
+    {
+      "start": 111.0,
+      "end": 115.76000213623047,
+      "text": " de esos subsistemas o esos componentes es el que queremos entrar a descomponer. Pero"
+    },
+    {
+      "start": 115.76000213623047,
+      "end": 121.95999908447266,
+      "text": " la primera vez que no tenemos nada, pues decimos que es nuestro sistema, es lo que voy a entrar"
+    },
+    {
+      "start": 121.95999908447266,
+      "end": 129.36000061035156,
+      "text": " a descomponer. Muy bien. Luego el cuaderno también nos planteaba, bueno, ¿qué estilos"
+    },
+    {
+      "start": 129.36000061035156,
+      "end": 137.1199951171875,
+      "text": " de arquitectura y qué tácticas de arquitectura se van a utilizar? Entonces ahí ya tenemos"
+    },
+    {
+      "start": 137.1199951171875,
+      "end": 144.47999572753906,
+      "text": " un trabajo ahí ya un poquito más importante, porque antes de mandarnos a construir un modelo,"
+    },
+    {
+      "start": 144.47999572753906,
+      "end": 153.63999938964844,
+      "text": " a construir un diseño, escojamos qué tácticas y qué estilos de arquitectura del catálogo"
+    },
+    {
+      "start": 153.63999938964844,
+      "end": 161.1199951171875,
+      "text": " de posibles estilos yo podría utilizar. Pero no es una selección aleatoria, no es lo que más me"
+    },
+    {
+      "start": 161.1199951171875,
+      "end": 169.55999755859375,
+      "text": " guste, sino que es lo que me interesa. Me interesa escoger un estilo de arquitectura que favorezca"
+    },
+    {
+      "start": 169.55999755859375,
+      "end": 174.60000610351562,
+      "text": " los atributos de calidad que yo tengo que trabajar en esta iteración. Ya en un proyecto real,"
+    },
+    {
+      "start": 174.60000610351562,
+      "end": 180.72000122070312,
+      "text": " grande, pues en cada iteración está trabajando un estilo, otro atributo de calidad, otro atributo"
+    },
+    {
+      "start": 180.72000122070312,
+      "end": 185.72000122070312,
+      "text": " de calidad. Y acá nos toca claramente enseñarnos la latencia y la escalabilidad. Entonces,"
+    },
+    {
+      "start": 185.72000122070312,
+      "end": 193.1199951171875,
+      "text": " buscar cómo con los estilos de arquitectura que vamos a utilizar favorecemos la latencia y la"
+    },
+    {
+      "start": 193.1199951171875,
+      "end": 200.8000030517578,
+      "text": " escalabilidad. En principio, es difícil entender cuáles estilos favorecen, cuáles desfavorecen."
+    },
+    {
+      "start": 200.8000030517578,
+      "end": 206.1199951171875,
+      "text": " En general tenemos estilos de arquitectura como el de tres niveles o como los microservicios que"
+    },
+    {
+      "start": 206.1199951171875,
+      "end": 211.75999450683594,
+      "text": " naturalmente ayudan con la escalabilidad. Sin embargo, cada vez que queremos escalar también,"
+    },
+    {
+      "start": 211.75999450683594,
+      "end": 217.1999969482422,
+      "text": " hay decisiones de arquitectura que afectan también un poco la latencia. Entonces,"
+    },
+    {
+      "start": 217.1999969482422,
+      "end": 224.0,
+      "text": " es importante tener en cuenta ese trade-off que puede haber ahí entre escoger un estilo"
+    },
+    {
+      "start": 224.0,
+      "end": 228.8000030517578,
+      "text": " que parcialmente ayude a la latencia y parcialmente a la escalabilidad. Recuerden,"
+    },
+    {
+      "start": 228.83999633789062,
+      "end": 237.9199981689453,
+      "text": " el estilo de arquitectura me va a marcar como la plantilla general, la primera descomposición"
+    },
+    {
+      "start": 237.9199981689453,
+      "end": 243.83999633789062,
+      "text": " dominante. Es la primera forma en la que yo veo mi sistema y usualmente será un modelo componente"
+    },
+    {
+      "start": 243.83999633789062,
+      "end": 248.8000030517578,
+      "text": " conector de la vista funcional. Es como el primero que queremos construir. Entonces,"
+    },
+    {
+      "start": 248.8000030517578,
+      "end": 255.44000244140625,
+      "text": " en el cuaderno por ahora nos decían cuál estilo va a usar, es nombrarlo. Pero para poderlo escribir"
+    },
+    {
+      "start": 255.44000244140625,
+      "end": 260.8800048828125,
+      "text": " ahí, tengo que realizar los diferentes estilos, entenderlos, saber qué favorecen, qué desfavorecen."
+    },
+    {
+      "start": 260.8800048828125,
+      "end": 265.6000061035156,
+      "text": " Esa era una primera tarea que se tenía. Luego, una tarea más difícil, me dicen,"
+    },
+    {
+      "start": 265.6000061035156,
+      "end": 272.20001220703125,
+      "text": " y qué tácticas quiere utilizar. Y nosotros vimos algunas tácticas en la sesión anterior. Recuerden,"
+    },
+    {
+      "start": 272.20001220703125,
+      "end": 278.6400146484375,
+      "text": " había como un grupo de tácticas que buscaba ayudarme cuando mis recursos son limitados y no"
+    },
+    {
+      "start": 278.6400146484375,
+      "end": 284.32000732421875,
+      "text": " pueden crecer. Entonces, más bien priorice las cosas, no atienda todo al mismo tiempo,"
+    },
+    {
+      "start": 284.3999938964844,
+      "end": 290.8800048828125,
+      "text": " limite los tiempos de ejecución de las actividades, porque su recurso no puede crecer. Está de alguna"
+    },
+    {
+      "start": 290.8800048828125,
+      "end": 298.6000061035156,
+      "text": " manera limitado en crecimiento. Pero por otro lado, estaban un grupo de tácticas que sí me permite"
+    },
+    {
+      "start": 298.6000061035156,
+      "end": 304.1600036621094,
+      "text": " crecer, que me permite tener múltiples copias de procesamiento, múltiples copias de datos,"
+    },
+    {
+      "start": 304.1600036621094,
+      "end": 310.32000732421875,
+      "text": " que me permite tener concurrencia, que me permite crecer o escalar verticalmente,"
+    },
+    {
+      "start": 310.3599853515625,
+      "end": 318.2799987792969,
+      "text": " o crecer y escalar horizontalmente, verticalmente y horizontalmente, entre otras tácticas que se"
+    },
+    {
+      "start": 318.2799987792969,
+      "end": 324.20001220703125,
+      "text": " tienen ahí. Ya el hecho de que no tenga que decir, bueno, en principio voy a tratar de aplicar esta"
+    },
+    {
+      "start": 324.20001220703125,
+      "end": 329.2799987792969,
+      "text": " táctica y esta táctica, sin haberse mandado a hacer nada en el diseño, nos ayuda. El hecho"
+    },
+    {
+      "start": 329.2799987792969,
+      "end": 334.32000732421875,
+      "text": " de que tengamos que poner en blanco y negro cuál estilo y cuáles tácticas, ya nos hace pensar en"
+    },
+    {
+      "start": 334.32000732421875,
+      "end": 339.1600036621094,
+      "text": " cómo se va a ver ese modelo. Y no es sencillamente como llegar, enfrentarse a una hoja en blanco y"
+    },
+    {
+      "start": 339.67999267578125,
+      "end": 346.5199890136719,
+      "text": " yo qué diseño, qué pinto aquí, qué hago. Esa parte es más difícil. Pero si yo pienso primero"
+    },
+    {
+      "start": 346.5199890136719,
+      "end": 351.6000061035156,
+      "text": " qué estilo, qué tácticas voy a usar, pues claramente nos ayuda, ¿no es cierto? Nos ayuda"
+    },
+    {
+      "start": 351.6000061035156,
+      "end": 356.55999755859375,
+      "text": " a no llegar como tan a enfrentarnos a ese problema de la hoja en blanco, sino que yo ya llego con una"
+    },
+    {
+      "start": 356.55999755859375,
+      "end": 361.9200134277344,
+      "text": " idea en mi cabeza y trato de aplicarlo. Entonces hasta ahí debimos haber llegado a ese cuadro de"
+    },
+    {
+      "start": 361.9200134277344,
+      "end": 367.2799987792969,
+      "text": " trabajo. Yo quería preguntarles en este punto, ¿cómo les fue con la selección de estas tácticas"
+    },
+    {
+      "start": 367.2799987792969,
+      "end": 377.79998779296875,
+      "text": " y de estos estilos de arquitectura? ¿Les fue bien? ¿Tuvieron algún inconveniente, algún problema?"
+    },
+    {
+      "start": 377.79998779296875,
+      "end": 386.79998779296875,
+      "text": " Buenas, Darío, ¿cómo vas? Sí, hola. El grupo 3 nos fue bien, ¿cierto? Tenemos por ahí pues un"
+    },
+    {
+      "start": 386.79998779296875,
+      "end": 395.0,
+      "text": " dilema de pronto si al momento de la justificación de estas tácticas, habría pues como que llevarla"
+    },
+    {
+      "start": 395.0,
+      "end": 402.8399963378906,
+      "text": " más a un tema de pronto de datos puntuales, ¿cierto? Por ejemplo, digamos, escalar a mil"
+    },
+    {
+      "start": 402.8399963378906,
+      "end": 411.3599853515625,
+      "text": " peticiones, pues por decir, o es más un sentido conceptual. En algunas las llevamos a unos"
+    },
+    {
+      "start": 411.3599853515625,
+      "end": 418.67999267578125,
+      "text": " somos de datos pues con respecto a lo que habíamos definido como ACRs y si mantenemos como un tema"
+    },
+    {
+      "start": 418.8399963378906,
+      "end": 426.6000061035156,
+      "text": " muy de pronto conceptual, ¿cierto? Ustedes teníamos pues como esa duda, pero se nos generó en el"
+    },
+    {
+      "start": 426.6000061035156,
+      "end": 433.55999755859375,
+      "text": " proceso pues de cuando estuvimos desarrollando como la actividad. Bien, aquí Juan Felipe no hay que"
+    },
+    {
+      "start": 433.55999755859375,
+      "end": 439.8399963378906,
+      "text": " justificar más allá de decir pues porque esta táctica favorece la escalabilidad, va a favorecer"
+    },
+    {
+      "start": 439.8399963378906,
+      "end": 446.8399963378906,
+      "text": " la latencia de alguna manera y casi que lo único que nos queda a nosotros es al hacer el experimento,"
+    },
+    {
+      "start": 446.8399963378906,
+      "end": 453.32000732421875,
+      "text": " al diseñar nuestro experimento y ejecutar el experimento, nuestra hipótesis de diseño, ¿cuál es?"
+    },
+    {
+      "start": 453.32000732421875,
+      "end": 459.7200012207031,
+      "text": " Que esa táctica soluciona mi problema. Es una hipótesis, ¿cierto? La justificación no es más,"
+    },
+    {
+      "start": 459.7200012207031,
+      "end": 466.4800109863281,
+      "text": " suena sencillo, pero no hay que explicar el por qué. Si lo fuéramos a hacer como una evaluación"
+    },
+    {
+      "start": 466.4800109863281,
+      "end": 471.6000061035156,
+      "text": " cualitativa, tal vez, pero como luego nosotros vamos a experimentar esa hipótesis de diseño,"
+    },
+    {
+      "start": 471.6000061035156,
+      "end": 476.7200012207031,
+      "text": " casi que el experimento nos va a demostrar si teníamos razón o no, y esa es nuestra justificación."
+    },
+    {
+      "start": 476.7200012207031,
+      "end": 484.32000732421875,
+      "text": " Entonces vean el uso de una táctica o de un conjunto de tácticas como eso, como una hipótesis de diseño,"
+    },
+    {
+      "start": 484.32000732421875,
+      "end": 490.0,
+      "text": " es decir, yo creo que con estas tácticas soluciona el problema, pero alguien podría decirme yo no"
+    },
+    {
+      "start": 490.0,
+      "end": 495.8399963378906,
+      "text": " estoy de acuerdo, yo creo que usted no la soluciona. Se vuelve un dilema de, bueno, ¿quién tiene la razón?"
+    },
+    {
+      "start": 496.32000732421875,
+      "end": 501.8800048828125,
+      "text": " Ninguno, no lo vamos a discutir. Vamos a experimentar y vamos a construir un experimento"
+    },
+    {
+      "start": 501.8800048828125,
+      "end": 506.32000732421875,
+      "text": " para validar la hipótesis. En últimas, ese experimento, ¿qué va a decir? ¿Usted escogió la"
+    },
+    {
+      "start": 506.32000732421875,
+      "end": 513.719970703125,
+      "text": " táctica correcta o no? Y si me da no, pues bueno, yo no me equivoqué, esa no era. Me toca cambiar en"
+    },
+    {
+      "start": 513.719970703125,
+      "end": 519.280029296875,
+      "text": " la siguiente iteración de táctica o de hipótesis de diseño, y si me da que sí era el experimento,"
+    },
+    {
+      "start": 519.280029296875,
+      "end": 524.7999877929688,
+      "text": " pues esa es mi justificación, mira acá está mi experimento y yo, esta hipótesis, esta idea que yo"
+    },
+    {
+      "start": 524.7999877929688,
+      "end": 531.1599731445312,
+      "text": " tenía de que esta táctica me iba a ayudar, pues funcionó, es correcta. ¿Eso es estadísticamente"
+    },
+    {
+      "start": 531.1599731445312,
+      "end": 538.6400146484375,
+      "text": " válido? No, es un experimento, es una prueba de concepto, claramente no lograríamos saber"
+    },
+    {
+      "start": 538.6400146484375,
+      "end": 543.4000244140625,
+      "text": " técnicamente si esa hipótesis es la correcta o no, pero el experimento nos dice que vamos por"
+    },
+    {
+      "start": 543.4000244140625,
+      "end": 551.6799926757812,
+      "text": " buen camino. Quedémonos con esas tácticas, es un poco el ejercicio. Ok, perfecto, dale, gracias Darío."
+    },
+    {
+      "start": 552.0,
+      "end": 556.0800170898438,
+      "text": " Bueno, muy bien, entonces yo quisiera saber, ¿todos los grupos llegaron a ese punto,"
+    },
+    {
+      "start": 556.0800170898438,
+      "end": 563.5599975585938,
+      "text": " escogieron un estilo y escogieron unas tácticas y las tienen ahí en su cuaderno de trabajo o algún"
+    },
+    {
+      "start": 563.5599975585938,
+      "end": 572.0,
+      "text": " grupo no logró hacer eso? Profe, qué pena, yo tengo otra pregunta, pues pertenezco al mismo equipo 3."
+    },
+    {
+      "start": 572.0,
+      "end": 578.6799926757812,
+      "text": " Había otra duda que nos surgió allí como equipo, o por lo menos a mí me surgió, y era si nosotros"
+    },
+    {
+      "start": 578.6799926757812,
+      "end": 586.3599853515625,
+      "text": " en ese cuaderno de trabajo definimos, digamos, varios estilos de arquitectura, por capas,"
+    },
+    {
+      "start": 586.3599853515625,
+      "end": 592.239990234375,
+      "text": " bróker, ¿eso quiere decir que las vamos a implementar o quiere decir que son válidas"
+    },
+    {
+      "start": 592.239990234375,
+      "end": 603.3200073242188,
+      "text": " implementarlas? Perdón, ya entendí, quiere decir que las vamos a implementar o que se permite"
+    },
+    {
+      "start": 603.3200073242188,
+      "end": 610.6400146484375,
+      "text": " implementar una u otra, por ejemplo, o ambas. No, no, no, claramente aquí lo que decimos que"
+    },
+    {
+      "start": 610.6400146484375,
+      "end": 616.8800048828125,
+      "text": " vamos a escoger como estilo de arquitectura principal y sobre todo en el modelo de componentes"
+    },
+    {
+      "start": 616.8800048828125,
+      "end": 622.6400146484375,
+      "text": " de la vista funcional, es lo que vamos a hacer, ¿de acuerdo? No hay como alternativas ni opciones,"
+    },
+    {
+      "start": 622.6400146484375,
+      "end": 627.5599975585938,
+      "text": " claro, hay procesos en los que uno primero plantea alternativas, pero en este caso estamos diciendo,"
+    },
+    {
+      "start": 627.5599975585938,
+      "end": 633.7999877929688,
+      "text": " bueno, yo tengo una iteración pequeña de diseño, tengo que resolver estos dos ASR, es una iteración"
+    },
+    {
+      "start": 633.7999877929688,
+      "end": 638.4000244140625,
+      "text": " pequeña, ¿qué hago acá? ¿Cuál es la primera descomposición que voy a utilizar? ¿Cuál es el"
+    },
+    {
+      "start": 638.4000244140625,
+      "end": 643.7999877929688,
+      "text": " estilo que voy a utilizar aquí principal? Después de pronto yo puedo tomar uno de esos elementos y"
+    },
+    {
+      "start": 643.7999877929688,
+      "end": 649.8800048828125,
+      "text": " descomponerlo y allá aplique al interior de ese componente otro estilo, pero vamos a escoger el"
+    },
+    {
+      "start": 649.8800048828125,
+      "end": 656.6799926757812,
+      "text": " estilo de arquitectura principal, el que guía toda la arquitectura, ¿no? Es como el esencial,"
+    },
+    {
+      "start": 656.7999877929688,
+      "end": 661.7999877929688,
+      "text": " que les llamamos esa descomposición dominante. Esa es una, entonces me tengo que cazar, me tengo"
+    },
+    {
+      "start": 661.7999877929688,
+      "end": 667.1199951171875,
+      "text": " que ir por uno en particular, si pongo varios voy a entrar en un conflicto y cuál de ellos uso,"
+    },
+    {
+      "start": 667.1199951171875,
+      "end": 672.9600219726562,
+      "text": " entonces no, aquí hay que pensar en uno. Ahora, en una siguiente iteración, que el tiempo no nos"
+    },
+    {
+      "start": 672.9600219726562,
+      "end": 677.239990234375,
+      "text": " da, estamos muy poco tiempo, entonces nosotros hacemos una iteración, pero este es un proceso"
+    },
+    {
+      "start": 677.239990234375,
+      "end": 682.2000122070312,
+      "text": " iterativo, entonces en una siguiente iteración yo diría, bueno, ahora tomo este módulo que está"
+    },
+    {
+      "start": 682.239990234375,
+      "end": 687.6400146484375,
+      "text": " aquí y lo voy a diseñar por dentro y ahí puede que utilice otro estilo de arquitectura y luego"
+    },
+    {
+      "start": 687.6400146484375,
+      "end": 692.7999877929688,
+      "text": " coja otro para otra parte y entre y ahí utilice otra, ¿no? Eso sí puede pasar, pero por ahora"
+    },
+    {
+      "start": 692.7999877929688,
+      "end": 698.1599731445312,
+      "text": " para nosotros es la primera descomposición, plantear un estilo, seleccionar uno, si tienen"
+    },
+    {
+      "start": 698.1599731445312,
+      "end": 704.0,
+      "text": " más de una alternativa, cazarse con uno y entonces uno dice, acá, pero es como un riesgo, claro,"
+    },
+    {
+      "start": 704.0,
+      "end": 709.719970703125,
+      "text": " es una hipótesis de diseño, la palabra suena un poco más sofisticada para decir, este es mi"
+    },
+    {
+      "start": 709.719970703125,
+      "end": 715.3200073242188,
+      "text": " corazonada y que por aquí funciona la cosa, ¿no? Dice eso, es una hipótesis, ¿yo estoy seguro que"
+    },
+    {
+      "start": 715.3200073242188,
+      "end": 721.47998046875,
+      "text": " ese es el estilo que va a solucionar todo? No, no, tal vez no estoy seguro, por eso es una hipótesis"
+    },
+    {
+      "start": 721.47998046875,
+      "end": 726.760009765625,
+      "text": " que yo voy a entrar a validar, yo sé, si no, pues hago mi diseño y lo entrego y digo, listo,"
+    },
+    {
+      "start": 726.760009765625,
+      "end": 733.6799926757812,
+      "text": " acá ve, pero está tranquilo su incertidumbre, claro, estamos intranquilos, no sé si eso va a"
+    },
+    {
+      "start": 733.6799926757812,
+      "end": 739.0800170898438,
+      "text": " funcionar de verdad o no, es la idea que tengo, entonces aquí vamos a, esta hipótesis la vamos"
+    },
+    {
+      "start": 739.0800170898438,
+      "end": 745.2000122070312,
+      "text": " a tratar de validar, pero es una, una hipótesis, con este estilo y estas tácticas que yo estoy"
+    },
+    {
+      "start": 745.2000122070312,
+      "end": 751.7999877929688,
+      "text": " proponiendo acá, yo soluciono este problema, estos ASR que me plantearon, esa es la, como la gran"
+    },
+    {
+      "start": 751.7999877929688,
+      "end": 758.9199829101562,
+      "text": " decisión que estamos tomando acá. Listo, gracias. Bueno, muy bien, entonces, yo les propongo lo"
+    },
+    {
+      "start": 758.9199829101562,
+      "end": 766.760009765625,
+      "text": " siguiente, vamos a tratar de hacer unas dos pasadas para que vayamos viendo cómo trabajamos"
+    },
+    {
+      "start": 767.3599853515625,
+      "end": 772.52001953125,
+      "text": " este reto que nos estamos planteando. Como todos los grupos ya dijeron, bueno, este es el estilo y"
+    },
+    {
+      "start": 772.52001953125,
+      "end": 780.0800170898438,
+      "text": " estas son las tácticas que vamos a seleccionar, voy a abrir las salas y los voy a asignar,"
+    },
+    {
+      "start": 780.0800170898438,
+      "end": 785.3599853515625,
+      "text": " pues me regalan ahorita un momentico mientras yo asigno las personas a las diferentes salas"
+    },
+    {
+      "start": 785.3599853515625,
+      "end": 790.47998046875,
+      "text": " y abro las salas para que se vayan a trabajar. ¿Cuál es la primera iteración? Pues vamos"
+    },
+    {
+      "start": 790.47998046875,
+      "end": 796.0800170898438,
+      "text": " cambiando a las salas y volviendo a la sala general y un proceso de trabajar en grupo un"
+    },
+    {
+      "start": 796.1199951171875,
+      "end": 803.3599853515625,
+      "text": " momento y volver y exponer el avance del trabajo en la sala general. En esta primera oportunidad,"
+    },
+    {
+      "start": 803.3599853515625,
+      "end": 810.9199829101562,
+      "text": " ¿qué es lo que yo quisiera hacer? Toman el estilo de arquitectura y lo usan para hablarlos de"
+    },
+    {
+      "start": 810.9199829101562,
+      "end": 817.719970703125,
+      "text": " componentes de alto nivel que ustedes ven en la solución de los ASR que ustedes van a trabajar,"
+    },
+    {
+      "start": 817.719970703125,
+      "end": 823.6400146484375,
+      "text": " ¿de acuerdo? Es solamente aplicar el estilo, no tácticas todavía, no tácticas. Entonces,"
+    },
+    {
+      "start": 823.6400146484375,
+      "end": 830.6400146484375,
+      "text": " únicamente una primera versión general, ¿cuáles son estos componentes que yo veo y cómo los voy"
+    },
+    {
+      "start": 830.6400146484375,
+      "end": 842.3599853515625,
+      "text": " a conectar? Eso, el estilo me debería ayudar a hacer eso. Recuerden que a veces entran con el"
+    },
+    {
+      "start": 842.3599853515625,
+      "end": 850.760009765625,
+      "text": " micrófono abierto, entonces, si hay una mano levantada, Carlos. Una pregunta, Darío, buenas"
+    },
+    {
+      "start": 850.760009765625,
+      "end": 859.719970703125,
+      "text": " tardes y buenas tardes para todos. En lo que quieres alcanzar con el ejercicio, ¿estos componentes"
+    },
+    {
+      "start": 859.719970703125,
+      "end": 866.1199951171875,
+      "text": " te refieres a un diagrama de componentes o a un texto que nosotros coloquemos, por ejemplo,"
+    },
+    {
+      "start": 866.1199951171875,
+      "end": 873.5599975585938,
+      "text": " módulo tal? Sí, si podrías, por favor, hacer. Con gusto, claro que sí. Permítanme un segundo,"
+    },
+    {
+      "start": 873.5599975585938,
+      "end": 878.6799926757812,
+      "text": " me conecto desde el iPad y lo revisamos en más detalle. Permítanme un momento."
+    },
+    {
+      "start": 880.760009765625,
+      "end": 901.4000244140625,
+      "text": " Muy bien, vamos a hacer un aquí."
+    },
+    {
+      "start": 901.4000244140625,
+      "end": 927.8400268554688,
+      "text": " Vamos a hacer como un ejemplo de lo que debería pasarnos, en el cuaderno de trabajo a mi me"
+    },
+    {
+      "start": 927.8400268554688,
+      "end": 935.0800170898438,
+      "text": " me dijeron, bueno, ¿qué estilos de arquitectura va a utilizar para la arquitectura que va"
+    },
+    {
+      "start": 935.0800170898438,
+      "end": 941.8800048828125,
+      "text": " a plantear? Entonces yo diría, yo voy a utilizar un estilo de arquitectura de tres niveles,"
+    },
+    {
+      "start": 941.8800048828125,
+      "end": 947.52001953125,
+      "text": " y tácticas, ¿qué tácticas va a utilizar? Entonces, tácticas yo digo, bueno, yo voy"
+    },
+    {
+      "start": 947.52001953125,
+      "end": 958.1199951171875,
+      "text": " a utilizar concurrencia, introducción de la concurrencia, yo voy a aplicarlo de múltiples"
+    },
+    {
+      "start": 958.1199951171875,
+      "end": 971.0,
+      "text": " copias de procesamiento, y voy a trabajar con múltiples copias de datos. Esas son las"
+    },
+    {
+      "start": 971.0,
+      "end": 977.0800170898438,
+      "text": " tres tácticas que yo voy a aplicar en este estilo, ¿de acuerdo? Entonces, la propuesta"
+    },
+    {
+      "start": 977.0800170898438,
+      "end": 984.47998046875,
+      "text": " es la siguiente, nos vamos a la primera iteración de diseño, mini-iteración de diseño que"
+    },
+    {
+      "start": 984.47998046875,
+      "end": 989.4400024414062,
+      "text": " vamos a hacer. Nos vamos por grupos y decimos, bueno, nosotros dijimos que vamos a trabajar"
+    },
+    {
+      "start": 989.4400024414062,
+      "end": 998.280029296875,
+      "text": " una arquitectura de tres niveles. Esa arquitectura en el formato general nos dice, los tres niveles"
+    },
+    {
+      "start": 998.280029296875,
+      "end": 1013.3599853515625,
+      "text": " se ven así, y estos tres niveles se pueden conectar entre sí. Esto es lo que me dice"
+    },
+    {
+      "start": 1013.3599853515625,
+      "end": 1025.9599609375,
+      "text": " el estilo de arquitectura. Entonces, el estilo me dice, usted tiene tres niveles que se pueden"
+    },
+    {
+      "start": 1025.9599609375,
+      "end": 1032.9599609375,
+      "text": " conectar bidireccionalmente entre ellos. Estos se llaman niveles, no capas, ¿se acuerdan?"
+    },
+    {
+      "start": 1032.9599609375,
+      "end": 1038.0,
+      "text": " Capas es un estilo de otra familia, es otra cosa. ¿Qué características tiene uno de"
+    },
+    {
+      "start": 1038.0,
+      "end": 1045.5999755859375,
+      "text": " estos niveles? Que es un conjunto de procesos que están ejecutándose en paralelo todos,"
+    },
+    {
+      "start": 1045.5999755859375,
+      "end": 1051.0,
+      "text": " que se puede tener comunicación en este sentido, por ejemplo, también. Yo puedo saltar de"
+    },
+    {
+      "start": 1051.0,
+      "end": 1056.1199951171875,
+      "text": " un nivel n-2 a un nivel n, por ejemplo, no tengo que pasar a un nivel n-1. Estas son"
+    },
+    {
+      "start": 1056.1199951171875,
+      "end": 1063.3199462890625,
+      "text": " como las reglas de juego de los tres niveles. Pero esta es la figura genérica. ¿Cómo"
+    },
+    {
+      "start": 1063.3199462890625,
+      "end": 1069.0799560546875,
+      "text": " se ve un tres niveles? Así. Bueno, apliquémoslo al contexto del proyecto. Normalmente esto"
+    },
+    {
+      "start": 1069.0799560546875,
+      "end": 1074.9200439453125,
+      "text": " es presentación, esto es lógica de negocio y esto es persistencia, ¿no cierto? Pero"
+    },
+    {
+      "start": 1074.9200439453125,
+      "end": 1080.760009765625,
+      "text": " a veces para mí este nivel puede ser un nivel de exposición de unas APIs que se conectan"
+    },
+    {
+      "start": 1080.760009765625,
+      "end": 1087.199951171875,
+      "text": " a la lógica de negocio. Para efectos prácticos, la interfaz, la presentación, la experiencia"
+    },
+    {
+      "start": 1087.199951171875,
+      "end": 1093.760009765625,
+      "text": " del usuario para nosotros ahorita no es importante. Vamos a diseñar más hacia el banco."
+    },
+    {
+      "start": 1093.760009765625,
+      "end": 1100.47998046875,
+      "text": " Entonces, yo digo, bueno, pero esto ¿cómo lo vuelvo algo un poquito más aterrizado"
+    },
+    {
+      "start": 1100.47998046875,
+      "end": 1107.0799560546875,
+      "text": " a lo que yo necesito? Entonces digo, bueno, pues yo tengo un componente de gestión de"
+    },
+    {
+      "start": 1107.0799560546875,
+      "end": 1112.800048828125,
+      "text": " inventarios. Estoy hablando de un ejemplo para no sesgarlos en el contexto de su proyecto."
+    },
+    {
+      "start": 1112.800048828125,
+      "end": 1117.719970703125,
+      "text": " Yo tengo un tema de inventarios. Yo tengo un componente de inventarios. Yo tengo un"
+    },
+    {
+      "start": 1117.719970703125,
+      "end": 1125.8399658203125,
+      "text": " componente de compras. Yo tengo un componente de pagos. Y efectivamente aquí voy a bajar"
+    },
+    {
+      "start": 1125.8399658203125,
+      "end": 1135.800048828125,
+      "text": " a un componente que maneja la persistencia. Estos se van a conectar. Y yo tengo acá una"
+    },
+    {
+      "start": 1135.9599609375,
+      "end": 1141.0400390625,
+      "text": " API Gateway que va a conectar o va a recibir todas las llamadas de los clientes. Este es"
+    },
+    {
+      "start": 1141.0400390625,
+      "end": 1150.0400390625,
+      "text": " mi nivel 1. Este es mi nivel 2. Y este es mi nivel 3. Y aquí sigo viendo los tres niveles."
+    },
+    {
+      "start": 1150.0400390625,
+      "end": 1155.6400146484375,
+      "text": " ¿De acuerdo? Pero ahora ya pasé del dibujito que yo había hecho antes que decía, sí,"
+    },
+    {
+      "start": 1155.6400146484375,
+      "end": 1160.719970703125,
+      "text": " ¿cómo es una de estilo tres niveles? Así. Sí, pero son unas cajas vacías que no dicen"
+    },
+    {
+      "start": 1160.719970703125,
+      "end": 1167.9599609375,
+      "text": " nada. Entonces nos vamos a poner en contexto del proyecto. Hágame los tres niveles, pero"
+    },
+    {
+      "start": 1167.9599609375,
+      "end": 1175.719970703125,
+      "text": " identifique qué va sobre todo en el nivel de lógica de negocio, qué componentes identifica."
+    },
+    {
+      "start": 1175.719970703125,
+      "end": 1185.8800048828125,
+      "text": " Ah, el de inventarios, el de compra y el de pagos. Esta sería la iteración 1 para nosotros."
+    },
+    {
+      "start": 1186.199951171875,
+      "end": 1192.43994140625,
+      "text": " Componentes de alto nivel en el estilo de arquitectura que hayas seleccionado. ¿De acuerdo?"
+    },
+    {
+      "start": 1192.43994140625,
+      "end": 1197.800048828125,
+      "text": " Esta es la primera tarea. La primera iteración, ¿qué vamos a hacer?"
+    },
+    {
+      "start": 1197.800048828125,
+      "end": 1200.199951171875,
+      "text": " No se puede seguir."
+    },
+    {
+      "start": 1200.199951171875,
+      "end": 1205.719970703125,
+      "text": " Siguen llegando todavía los estudiantes y son las 3 y 20. Es complicado estar dándole"
+    },
+    {
+      "start": 1205.719970703125,
+      "end": 1211.0799560546875,
+      "text": " todavía acceso a las personas a las 3 y 20. Yo sí les voy a pedir que, por favor, máximo"
+    },
+    {
+      "start": 1211.239990234375,
+      "end": 1216.239990234375,
+      "text": " 3 y 10 estemos llegando a la sesión. Sí, Santiago."
+    },
+    {
+      "start": 1216.239990234375,
+      "end": 1223.3199462890625,
+      "text": " Daría otra consulta. Bueno, ahí mostraste un estilo particular, ¿cierto? ¿Yo podría"
+    },
+    {
+      "start": 1223.3199462890625,
+      "end": 1227.199951171875,
+      "text": " tener los mismos componentes en otro estilo diferente sin ningún problema?"
+    },
+    {
+      "start": 1227.199951171875,
+      "end": 1236.0799560546875,
+      "text": " Claro. No, Santiago, es que eso es lo que va a pasar. Claro. Son los mismos pintados"
+    },
+    {
+      "start": 1236.0799560546875,
+      "end": 1238.0799560546875,
+      "text": " de otra forma porque es otro estilo."
+    },
+    {
+      "start": 1238.0799560546875,
+      "end": 1254.0799560546875,
+      "text": " Ok. ¿Y en la reiteración? ¿En la segunda iteración los estilos pueden cambiar? No."
+    },
+    {
+      "start": 1254.0799560546875,
+      "end": 1256.0799560546875,
+      "text": " En realidad los estilos siempre son fijos."
+    },
+    {
+      "start": 1256.0799560546875,
+      "end": 1262.199951171875,
+      "text": " Ya. Esa es la descomposición dominante. Como tomé este camino y fue la primera descomposición"
+    },
+    {
+      "start": 1262.199951171875,
+      "end": 1269.199951171875,
+      "text": " que hice, ese estilo grande general no va a cambiar. ¿Qué podría? Sí, ¿qué podría"
+    },
+    {
+      "start": 1269.199951171875,
+      "end": 1274.6800537109375,
+      "text": " pasar? Entonces, acá estamos con nuestro estilo tres niveles. Este no cambió. En una"
+    },
+    {
+      "start": 1274.6800537109375,
+      "end": 1279.8800048828125,
+      "text": " segunda iteración yo podría decir, bueno, pero Pagos, ¿qué será Pagos? Eso está"
+    },
+    {
+      "start": 1279.8800048828125,
+      "end": 1285.3199462890625,
+      "text": " muy grande. Pagos, yo quiero mirar a Pagos por dentro. Entonces entro a diseñar Pagos"
+    },
+    {
+      "start": 1285.3199462890625,
+      "end": 1293.3199462890625,
+      "text": " y Pagos resulta que se va a comportar como otro estilo que se llama Pipeline Filter."
+    },
+    {
+      "start": 1293.3199462890625,
+      "end": 1298.6800537109375,
+      "text": " Este por dentro puede tener otro estilo, pero el estilo general de la aplicación, que ya"
+    },
+    {
+      "start": 1298.6800537109375,
+      "end": 1308.199951171875,
+      "text": " lo decidí, ese no va a cambiar. ¿Sí? Eso es bien. Y respecto a lo que nos decía"
+    },
+    {
+      "start": 1308.199951171875,
+      "end": 1317.0799560546875,
+      "text": " Santiago, esta fue una decisión. Otro grupo, y ya le doy la palabra a Carlos, otro grupo"
+    },
+    {
+      "start": 1317.0799560546875,
+      "end": 1323.719970703125,
+      "text": " pudo haber dicho, no, yo tres niveles no voy a usar. Yo voy a usar Hub & Spoke. Bueno,"
+    },
+    {
+      "start": 1323.719970703125,
+      "end": 1331.760009765625,
+      "text": " entonces resulta que dice, acá está Pagos, acá está Compras, acá está Inventario,"
+    },
+    {
+      "start": 1332.3199462890625,
+      "end": 1339.6400146484375,
+      "text": " y yo voy a tener aquí un concentrador que se llama Hub, y estos son los Spokes, y todo"
+    },
+    {
+      "start": 1339.6400146484375,
+      "end": 1345.1600341796875,
+      "text": " lo que pase en Compras, en Pagos o en Inventario se conecta y se transmite a través del Hub."
+    },
+    {
+      "start": 1345.1600341796875,
+      "end": 1352.8800048828125,
+      "text": " Completamente diferente, es otro estilo. Mismos componentes. En eso Santiago hizo una muy"
+    },
+    {
+      "start": 1352.8800048828125,
+      "end": 1358.0400390625,
+      "text": " buena apreciación. Son los mismos. Eso no cambia, porque la asignación de las responsabilidades,"
+    },
+    {
+      "start": 1358.0400390625,
+      "end": 1363.0799560546875,
+      "text": " de la aplicación, sabe hacer eso. Es lo único que sabe hacer. No, si yo cambio el estilo, no cambia"
+    },
+    {
+      "start": 1363.0799560546875,
+      "end": 1368.4000244140625,
+      "text": " la funcionalidad. La funcionalidad es la misma. Sabe hacer compras, sabe hacer pagos y sabe manejar"
+    },
+    {
+      "start": 1368.4000244140625,
+      "end": 1376.3199462890625,
+      "text": " unos inventarios. ¿Cómo los conecto? Es lo que cambia con el estilo. Son los conectores lo que"
+    },
+    {
+      "start": 1376.3199462890625,
+      "end": 1382.199951171875,
+      "text": " cambia toda la película. Entonces se ve así en tres niveles, se ve así en Hub & Spoke, y alguien"
+    },
+    {
+      "start": 1382.199951171875,
+      "end": 1387.5999755859375,
+      "text": " pudo decir, no, yo lo voy a hacer en otros microservicios. Entonces se ve de otra forma. Pero"
+    },
+    {
+      "start": 1387.5999755859375,
+      "end": 1393.719970703125,
+      "text": " son los mismos. Compras, Pagos, Inventarios. Entonces lo que yo les pido, es en esta primera"
+    },
+    {
+      "start": 1393.719970703125,
+      "end": 1400.1600341796875,
+      "text": " iteración, dado el estilo que ustedes ya dijeron que iban a usar, ¿cómo creen que se verían esos"
+    },
+    {
+      "start": 1400.1600341796875,
+      "end": 1406.800048828125,
+      "text": " componentes principales que ustedes identifican en su modelo? Carlos, ahora sí, su pregunta."
+    },
+    {
+      "start": 1408.0799560546875,
+      "end": 1415.1600341796875,
+      "text": " Sí, señor. Es que me confundí un poquito, porque digamos, en el cuaderno que estamos"
+    },
+    {
+      "start": 1415.1600341796875,
+      "end": 1421.800048828125,
+      "text": " siguiendo, en la iteración en la que estamos, se nos pedía en el punto 3, escoger uno o más"
+    },
+    {
+      "start": 1421.800048828125,
+      "end": 1428.3199462890625,
+      "text": " elementos del sistema Refinat, y en ese caso eran pues relacionados con los ASR. En los casos de"
+    },
+    {
+      "start": 1428.3199462890625,
+      "end": 1434.3599853515625,
+      "text": " nosotros, digamos que es el módulo de emparejamiento o de notificación. Nosotros escogimos"
+    },
+    {
+      "start": 1434.3599853515625,
+      "end": 1442.1199951171875,
+      "text": " una arquitectura para que supliera precisamente ese ASR. Pero lo que entiendo que me estás"
+    },
+    {
+      "start": 1442.199951171875,
+      "end": 1447.52001953125,
+      "text": " mostrando en este momento, es que esta arquitectura debe englobar todo el proyecto,"
+    },
+    {
+      "start": 1447.52001953125,
+      "end": 1457.47998046875,
+      "text": " y ahí es donde me confundo. No, no. Tal vez si lo dije así, lo entendió así, fue mi error. No,"
+    },
+    {
+      "start": 1457.47998046875,
+      "end": 1464.760009765625,
+      "text": " el motivador de esta iteración es satisfacer sus ASR. Uno de latencia, uno de escalabilidad."
+    },
+    {
+      "start": 1465.199951171875,
+      "end": 1472.1199951171875,
+      "text": " Sí, señor. En eso está usted en lo correcto. Cuando les digo, vamos a comenzar a diseñar,"
+    },
+    {
+      "start": 1472.1199951171875,
+      "end": 1479.199951171875,
+      "text": " son los componentes que usted identifique para solucionar esos dos ASR. Entonces es muy raro"
+    },
+    {
+      "start": 1479.199951171875,
+      "end": 1485.6800537109375,
+      "text": " que de pronto les dé el mismo modelo a todos los grupos, ¿no? Son los componentes que usted"
+    },
+    {
+      "start": 1485.6800537109375,
+      "end": 1492.56005859375,
+      "text": " identifica en el proyecto a nivel general, pero asociados a la solución de esos dos ASR. En el"
+    },
+    {
+      "start": 1492.56005859375,
+      "end": 1498.280029296875,
+      "text": " caso del ejemplo que yo dije ahorita, aquí estaba inventario, estaba pagos, estaba compras."
+    },
+    {
+      "start": 1500.0,
+      "end": 1506.47998046875,
+      "text": " Pero me faltó ventas, me faltó mercadeo. No, porque esos no me interesan para mi ASR ahorita."
+    },
+    {
+      "start": 1506.47998046875,
+      "end": 1512.9599609375,
+      "text": " Estos tres son los que tienen que ver con mis dos ASR. Entonces, he identificado los componentes"
+    },
+    {
+      "start": 1512.9599609375,
+      "end": 1519.1600341796875,
+      "text": " y ahora tengo que ver cómo los conecto para que se vean como el estilo que yo dije que iba a usar."
+    },
+    {
+      "start": 1519.52001953125,
+      "end": 1527.719970703125,
+      "text": " La forma inicial me la debe dar el estilo. Cuando digo la primera iteración, es la primera"
+    },
+    {
+      "start": 1527.719970703125,
+      "end": 1532.199951171875,
+      "text": " iteración aquí de la clase de hoy. La primera vez que nos vayamos a los grupos a diseñar y"
+    },
+    {
+      "start": 1532.199951171875,
+      "end": 1538.52001953125,
+      "text": " volvamos en esa iteración, les estoy pidiendo que trabajemos en los pasos 5 y 6 de la ADD,"
+    },
+    {
+      "start": 1538.52001953125,
+      "end": 1543.199951171875,
+      "text": " pero que lo vamos a hacer en dos situaciones. En la primera vamos a decir, bueno, voy a coger"
+    },
+    {
+      "start": 1543.199951171875,
+      "end": 1548.1600341796875,
+      "text": " el estilo que yo ya dije que iba a usar. Entonces voy a decir en tres niveles. Entonces tengo aquí"
+    },
+    {
+      "start": 1548.1600341796875,
+      "end": 1557.239990234375,
+      "text": " mi API Gateway y entonces acá tengo el componente A, el componente B, el componente C y acá tengo"
+    },
+    {
+      "start": 1557.239990234375,
+      "end": 1562.719970703125,
+      "text": " el tema de la persistencia. Y estos se comunican así y así y esto puede ser así. Entonces fíjense"
+    },
+    {
+      "start": 1562.719970703125,
+      "end": 1569.0400390625,
+      "text": " que ya ahí los tres niveles se ven un poquito diferentes. Uno tiene que hacer un poquito de"
+    },
+    {
+      "start": 1569.0400390625,
+      "end": 1576.719970703125,
+      "text": " imaginación para darse cuenta. Este era el primer nivel del patrón, del estilo. Este es el segundo"
+    },
+    {
+      "start": 1576.8399658203125,
+      "end": 1582.47998046875,
+      "text": " nivel del estilo y este es el tercer nivel del estilo. Ahí están los niveles. Muchas veces incluso"
+    },
+    {
+      "start": 1582.47998046875,
+      "end": 1589.6800537109375,
+      "text": " se ponen así en el símbolo del paquetico que nos da WML. Y los llaman aquí nivel tal, nivel tal."
+    },
+    {
+      "start": 1589.6800537109375,
+      "end": 1593.9599609375,
+      "text": " Y ahí están mis tres niveles. A veces uno los mete dentro de este símbolo del paquete de WML"
+    },
+    {
+      "start": 1593.9599609375,
+      "end": 1600.52001953125,
+      "text": " para ayudar a alguien a darse cuenta que ahí hay unos niveles. Porque ya cuando lo instancié con"
+    },
+    {
+      "start": 1600.52001953125,
+      "end": 1605.47998046875,
+      "text": " mis componentes se pilló un poquito la figura. Entonces cuando digo la primera iteración nuestra"
+    },
+    {
+      "start": 1605.47998046875,
+      "end": 1611.9200439453125,
+      "text": " de diseño, nos vamos a los grupos, hacemos este primer dibujo y como como viendo lo que"
+    },
+    {
+      "start": 1611.9200439453125,
+      "end": 1618.0400390625,
+      "text": " hagan ahorita, sólo de los componentes necesarios para satisfacer sus ASRs. No de todo el proyecto."
+    },
+    {
+      "start": 1620.280029296875,
+      "end": 1629.800048828125,
+      "text": " En la segunda iteración que hagamos, ¿qué vamos a hacer? Vamos a, sobre este, vamos a aplicar tácticas."
+    },
+    {
+      "start": 1630.800048828125,
+      "end": 1637.0,
+      "text": " Entonces, supongamos que sí, bueno, vamos a aplicar la táctica de múltiples copias de"
+    },
+    {
+      "start": 1637.0,
+      "end": 1643.47998046875,
+      "text": " procesamiento. ¿Cómo aplico esa táctica? Me voy a ir a la vista de despliegue."
+    },
+    {
+      "start": 1646.1199951171875,
+      "end": 1652.52001953125,
+      "text": " Me voy a la vista de despliegue y voy a instalar o voy a diseñar"
+    },
+    {
+      "start": 1654.199951171875,
+      "end": 1657.760009765625,
+      "text": " con los símbolos de la vista de despliegue, de diagrama de despliegue,"
+    },
+    {
+      "start": 1659.800048828125,
+      "end": 1664.3599853515625,
+      "text": " tres máquinas y voy a decir que el componente B"
+    },
+    {
+      "start": 1667.43994140625,
+      "end": 1674.4000244140625,
+      "text": " está instanciado tres veces porque estoy aplicando la táctica de múltiples copias"
+    },
+    {
+      "start": 1674.4000244140625,
+      "end": 1681.9200439453125,
+      "text": " de procesamiento y que por allá en otra máquina estará instalado el componente C y el componente A,"
+    },
+    {
+      "start": 1681.9200439453125,
+      "end": 1687.280029296875,
+      "text": " de ellos no hay múltiples copias de procesamiento y que a lo mejor entonces yo aquí voy a necesitar"
+    },
+    {
+      "start": 1687.52001953125,
+      "end": 1693.5999755859375,
+      "text": " balanceo de carga y que estos componentes se van a hablar con este y que esto yo lo voy a instanciar"
+    },
+    {
+      "start": 1693.5999755859375,
+      "end": 1701.5999755859375,
+      "text": " así y que la persistencia va a estar por acá en otra máquina y que acá se puede llegar a la persistencia"
+    },
+    {
+      "start": 1701.5999755859375,
+      "end": 1707.56005859375,
+      "text": " y que este API Gateway que estaba por allá entonces está instalado por aquí, este es mi API Gateway"
+    },
+    {
+      "start": 1707.56005859375,
+      "end": 1712.9599609375,
+      "text": " y que el API Gateway puede llegar acá, puede llegar directamente acá y que este es mi diagrama de despliegue"
+    },
+    {
+      "start": 1713.4000244140625,
+      "end": 1719.800048828125,
+      "text": " solo para ilustrar esta táctica que está acá, entonces fíjense que vamos a empezar de lo general"
+    },
+    {
+      "start": 1719.800048828125,
+      "end": 1725.760009765625,
+      "text": " a lo específico, empezamos primero el estilo, ok, esa es la decisión más grande que estamos tomando"
+    },
+    {
+      "start": 1725.760009765625,
+      "end": 1735.1600341796875,
+      "text": " ahora en el estilo identifique los componentes, acá, en el diagrama de componentes principales"
+    },
+    {
+      "start": 1735.1600341796875,
+      "end": 1740.719970703125,
+      "text": " y en la siguiente iteración empiece a meter las tácticas, ¿qué pasa cuando meto las tácticas?"
+    },
+    {
+      "start": 1740.719970703125,
+      "end": 1748.8399658203125,
+      "text": " desordeno el modelo por completo, miren, ahora miren cómo se volvió, ¿dónde están aquí los tres niveles?"
+    },
+    {
+      "start": 1748.8399658203125,
+      "end": 1754.719970703125,
+      "text": " ya me cuesta más trabajo identificar ahí los tres niveles, pero debería ser capaz de decir"
+    },
+    {
+      "start": 1754.719970703125,
+      "end": 1761.8399658203125,
+      "text": " esto todavía yo veo mis tres niveles ahí, pero cuando entró una táctica, la táctica me desbarató"
+    },
+    {
+      "start": 1761.9599609375,
+      "end": 1770.6400146484375,
+      "text": " la táctica me desbarató, mueve, daña, pero para bien, porque la táctica es la que de verdad"
+    },
+    {
+      "start": 1770.6400146484375,
+      "end": 1776.9200439453125,
+      "text": " me hace satisfacer una SES, entonces la necesito, luego voy a aplicar la táctica de concurrencia"
+    },
+    {
+      "start": 1776.9200439453125,
+      "end": 1782.9200439453125,
+      "text": " en la vista de concurrencia, luego voy a aplicar la táctica de múltiples copias de datos"
+    },
+    {
+      "start": 1782.9200439453125,
+      "end": 1787.9200439453125,
+      "text": " entonces dónde van a estar esas múltiples copias de datos, entonces voy a necesitar otras que estaban acá"
+    },
+    {
+      "start": 1787.9200439453125,
+      "end": 1796.9200439453125,
+      "text": " y ya el dibujo, este diseño se me empezó a descomponer, empezó a crecer, empezó a entrar nuevas cosas"
+    },
+    {
+      "start": 1796.9200439453125,
+      "end": 1803.9200439453125,
+      "text": " empezó a volver más complicado, ¿dónde está mi estilo? ahí está el estilo de tres niveles, pero las tácticas"
+    },
+    {
+      "start": 1803.9200439453125,
+      "end": 1811.9200439453125,
+      "text": " desordenan, las tácticas desordenan, pero las necesito, las necesito para solucionar mis ASRs"
+    },
+    {
+      "start": 1811.9200439453125,
+      "end": 1817.9200439453125,
+      "text": " entonces esto es lo que vamos a hacer en la segunda iteración, la primera nos debería dar un modelo"
+    },
+    {
+      "start": 1817.9200439453125,
+      "end": 1824.9200439453125,
+      "text": " todo bonito, limpio, con la figura del estilo y los principales componentes, conectados como me diga"
+    },
+    {
+      "start": 1824.9200439453125,
+      "end": 1831.9200439453125,
+      "text": " el estilo que se deben conectar, en la segunda pasada, el caos, ahí vamos a meter las prácticas"
+    },
+    {
+      "start": 1831.9200439453125,
+      "end": 1838.9200439453125,
+      "text": " y el dibujo se va a poner feo, pero ese es el que de verdad sí nos va a solucionar los ASRs"
+    },
+    {
+      "start": 1838.9200439453125,
+      "end": 1841.9200439453125,
+      "text": " esa es la meta para hoy, ¿cómo les parece?"
+    },
+    {
+      "start": 1843.9200439453125,
+      "end": 1851.9200439453125,
+      "text": " ¿listos? bueno, entonces manos a la obra, ¿tienen claro, preguntas técnicas, tienen claro en qué van a diseñar"
+    },
+    {
+      "start": 1851.9200439453125,
+      "end": 1859.9200439453125,
+      "text": " estos modelos? ojalá fuera algo colaborativo para que todos puedan al tiempo estar viendo su modelo, su diseño"
+    },
+    {
+      "start": 1859.9200439453125,
+      "end": 1866.9200439453125,
+      "text": " entonces yo les sugiero, no sé si a través de, si ustedes tienen o usan alguna herramienta que todos puedan"
+    },
+    {
+      "start": 1866.9200439453125,
+      "end": 1875.9200439453125,
+      "text": " tener al alcance, sino una herramienta como Lucidchart podría ayudar, la versión gratuita de Visual Paradigm"
+    },
+    {
+      "start": 1875.9200439453125,
+      "end": 1882.9200439453125,
+      "text": " también, que son editores que están en línea, que son colaborativos, que entonces todos pueden ver lo que uno"
+    },
+    {
+      "start": 1882.9200439453125,
+      "end": 1889.9200439453125,
+      "text": " modifica, lo que el otro modifica, el mismo Draw.io, el de Google, etcétera, o sea, no sé si hay alguna limitación"
+    },
+    {
+      "start": 1889.9200439453125,
+      "end": 1896.9200439453125,
+      "text": " por parte de ustedes desde el banco o algo para entrar a uno de estos sitios a diseñar, ahora que los pasen a trabajar"
+    },
+    {
+      "start": 1896.9200439453125,
+      "end": 1902.9200439453125,
+      "text": " en grupos, la primera actividad que deberían hacer es, ¿dónde vamos a hacer este dibujo?"
+    },
+    {
+      "start": 1902.9200439453125,
+      "end": 1907.9200439453125,
+      "text": " Puede ser que alguno comparta la pantalla y lo hagan sobre algún editor, en PowerPoint, lo que sea, y todos van"
+    },
+    {
+      "start": 1907.9200439453125,
+      "end": 1915.9200439453125,
+      "text": " diciéndole a alguien, puede ser, pero ojalá un editor VML que fuera colaborativo, entonces, mientras yo voy"
+    },
+    {
+      "start": 1916.9200439453125,
+      "end": 1922.9200439453125,
+      "text": " designando los grupos, y cuando abra los grupos, por favor, primera actividad, es coger dónde van a diseñar y"
+    },
+    {
+      "start": 1922.9200439453125,
+      "end": 1929.9200439453125,
+      "text": " segunda actividad que hacen en esta iteración, tomar su estilo, tomar sus ASRs y tratar de identificar esos"
+    },
+    {
+      "start": 1929.9200439453125,
+      "end": 1936.9200439453125,
+      "text": " primeros componentes y ponerlos ahí. Terminamos ese ejercicio, todos los grupos nos hacen una presentación rápida"
+    },
+    {
+      "start": 1936.9200439453125,
+      "end": 1944.9200439453125,
+      "text": " de cómo va este estilo, pasamos a la segunda iteración, al menos introducir una táctica, modificar y volvemos"
+    },
+    {
+      "start": 1944.9200439453125,
+      "end": 1949.9200439453125,
+      "text": " a la sala general y volvemos a mirar cómo vamos. ¿Les parece?"
+    },
+    {
+      "start": 1949.9200439453125,
+      "end": 1951.9200439453125,
+      "text": " Listo, aprobado."
+    },
+    {
+      "start": 1951.9200439453125,
+      "end": 1958.9200439453125,
+      "text": " Entonces, les pido un poquito de paciencia, mientras comienzo a armar los grupos y los voy asignando a las"
+    },
+    {
+      "start": 1958.9200439453125,
+      "end": 1967.9200439453125,
+      "text": " diferentes salas, mientras yo estoy haciendo eso, va a tomar unos minutos, por favor, ustedes traten de ir en grupo"
+    },
+    {
+      "start": 1967.9200439453125,
+      "end": 1971.9200439453125,
+      "text": " pensando cuál herramienta vamos a usar para editar."
+    },
+    {
+      "start": 1971.9200439453125,
+      "end": 1978.9200439453125,
+      "text": " Tan pronto metas ya todos los grupos, los dejes armados y abra los salones, pues ya saben qué hacer, yo después"
+    },
+    {
+      "start": 1978.9200439453125,
+      "end": 1985.9200439453125,
+      "text": " trato de ir pasando salón por salón a ver cómo los puedo ir ayudando. Mientras hago esa asignación, pues que siempre"
+    },
+    {
+      "start": 1985.9200439453125,
+      "end": 1991.9200439453125,
+      "text": " son 30 personas que tengo que asignar a las diferentes salones, por favor, ustedes vayan pensando esa herramienta"
+    },
+    {
+      "start": 1991.9200439453125,
+      "end": 1997.9200439453125,
+      "text": " de diseño que van a utilizar. Ya estoy con ustedes, voy a asignar a cada uno de ustedes en su respectivo grupo,"
+    },
+    {
+      "start": 1997.9200439453125,
+      "end": 2000.9200439453125,
+      "text": " abro los salones y nos vamos para allá. ¡Ya nos vemos!"
+    },
+    {
+      "start": 2021.9200439453125,
+      "end": 2024.9200439453125,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2024.9200439453125,
+      "end": 2027.9200439453125,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2054.919921875,
+      "end": 2058.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2084.919921875,
+      "end": 2087.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2114.919921875,
+      "end": 2117.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2144.919921875,
+      "end": 2147.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2174.919921875,
+      "end": 2177.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2204.919921875,
+      "end": 2207.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2234.919921875,
+      "end": 2237.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2264.919921875,
+      "end": 2267.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2294.919921875,
+      "end": 2297.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2324.919921875,
+      "end": 2327.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2354.919921875,
+      "end": 2357.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2384.919921875,
+      "end": 2387.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2414.919921875,
+      "end": 2417.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2444.919921875,
+      "end": 2447.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2474.919921875,
+      "end": 2477.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2504.919921875,
+      "end": 2507.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2534.919921875,
+      "end": 2537.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2564.919921875,
+      "end": 2567.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2594.919921875,
+      "end": 2597.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2624.919921875,
+      "end": 2627.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2654.919921875,
+      "end": 2657.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2684.919921875,
+      "end": 2687.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2714.919921875,
+      "end": 2717.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2744.919921875,
+      "end": 2747.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2774.919921875,
+      "end": 2777.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2804.919921875,
+      "end": 2807.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2834.919921875,
+      "end": 2837.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2864.919921875,
+      "end": 2867.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2894.919921875,
+      "end": 2897.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2924.919921875,
+      "end": 2927.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2954.919921875,
+      "end": 2957.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 2984.919921875,
+      "end": 2987.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3014.919921875,
+      "end": 3017.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3044.919921875,
+      "end": 3047.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3074.919921875,
+      "end": 3077.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3104.919921875,
+      "end": 3107.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3134.919921875,
+      "end": 3137.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3164.919921875,
+      "end": 3167.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3194.919921875,
+      "end": 3197.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3224.919921875,
+      "end": 3227.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3254.919921875,
+      "end": 3257.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3284.919921875,
+      "end": 3287.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3314.919921875,
+      "end": 3317.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3344.919921875,
+      "end": 3347.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3374.919921875,
+      "end": 3377.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3404.919921875,
+      "end": 3407.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3434.919921875,
+      "end": 3437.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3464.919921875,
+      "end": 3467.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3494.919921875,
+      "end": 3498.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3524.919921875,
+      "end": 3527.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3554.919921875,
+      "end": 3557.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3584.919921875,
+      "end": 3588.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3614.919921875,
+      "end": 3617.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3644.919921875,
+      "end": 3648.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3674.919921875,
+      "end": 3677.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3704.919921875,
+      "end": 3708.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3734.919921875,
+      "end": 3737.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3764.919921875,
+      "end": 3767.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3794.919921875,
+      "end": 3797.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3824.919921875,
+      "end": 3827.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3854.919921875,
+      "end": 3857.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3884.919921875,
+      "end": 3887.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3914.919921875,
+      "end": 3917.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3944.919921875,
+      "end": 3947.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 3974.919921875,
+      "end": 3978.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4004.919921875,
+      "end": 4007.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4034.919921875,
+      "end": 4037.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4064.919921875,
+      "end": 4068.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4094.919921875,
+      "end": 4097.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4124.919921875,
+      "end": 4127.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4154.919921875,
+      "end": 4157.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4184.919921875,
+      "end": 4187.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4214.919921875,
+      "end": 4217.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4244.919921875,
+      "end": 4247.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4274.919921875,
+      "end": 4277.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4304.919921875,
+      "end": 4307.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4334.919921875,
+      "end": 4337.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4364.919921875,
+      "end": 4367.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4394.919921875,
+      "end": 4397.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4424.919921875,
+      "end": 4428.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4454.919921875,
+      "end": 4457.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4484.919921875,
+      "end": 4487.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4514.919921875,
+      "end": 4517.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4544.919921875,
+      "end": 4547.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4574.919921875,
+      "end": 4577.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4604.919921875,
+      "end": 4607.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4634.919921875,
+      "end": 4638.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4664.919921875,
+      "end": 4667.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4694.919921875,
+      "end": 4697.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4724.919921875,
+      "end": 4728.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4754.919921875,
+      "end": 4757.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4784.919921875,
+      "end": 4787.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4814.919921875,
+      "end": 4817.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4844.919921875,
+      "end": 4847.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4874.919921875,
+      "end": 4878.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4904.919921875,
+      "end": 4907.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4934.919921875,
+      "end": 4937.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4964.919921875,
+      "end": 4967.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 4994.919921875,
+      "end": 4997.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5024.919921875,
+      "end": 5027.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5054.919921875,
+      "end": 5058.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5084.919921875,
+      "end": 5087.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5114.919921875,
+      "end": 5117.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5144.919921875,
+      "end": 5147.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5174.919921875,
+      "end": 5177.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5204.919921875,
+      "end": 5207.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5234.919921875,
+      "end": 5237.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5264.919921875,
+      "end": 5267.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5294.919921875,
+      "end": 5297.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5324.919921875,
+      "end": 5327.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5354.919921875,
+      "end": 5357.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5384.919921875,
+      "end": 5387.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5414.919921875,
+      "end": 5417.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5444.919921875,
+      "end": 5447.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5474.919921875,
+      "end": 5477.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5504.919921875,
+      "end": 5507.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5534.919921875,
+      "end": 5537.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5564.919921875,
+      "end": 5567.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5594.919921875,
+      "end": 5597.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5624.919921875,
+      "end": 5627.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5654.919921875,
+      "end": 5657.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5684.919921875,
+      "end": 5687.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5714.919921875,
+      "end": 5717.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5744.919921875,
+      "end": 5747.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5774.919921875,
+      "end": 5777.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5804.919921875,
+      "end": 5807.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5834.919921875,
+      "end": 5837.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5864.919921875,
+      "end": 5867.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5894.919921875,
+      "end": 5897.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5924.919921875,
+      "end": 5927.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5954.919921875,
+      "end": 5957.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 5984.919921875,
+      "end": 5987.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6014.919921875,
+      "end": 6017.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6044.919921875,
+      "end": 6047.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6074.919921875,
+      "end": 6078.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6105.919921875,
+      "end": 6108.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6108.919921875,
+      "end": 6111.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6138.919921875,
+      "end": 6141.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6168.919921875,
+      "end": 6171.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6198.919921875,
+      "end": 6201.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6228.919921875,
+      "end": 6231.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6258.919921875,
+      "end": 6261.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6288.919921875,
+      "end": 6291.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6318.919921875,
+      "end": 6321.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6348.919921875,
+      "end": 6351.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6378.919921875,
+      "end": 6381.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6408.919921875,
+      "end": 6411.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6438.919921875,
+      "end": 6441.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6468.919921875,
+      "end": 6471.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6498.919921875,
+      "end": 6501.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6528.919921875,
+      "end": 6531.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6558.919921875,
+      "end": 6561.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6588.919921875,
+      "end": 6591.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6618.919921875,
+      "end": 6621.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6648.919921875,
+      "end": 6651.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6678.919921875,
+      "end": 6681.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6708.919921875,
+      "end": 6711.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6738.919921875,
+      "end": 6741.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6768.919921875,
+      "end": 6771.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6798.919921875,
+      "end": 6801.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6828.919921875,
+      "end": 6831.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6858.919921875,
+      "end": 6861.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6888.919921875,
+      "end": 6891.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6918.919921875,
+      "end": 6921.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6940.919921875,
+      "end": 6943.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6948.919921875,
+      "end": 6951.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 6978.919921875,
+      "end": 6981.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7008.919921875,
+      "end": 7011.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7038.919921875,
+      "end": 7041.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7068.919921875,
+      "end": 7071.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7098.919921875,
+      "end": 7101.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7128.919921875,
+      "end": 7131.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7158.919921875,
+      "end": 7161.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7188.919921875,
+      "end": 7192.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7218.919921875,
+      "end": 7221.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7248.919921875,
+      "end": 7251.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7278.919921875,
+      "end": 7282.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7308.919921875,
+      "end": 7312.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7338.919921875,
+      "end": 7341.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7368.919921875,
+      "end": 7371.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7398.919921875,
+      "end": 7401.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7428.919921875,
+      "end": 7431.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7458.919921875,
+      "end": 7461.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7488.919921875,
+      "end": 7491.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7518.919921875,
+      "end": 7521.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7548.919921875,
+      "end": 7551.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7578.919921875,
+      "end": 7582.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7608.919921875,
+      "end": 7611.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7638.919921875,
+      "end": 7641.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7668.919921875,
+      "end": 7671.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7698.919921875,
+      "end": 7702.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7728.919921875,
+      "end": 7731.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7758.919921875,
+      "end": 7762.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7788.919921875,
+      "end": 7791.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7818.919921875,
+      "end": 7821.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7848.919921875,
+      "end": 7852.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7878.919921875,
+      "end": 7881.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7908.919921875,
+      "end": 7911.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7938.919921875,
+      "end": 7941.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7968.919921875,
+      "end": 7972.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 7998.919921875,
+      "end": 8001.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8028.919921875,
+      "end": 8031.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8058.919921875,
+      "end": 8061.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8088.919921875,
+      "end": 8091.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8118.919921875,
+      "end": 8121.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8148.919921875,
+      "end": 8151.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8178.919921875,
+      "end": 8181.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8208.919921875,
+      "end": 8211.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8238.919921875,
+      "end": 8241.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8268.919921875,
+      "end": 8271.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8298.919921875,
+      "end": 8302.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8328.919921875,
+      "end": 8331.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8358.919921875,
+      "end": 8362.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8388.919921875,
+      "end": 8391.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8418.919921875,
+      "end": 8421.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8448.919921875,
+      "end": 8451.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    },
+    {
+      "start": 8478.919921875,
+      "end": 8481.919921875,
+      "text": " Subtítulos realizados por la comunidad de Amara.org"
+    }
+  ],
+  "language": "spanish",
+  "duration_sec": 8482.1103515625
+}

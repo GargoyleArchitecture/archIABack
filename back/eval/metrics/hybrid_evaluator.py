@@ -3,7 +3,7 @@ Hybrid Evaluator - Combina métricas de CCRS y RAGAS
 
 Este módulo implementa evaluación híbrida de sistemas RAG usando:
 - Métricas de RAGAS: Faithfulness, Answer Relevance, Context Precision, Context Recall
-- Métricas de CCRS: Contextual Coherence, Question Relevance, Information Density, 
+- Métricas de CCRS: Contextual Coherence, Question Relevance, Information Density,
                    Answer Correctness, Information Recall
 
 El enfoque híbrido proporciona una evaluación más completa que cualquiera de los
@@ -17,9 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from langchain_openai import ChatOpenAI
+from tqdm import tqdm
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from ...src.services.llm_factory import get_chat_model
 from ..config import EVAL_CONFIG, get_enabled_metrics
 from ..generators import QAPair, DocumentDataset
 
@@ -32,7 +33,7 @@ from ..generators import QAPair, DocumentDataset
 class MetricResult:
     """
     Result of a single metric evaluation.
-    
+
     Attributes:
         metric_name: Name of the metric (e.g., "faithfulness", "contextual_coherence")
         score: Numeric score (0.0 - 1.0)
@@ -43,7 +44,7 @@ class MetricResult:
     score: float
     explanation: str = ""
     framework: str = ""
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -58,7 +59,7 @@ class MetricResult:
 class QAEvaluationResult:
     """
     Evaluation result for a single QA pair.
-    
+
     Attributes:
         qa_pair: Original QA pair being evaluated
         metrics: Dictionary of metric name -> MetricResult
@@ -71,19 +72,19 @@ class QAEvaluationResult:
     overall_score: float = 0.0
     retrieved_context: str = ""
     generated_answer: str = ""
-    
+
     def add_metric(self, result: MetricResult) -> None:
         """Add a metric result."""
         self.metrics[result.metric_name] = result
         self._recalculate_overall_score()
-    
+
     def _recalculate_overall_score(self) -> None:
         """Recalculate overall score as average of all metrics."""
         if self.metrics:
             self.overall_score = sum(
                 m.score for m in self.metrics.values()
             ) / len(self.metrics)
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -99,7 +100,7 @@ class QAEvaluationResult:
 class DocumentEvaluationResult:
     """
     Evaluation result for an entire document dataset.
-    
+
     Attributes:
         document_path: Path to evaluated document
         dataset: Original dataset used for evaluation
@@ -112,17 +113,17 @@ class DocumentEvaluationResult:
     qa_results: list[QAEvaluationResult] = field(default_factory=list)
     aggregate_metrics: dict[str, float] = field(default_factory=dict)
     evaluated_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    
+
     def add_qa_result(self, result: QAEvaluationResult) -> None:
         """Add QA evaluation result."""
         self.qa_results.append(result)
         self._recalculate_aggregates()
-    
+
     def _recalculate_aggregates(self) -> None:
         """Recalculate aggregate metrics across all QA results."""
         if not self.qa_results:
             return
-        
+
         # Group metrics by name
         metric_groups: dict[str, list[float]] = {}
         for qa_result in self.qa_results:
@@ -130,19 +131,19 @@ class DocumentEvaluationResult:
                 if metric.metric_name not in metric_groups:
                     metric_groups[metric.metric_name] = []
                 metric_groups[metric.metric_name].append(metric.score)
-        
+
         # Calculate averages
         self.aggregate_metrics = {
             name: sum(scores) / len(scores)
             for name, scores in metric_groups.items()
         }
-        
+
         # Add overall average
         if self.aggregate_metrics:
             self.aggregate_metrics["overall"] = sum(
                 self.aggregate_metrics.values()
             ) / len(self.aggregate_metrics)
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -158,11 +159,11 @@ class DocumentEvaluationResult:
             },
             "evaluated_at": self.evaluated_at,
         }
-    
+
     def to_json(self, indent: int = 2) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
-    
+
     @property
     def average_overall_score(self) -> float:
         """Returns average overall score across all QA pairs."""
@@ -183,7 +184,7 @@ without introducing external information or hallucinations.
 
 **Question:** {question}
 
-**Retrieved Context:** 
+**Retrieved Context:**
 {context}
 
 **Generated Answer:**
@@ -389,35 +390,44 @@ Output format: JSON with "score" (0-1) and "explanation" fields.
 class HybridEvaluator:
     """
     Hybrid RAG evaluator combining CCRS and RAGAS metrics.
-    
+
     This evaluator provides comprehensive assessment of RAG system performance
     by combining the strengths of both evaluation frameworks.
-    
+
     Attributes:
         evaluation_model: LLM model name for evaluation
         config: Configuration dictionary
     """
-    
+
     def __init__(
         self,
         evaluation_model: str | None = None,
         config: dict[str, Any] | None = None,
+        use_mock: bool = False,
     ):
         """
         Initialize the Hybrid Evaluator.
-        
+
         Args:
             evaluation_model: Model name for evaluation (default: from config)
             config: Configuration dictionary (default: EVAL_CONFIG)
+            use_mock: Use mock evaluation (no LLM required)
         """
         self.config = config or EVAL_CONFIG
         self.model_name = evaluation_model or self.config["evaluation_model"]
-        
-        self.llm = ChatOpenAI(
-            model=self.model_name,
-            temperature=self.config["evaluation_temperature"],
-        )
-        
+        self.llm_provider = self.config.get("llm_provider", "openai")
+        self.use_mock = use_mock
+
+        # Initialize LLM based on provider (skip if mock mode)
+        if not self.use_mock:
+            self.llm = get_chat_model(
+                provider=self.llm_provider,
+                model=self.model_name,
+                temperature=self.config["evaluation_temperature"],
+            )
+        else:
+            self.llm = None
+
         # Prompt registry
         self.prompts = {
             # RAGAS metrics
@@ -425,7 +435,7 @@ class HybridEvaluator:
             "answer_relevance": ANSWER_RELEVANCE_PROMPT,
             "context_precision": CONTEXT_PRECISION_PROMPT,
             "context_recall": CONTEXT_RECALL_PROMPT,
-            
+
             # CCRS metrics
             "contextual_coherence": CONTEXTUAL_COHERENCE_PROMPT,
             "question_relevance": QUESTION_RELEVANCE_PROMPT,
@@ -433,7 +443,7 @@ class HybridEvaluator:
             "answer_correctness": ANSWER_CORRECTNESS_PROMPT,
             "information_recall": INFORMATION_RECALL_PROMPT,
         }
-        
+
         # Framework mapping
         self.metric_frameworks = {
             "faithfulness": "ragas",
@@ -446,19 +456,19 @@ class HybridEvaluator:
             "answer_correctness": "ccrs",
             "information_recall": "ccrs",
         }
-        
+
         self.stats = {
             "qa_pairs_evaluated": 0,
             "metrics_computed": 0,
         }
-    
+
     def _parse_score(self, response_text: str) -> tuple[float, str]:
         """
         Parse score and explanation from LLM response.
-        
+
         Args:
             response_text: Raw LLM response text
-            
+
         Returns:
             Tuple of (score, explanation)
         """
@@ -469,15 +479,15 @@ class HybridEvaluator:
                 result = json.loads(json_match.group())
             else:
                 result = json.loads(response_text)
-            
+
             score = float(result.get("score", 0.5))
             explanation = result.get("explanation", "")
-            
+
             # Clamp score to valid range
             score = max(0.0, min(1.0, score))
-            
+
             return score, explanation
-            
+
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             # Fallback: try to extract number with regex
             score_match = re.search(r'(?:score|rating)[:\s]*([0-9.]+)', response_text, re.IGNORECASE)
@@ -488,9 +498,9 @@ class HybridEvaluator:
                     return score, f"Parsed from text. Error: {e}"
                 except ValueError:
                     pass
-            
+
             return 0.5, f"Parse error: {e}"
-    
+
     def _evaluate_metric(
         self,
         metric_name: str,
@@ -501,14 +511,14 @@ class HybridEvaluator:
     ) -> MetricResult:
         """
         Evaluate a single metric.
-        
+
         Args:
             metric_name: Name of the metric to evaluate
             question: Question being evaluated
             context: Retrieved context
             generated_answer: Answer from RAG system
             ground_truth: Expected answer (for some metrics)
-            
+
         Returns:
             MetricResult with score and explanation
         """
@@ -520,7 +530,7 @@ class HybridEvaluator:
                 explanation=f"Unknown metric: {metric_name}",
                 framework="unknown",
             )
-        
+
         # Format prompt with appropriate arguments
         prompt = prompt_template.format(
             question=question,
@@ -528,22 +538,27 @@ class HybridEvaluator:
             answer=generated_answer,
             ground_truth=ground_truth,
         )
-        
+
         messages = [
             SystemMessage(content="You are an expert evaluator of RAG systems."),
             HumanMessage(content=prompt),
         ]
-        
-        response = self.llm.invoke(messages)
-        score, explanation = self._parse_score(response.content)
-        
+
+        try:
+            response = self.llm.invoke(messages)
+            score, explanation = self._parse_score(response.content)
+        except Exception as e:
+            print(f"\n      [WARNING] Error evaluating metric {metric_name}: {e}")
+            score = 0.5
+            explanation = f"Evaluation failed with exception: {e}"
+
         return MetricResult(
             metric_name=metric_name,
             score=score,
             explanation=explanation,
             framework=self.metric_frameworks.get(metric_name, "unknown"),
         )
-    
+
     def evaluate_qa_pair(
         self,
         qa_pair: QAPair,
@@ -553,24 +568,24 @@ class HybridEvaluator:
     ) -> QAEvaluationResult:
         """
         Evaluate a single QA pair with generated answer.
-        
+
         Args:
             qa_pair: QA pair to evaluate
             retrieved_context: Context retrieved by RAG system
             generated_answer: Answer generated by RAG system
             metrics: List of specific metrics to compute (default: all enabled)
-            
+
         Returns:
             QAEvaluationResult with all metric scores
         """
         metrics = metrics or get_enabled_metrics()
-        
+
         result = QAEvaluationResult(
             qa_pair=qa_pair,
             retrieved_context=retrieved_context,
             generated_answer=generated_answer,
         )
-        
+
         for metric_name in metrics:
             metric_result = self._evaluate_metric(
                 metric_name=metric_name,
@@ -579,14 +594,14 @@ class HybridEvaluator:
                 generated_answer=generated_answer,
                 ground_truth=qa_pair.answer,
             )
-            
+
             result.add_metric(metric_result)
             self.stats["metrics_computed"] += 1
-        
+
         self.stats["qa_pairs_evaluated"] += 1
-        
+
         return result
-    
+
     def evaluate_dataset(
         self,
         dataset: DocumentDataset,
@@ -595,7 +610,7 @@ class HybridEvaluator:
     ) -> DocumentEvaluationResult:
         """
         Evaluate an entire dataset.
-        
+
         Args:
             dataset: DocumentDataset with QA pairs
             rag_results: List of RAG results, each containing:
@@ -603,40 +618,122 @@ class HybridEvaluator:
                 - retrieved_context: Context retrieved
                 - generated_answer: Answer generated
             metrics: List of specific metrics to compute
-            
+
         Returns:
             DocumentEvaluationResult with aggregated metrics
-            
+
         Note:
             rag_results must be in the same order as dataset.qa_pairs
         """
+        # Return mock results if in mock mode
+        if self.use_mock:
+            return self._mock_evaluate_dataset(dataset, rag_results)
+
         result = DocumentEvaluationResult(
             document_path=dataset.document_path,
             dataset=dataset,
         )
-        
+
         if len(rag_results) != len(dataset.qa_pairs):
             raise ValueError(
                 f"Number of RAG results ({len(rag_results)}) must match "
                 f"number of QA pairs ({len(dataset.qa_pairs)})"
             )
-        
-        for qa_pair, rag_result in zip(dataset.qa_pairs, rag_results):
+
+        # Progress bar for evaluation
+        pbar = tqdm(
+            total=len(dataset.qa_pairs),
+            desc="Evaluating QA pairs",
+            unit="QA",
+        )
+
+        for i, (qa_pair, rag_result) in enumerate(zip(dataset.qa_pairs, rag_results)):
             qa_result = self.evaluate_qa_pair(
                 qa_pair=qa_pair,
                 retrieved_context=rag_result.get("retrieved_context", ""),
                 generated_answer=rag_result.get("generated_answer", ""),
                 metrics=metrics,
             )
-            
+
             result.add_qa_result(qa_result)
-        
+            pbar.update(1)
+            pbar.set_postfix({
+                "score": f"{result.average_overall_score:.3f}",
+                "evaluated": i + 1
+            })
+
+        pbar.close()
+
         return result
-    
+
+    def _mock_evaluate_dataset(
+        self,
+        dataset: DocumentDataset,
+        rag_results: list[dict[str, str]],
+    ) -> DocumentEvaluationResult:
+        """
+        Generate mock evaluation results for testing.
+
+        Args:
+            dataset: DocumentDataset with QA pairs
+            rag_results: List of RAG results
+
+        Returns:
+            DocumentEvaluationResult with mock metrics
+        """
+        import random
+        result = DocumentEvaluationResult(
+            document_path=dataset.document_path,
+            dataset=dataset,
+        )
+
+        # Generate mock QA results with random scores
+        for i, qa_pair in enumerate(dataset.qa_pairs):
+            # Generate mock metrics
+            metrics = {}
+            scores = []
+
+            for metric_name in self.get_enabled_metrics():
+                score = round(random.uniform(0.5, 0.9), 4)
+                scores.append(score)
+                metrics[metric_name] = MetricResult(
+                    metric_name=metric_name,
+                    score=score,
+                    framework="mock",
+                    explanation="Mock evaluation for testing",
+                )
+
+            overall_score = sum(scores) / len(scores) if scores else 0.0
+
+            qa_result = QAEvaluationResult(
+                qa_pair=qa_pair,
+                metrics=metrics,
+                overall_score=overall_score,
+                retrieved_context=rag_results[i].get("retrieved_context", ""),
+                generated_answer=rag_results[i].get("generated_answer", ""),
+            )
+            result.add_qa_result(qa_result)
+
+        return result
+
+    def get_enabled_metrics(self) -> list[str]:
+        """
+        Get list of enabled metrics from config.
+
+        Returns:
+            List of enabled metric names
+        """
+        enabled = []
+        metrics_config = self.config.get("metrics", {})
+        for metric_name, is_enabled in metrics_config.items():
+            if is_enabled:
+                enabled.append(metric_name)
+        return enabled if enabled else ["faithfulness", "answer_relevance", "context_precision", "context_recall"]
+
     def get_stats(self) -> dict[str, Any]:
         """
         Returns evaluation statistics.
-        
+
         Returns:
             Dictionary with evaluation statistics
         """

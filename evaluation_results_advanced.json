@@ -1,0 +1,233 @@
+{
+  "Text-Only (PDF)": {
+    "info_f1": 5.93,
+    "cite_f1": 6.0,
+    "faithfulness": 4.33,
+    "correctness": 5.67,
+    "relevancy": 5.33,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 0.0,
+        "cite_f1": 8,
+        "faithfulness": 0,
+        "correctness": 0,
+        "relevancy": 0
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 5,
+        "correctness": 8,
+        "relevancy": 7
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  },
+  "EVRAG Visual (CLIP)": {
+    "info_f1": 8.8,
+    "cite_f1": 6.67,
+    "faithfulness": 8.0,
+    "correctness": 9.33,
+    "relevancy": 9.0,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 8.89,
+        "cite_f1": 8,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.62,
+        "cite_f1": 7,
+        "faithfulness": 8,
+        "correctness": 10,
+        "relevancy": 9
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  },
+  "EVRAG Descriptive": {
+    "info_f1": 8.81,
+    "cite_f1": 6.0,
+    "faithfulness": 6.33,
+    "correctness": 9.67,
+    "relevancy": 6.0,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 8.89,
+        "cite_f1": 8,
+        "faithfulness": 9,
+        "correctness": 10,
+        "relevancy": 10
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.65,
+        "cite_f1": 5,
+        "faithfulness": 2,
+        "correctness": 10,
+        "relevancy": 1
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 7
+      }
+    ]
+  },
+  "EVRAG Hybrid": {
+    "info_f1": 5.82,
+    "cite_f1": 5.67,
+    "faithfulness": 4.33,
+    "correctness": 6.33,
+    "relevancy": 5.67,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 0.0,
+        "cite_f1": 8,
+        "faithfulness": 0,
+        "correctness": 0,
+        "relevancy": 0
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.57,
+        "cite_f1": 5,
+        "faithfulness": 5,
+        "correctness": 10,
+        "relevancy": 8
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 4,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  },
+  "Hybrid Visual (PDF+CLIP)": {
+    "info_f1": 5.93,
+    "cite_f1": 6.33,
+    "faithfulness": 5.0,
+    "correctness": 6.33,
+    "relevancy": 5.67,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 0.0,
+        "cite_f1": 8,
+        "faithfulness": 0,
+        "correctness": 0,
+        "relevancy": 0
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.89,
+        "cite_f1": 6,
+        "faithfulness": 7,
+        "correctness": 10,
+        "relevancy": 8
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  },
+  "Hybrid Descriptive (PDF+Desc)": {
+    "info_f1": 5.93,
+    "cite_f1": 6.0,
+    "faithfulness": 4.33,
+    "correctness": 6.0,
+    "relevancy": 5.67,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 0.0,
+        "cite_f1": 8,
+        "faithfulness": 0,
+        "correctness": 0,
+        "relevancy": 0
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 5,
+        "correctness": 9,
+        "relevancy": 8
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  },
+  "Hybrid Total (Full)": {
+    "info_f1": 5.93,
+    "cite_f1": 6.0,
+    "faithfulness": 5.0,
+    "correctness": 6.0,
+    "relevancy": 5.67,
+    "details": [
+      {
+        "id": "Q1",
+        "info_f1": 0.0,
+        "cite_f1": 8,
+        "faithfulness": 0,
+        "correctness": 0,
+        "relevancy": 0
+      },
+      {
+        "id": "Q2",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 7,
+        "correctness": 9,
+        "relevancy": 8
+      },
+      {
+        "id": "Q3",
+        "info_f1": 8.89,
+        "cite_f1": 5,
+        "faithfulness": 8,
+        "correctness": 9,
+        "relevancy": 9
+      }
+    ]
+  }
+}

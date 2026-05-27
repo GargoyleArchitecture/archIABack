@@ -5,6 +5,7 @@ Este paquete proporciona evaluación automatizada de sistemas RAG usando:
 - Generación de datasets estilo MiRAGE (multi-agente)
 - Métricas híbridas (CCRS + RAGAS)
 - Pipeline automatizado con reportes
+- Soporte para PDFs y Videos (EVRAG)
 
 Quick Start:
     # Evaluar capa 1 (libros actuales)
@@ -20,8 +21,15 @@ Quick Start:
     report = evaluate_layer_1_books(rag_invoke_func=my_rag_func)
     print(report.to_markdown())
 
+    # Evaluar capa 3 (videos)
+    from eval import evaluate_layer_3_videos
+
+    report = evaluate_layer_3_videos(rag_invoke_func=my_rag_func)
+    print(report.to_markdown())
+
 Command Line:
     poetry run python -m eval --layer layer1_books
+    poetry run python -m eval --layer layer3_videos
 """
 
 from .config import (
@@ -36,6 +44,7 @@ from .pipeline import (
     EvaluationReport,
     evaluate_layer_1_books,
     evaluate_layer_2_new_docs,
+    evaluate_layer_3_videos,
 )
 from .generators import DatasetGenerator, DocumentDataset, QAPair
 from .metrics import HybridEvaluator, DocumentEvaluationResult
@@ -49,18 +58,19 @@ __all__ = [
     "get_total_qa_pairs",
     "set_eval_mode",
     "get_enabled_metrics",
-    
+
     # Pipeline
     "RAGEvaluationPipeline",
     "EvaluationReport",
     "evaluate_layer_1_books",
     "evaluate_layer_2_new_docs",
-    
+    "evaluate_layer_3_videos",
+
     # Generators
     "DatasetGenerator",
     "DocumentDataset",
     "QAPair",
-    
+
     # Metrics
     "HybridEvaluator",
     "DocumentEvaluationResult",

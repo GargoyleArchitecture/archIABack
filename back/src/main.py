@@ -1,11 +1,28 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # src/main.py
+
+import os
+# Deshabilitar CLIP en el servidor API de FastAPI para prevenir Segmentation Faults fatales en Windows
+# causados por PyTorch/OpenMP ejecutándose dentro del event loop de asyncio de Uvicorn.
+os.environ["CLIP_ENABLED"] = "False"
+# Configurar variables para prevenir conflictos de hilos de PyTorch (si se llegara a importar)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import logging
 from typing import Optional
 from pathlib import Path
+import re, sqlite3
 
-import os, re, sqlite3, base64
+# Configuración global de logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("app.log", encoding="utf-8")
+    ]
+)
 
 log = logging.getLogger("main")
 
@@ -19,7 +36,7 @@ def fix_utf8_encoding(text: str) -> str:
     """
     if not text or not isinstance(text, str):
         return text or ""
-    
+
     try:
         # Check if text has the pattern of double-encoded UTF-8
         if re.search(r'[\u00C0-\u00DF][\u0080-\u00BF]', text):
@@ -28,7 +45,7 @@ def fix_utf8_encoding(text: str) -> str:
             return fixed if fixed else text
     except Exception:
         pass
-    
+
     return text
 
 def fix_utf8_recursive(obj):
@@ -41,20 +58,30 @@ def fix_utf8_recursive(obj):
         return {k: fix_utf8_recursive(v) for k, v in obj.items()}
     return obj
 
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(_ENV_PATH)
 
+# pyrefly: ignore [missing-import]
 from fastapi import UploadFile, File, Form, HTTPException, Request, FastAPI
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+# pyrefly: ignore [missing-import]
+from fastapi.responses import JSONResponse, StreamingResponse
+import json
 from contextlib import asynccontextmanager
+# pyrefly: ignore [missing-import]
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
+# pyrefly: ignore [missing-import]
 from langchain_core.messages import HumanMessage
+# pyrefly: ignore [missing-import]
 from src.graph import graph
+# pyrefly: ignore [missing-import]
 from src.rag_agent import create_or_load_vectorstore
+# pyrefly: ignore [missing-import]
 from src.memory import (
     init as memory_init,
     get as memory_get,
@@ -62,6 +89,7 @@ from src.memory import (
     load_arch_flow,
     save_arch_flow,
 )
+# pyrefly: ignore [missing-import]
 from src.services.doc_ingest import extract_pdf_text
 memory_init()
 
@@ -79,11 +107,11 @@ def detect_lang(q: str) -> str:
 async def lifespan(app: FastAPI):
     try:
         create_or_load_vectorstore()
-        print("[startup] RAG listo")
+        log.info("[startup] RAG listo")
     except Exception as e:
-        print(f"[startup] RAG init omitido: {e}")
+        log.error(f"[startup] RAG init omitido: {e}")
     yield
-    print("[shutdown] Cerrando app...")
+    log.info("[shutdown] Cerrando app...")
 
 # Una sola instancia de FastAPI
 app = FastAPI(title="ArquIA API", lifespan=lifespan)
@@ -271,6 +299,20 @@ def _wants_deployment(txt: str) -> bool:
     return any(k in low for k in keys)
 
 
+# ===================== Static video files ===========================
+# pyrefly: ignore [missing-import]
+from fastapi.staticfiles import StaticFiles
+
+VIDEOS_DIR = BACK_DIR / "videos"
+FRAMES_DIR = VIDEOS_DIR / "frames"
+RAW_DIR    = VIDEOS_DIR / "raw"
+FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+# Mount static directories for video frames and raw videos
+app.mount("/videos/frames", StaticFiles(directory=str(FRAMES_DIR)), name="video-frames")
+app.mount("/videos/raw", StaticFiles(directory=str(RAW_DIR)), name="video-raw")
+
 # ===================== Health ===========================
 @app.get("/")
 def root():
@@ -281,10 +323,11 @@ def health():
     return {"status": "ok"}
 
 # ===================== /diagrams (workflow export) ==============
+# pyrefly: ignore [missing-import]
 from fastapi import Query, Response
 
 @app.get("/diagrams")
-def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
+def diagrams(format: str = Query("dot", pattern="^(dot|svg)$")):
     """Export the LangGraph workflow graph for documentation / draw.io import.
 
     Query params:
@@ -293,6 +336,7 @@ def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
     This endpoint is SEPARATE from the diagram_agent node, which generates
     architecture diagrams *for the user* via LLM + Graphviz.
     """
+    # pyrefly: ignore [missing-import]
     from src.services.diagram_export import export_workflow
 
     try:
@@ -318,8 +362,8 @@ def diagrams(format: str = Query("dot", regex="^(dot|svg)$")):
 @app.get("/diagram/export")
 def diagram_export(
     session_id: str = Query(..., description="Session that produced the diagram"),
-    format: str = Query("svg", regex="^(svg|dot|dot_drawio|drawio)$"),
-    detail_level: str = Query("overview", regex="^(overview|detailed)$"),
+    format: str = Query("svg", pattern="^(svg|dot|dot_drawio|drawio)$"),
+    detail_level: str = Query("overview", pattern="^(overview|detailed)$"),
     level: Optional[str] = Query(None, description="Diagram level: 1=overview, 2=medium, 3=detailed"),
     focus: Optional[str] = Query(None, description="Overview node ID to expand (optional)"),
 ):
@@ -337,6 +381,7 @@ def diagram_export(
 
     The ``drawio`` format produces a native .drawio (mxGraph XML) file.
     """
+    # pyrefly: ignore [missing-import]
     from src.services.diagram_ir import (
         DiagramLevel,
         build_diagram_model,
@@ -345,6 +390,7 @@ def diagram_export(
         parse_dot_to_model,
         to_detail_level,
     )
+    # pyrefly: ignore [missing-import]
     from src.services.diagram_render import (
         render_dot as render_dot_from_ir,
         render_dot_drawio,
@@ -442,6 +488,8 @@ async def message(
     request: Request,
     message: str = Form(...),
     session_id: str = Form(...),
+    rag_mode: str = Form("both"),
+    evrag_mode: str = Form("hybrid"),
     image1: Optional[UploadFile] = File(None),
     image2: Optional[UploadFile] = File(None),
 ):
@@ -511,7 +559,7 @@ async def message(
     # --- Memoria previa (MEJORADA) ---
     last_topic = memory_get(user_id, "topic", "")
 
-    # âžœ FIX: antes se usaba uploaded_pdf_snippets (no existe). Usamos doc_context.
+    # ➔ FIX: antes se usaba uploaded_pdf_snippets (no existe). Usamos doc_context.
     pdf_context_turn = doc_context  # FIX
 
     if pdf_context_turn:
@@ -595,6 +643,7 @@ async def message(
                 "hasVisitedInvestigator": False,
                 "hasVisitedEvaluator": False,
                 "hasVisitedASR": False,
+                "hasVisitedDiagram": False,
                 "nextNode": "supervisor",
                 "requested_nodes": [],
                 "pending_nodes": [],
@@ -611,6 +660,8 @@ async def message(
                 "language": user_lang,
                 "intent": user_intent,
                 "force_rag": force_rag,
+                "rag_mode": rag_mode,
+                "evrag_mode": evrag_mode,
                 "topic_hint": topic_hint,  # opcional; el grafo puede ignorarlo
                 "current_asr": memory_get(user_id, "current_asr", ""),
                 "style": arch_flow.get("style", ""),
@@ -620,12 +671,12 @@ async def message(
                 "quality_attribute": arch_flow.get("quality_attribute", ""),
                 "add_context": arch_flow.get("add_context", ""),
                 "tactics_list": arch_flow.get("tactics", []),
+                "diagram_history": {int(k): v for k, v in (arch_flow.get("diagram_levels") or {}).items() if v},
             },
             config,
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        log.exception(f"Graph error in session {session_id}")
         raise HTTPException(status_code=500, detail=f"Graph error: {e}")
 
     # --- Feedback inicial ---
@@ -693,6 +744,11 @@ async def message(
             "overview_mapping": diagram_obj.get("overview_mapping"),
         }
 
+    # Persist diagram history per level for cross-level expansion
+    result_diagram_history = result.get("diagram_history") or {}
+    if result_diagram_history:
+        arch_flow["diagram_levels"] = {str(k): v for k, v in result_diagram_history.items()}
+
     # If user explicitly asked for a deployment diagram, mark the stage.
     if _wants_deployment(message):
         arch_flow["stage"] = "DEPLOYMENT"
@@ -704,6 +760,7 @@ async def message(
     end_msg = end_msg.strip()
     # --- Payload al front (no pisamos suggestions si las necesitas) ---
     clean_payload = {
+        "type": "complete",
         "endMessage": end_msg,
         "diagram": diagram_obj,
         "messages": result.get("turn_messages", []),
@@ -716,7 +773,11 @@ async def message(
     # Fix any double-encoded UTF-8 in the response
     clean_payload = fix_utf8_recursive(clean_payload)
 
-    return JSONResponse(content=clean_payload, media_type="application/json; charset=utf-8")
+    async def sse_generator():
+        yield f"data: {json.dumps(clean_payload, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
 
@@ -730,22 +791,3 @@ async def feedback(
 ):
     update_feedback(session_id=session_id, message_id=message_id, up=thumbs_up, down=thumbs_down)
     return {"status": "Feedback recorded successfully"}
-
-# ===================== /test (mock) =====================
-@app.post("/test")
-async def test_endpoint(message: str = Form(...), file: UploadFile = File(None)):
-    if not message:
-        raise HTTPException(status_code=400, detail="No message provided")
-
-    test_response = {
-        "diagram": {"ok": True, "format": "svg", "svg_b64": ""},
-        "endMessage": "this is a response to " + message,
-        "messages": [
-            {"name": "Supervisor", "text": "Mensaje del supervisor"},
-            {"name": "researcher", "text": "Mensaje del investigador"},
-        ],
-    }
-    test_response = fix_utf8_recursive(test_response)
-    return JSONResponse(content=test_response, media_type="application/json; charset=utf-8")
-
-

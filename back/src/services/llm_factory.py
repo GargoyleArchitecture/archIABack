@@ -124,7 +124,7 @@ def get_chat_model(
         from langchain_openai import ChatOpenAI
         base_url = _env("OPENAI_BASE_URL")
         key = _env("OPENAI_API_KEY", "dummy-key" if base_url else None)
-        mdl = model or _env("ROS_LG_LLM_MODEL") or _env("OPENAI_MODEL", "gpt-5-mini")
+        mdl = model or _env("ROS_LG_LLM_MODEL") or _env("OPENAI_MODEL", "gpt-4o-mini")
         if not (key or base_url):
             raise ValueError("OpenAI: faltan OPENAI_API_KEY o OPENAI_BASE_URL (para servidores compatibles).")
         return ChatOpenAI(

@@ -266,7 +266,7 @@ class RAGEvaluationPipeline:
                     try:
                         rag_result = self._invoke_rag_system(
                             question=qa_pair.question,
-                            session_id=f"eval_{dataset.document_path}",
+                            session_id=f"eval_{Path(dataset.document_path).stem}_{hash(qa_pair.question)}",
                         )
                         generated_answer = rag_result.get("generated_answer", "")
                         retrieved_context = rag_result.get("retrieved_context", "")
@@ -464,17 +464,17 @@ def evaluate_layer_2_new_docs(
 ) -> EvaluationReport:
     """
     Evaluate Layer 2: New documents (to be added).
-    
+
     Args:
         rag_invoke_func: Function to invoke RAG system
         force_regenerate: If True, regenerate all datasets
-        
+
     Returns:
         EvaluationReport with results
     """
     # TODO: Define path for new documents
     new_docs_dir = Path("back/docs_new")
-    
+
     if not new_docs_dir.exists():
         print(f"Warning: New docs directory does not exist: {new_docs_dir}")
         return EvaluationReport(
@@ -482,11 +482,187 @@ def evaluate_layer_2_new_docs(
             evaluated_at=datetime.now().isoformat(),
             layer_name="layer2_new_docs",
         )
-    
+
     pipeline = RAGEvaluationPipeline(rag_invoke_func=rag_invoke_func)
-    
+
     return pipeline.evaluate_layer(
         layer_name="layer2_new_docs",
         docs_dir=new_docs_dir,
         force_regenerate_datasets=force_regenerate,
     )
+
+
+def evaluate_layer_3_videos(
+    rag_invoke_func: Callable | None = None,
+    force_regenerate: bool = False,
+    qa_pairs_per_video: int = 10,
+    use_mock: bool = False,
+) -> EvaluationReport:
+    """
+    Evaluate Layer 3: Videos (EVRAG).
+
+    This layer evaluates RAG performance on video content by:
+    1. Processing videos (extract transcript, frames, scenes)
+    2. Generating QA pairs from video content
+    3. Evaluating RAG responses to video-based questions
+
+    Args:
+        rag_invoke_func: Function to invoke RAG system
+        force_regenerate: If True, regenerate all datasets
+        qa_pairs_per_video: Number of QA pairs per video (default: 10)
+        use_mock: Use mock QA generation (no LLM required)
+
+    Returns:
+        EvaluationReport with results
+    """
+    import time
+    start_time = time.time()
+
+    videos_dir = Path(EVAL_CONFIG["videos_dir"])
+    raw_videos_dir = videos_dir / "raw"
+
+    print(f"\n{'='*60}")
+    print(f"Evaluating layer: layer3_videos")
+    print(f"Videos directory: {raw_videos_dir}")
+    print(f"{'='*60}\n")
+
+    # Check if videos directory exists
+    if not raw_videos_dir.exists():
+        print(f"Warning: Videos directory does not exist: {raw_videos_dir}")
+        return EvaluationReport(
+            report_id=f"layer3_videos_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            evaluated_at=datetime.now().isoformat(),
+            layer_name="layer3_videos",
+        )
+
+    # Import video generators
+    from .generators import VideoDatasetGenerator, VideoProcessor
+
+    # Step 1: Process videos and generate datasets
+    print("Step 1: Processing videos and generating datasets...")
+    generator = VideoDatasetGenerator(
+        qa_pairs_per_video=qa_pairs_per_video,
+        use_mock=use_mock,
+    )
+    datasets = generator.generate_datasets_for_all_videos(
+        videos_dir=videos_dir,
+        force_regenerate=force_regenerate,
+    )
+
+    if not datasets:
+        return EvaluationReport(
+            report_id=f"layer3_videos_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            evaluated_at=datetime.now().isoformat(),
+            layer_name="layer3_videos",
+        )
+
+    # Step 2: Evaluate each dataset
+    print("\nStep 2: Evaluating RAG performance on video content...")
+    document_results = []
+
+    for dataset in datasets:
+        print(f"\n  Evaluating {Path(dataset.video_path).name}...")
+
+        rag_results = []
+
+        # Convert VideoDataset to DocumentDataset for evaluation
+        doc_dataset = dataset.to_document_dataset()
+
+        for qa_pair in doc_dataset.qa_pairs:
+            if rag_invoke_func:
+                # Invoke real RAG system
+                try:
+                    rag_result = rag_invoke_func(
+                        question=qa_pair.question,
+                        session_id=f"eval_video_{dataset.video_path}",
+                    )
+                    generated_answer = rag_result.get("generated_answer", "")
+                    retrieved_context = rag_result.get("retrieved_context", "")
+                except Exception as e:
+                    print(f"    Error invoking RAG: {e}")
+                    generated_answer = f"Error: {e}"
+                    retrieved_context = ""
+            else:
+                # Mock RAG result
+                generated_answer = "I don't have enough information to answer this question."
+                retrieved_context = qa_pair.context[:500]
+
+            rag_results.append({
+                "question": qa_pair.question,
+                "retrieved_context": retrieved_context,
+                "generated_answer": generated_answer,
+            })
+
+        # Evaluate this video's dataset
+        from .metrics import HybridEvaluator
+        evaluator = HybridEvaluator(config=EVAL_CONFIG, use_mock=use_mock)
+
+        doc_result = evaluator.evaluate_dataset(
+            dataset=doc_dataset,
+            rag_results=rag_results,
+        )
+
+        document_results.append(doc_result)
+        print(f"    Overall score: {doc_result.average_overall_score:.4f}")
+
+    # Step 3: Calculate aggregate metrics
+    print("\nStep 3: Calculating aggregate metrics...")
+    aggregate_metrics = {}
+    if document_results:
+        metric_totals: dict[str, list[float]] = {}
+        for doc_result in document_results:
+            for metric_name, score in doc_result.aggregate_metrics.items():
+                if metric_name not in metric_totals:
+                    metric_totals[metric_name] = []
+                metric_totals[metric_name].append(score)
+        aggregate_metrics = {
+            name: sum(scores) / len(scores)
+            for name, scores in metric_totals.items()
+        }
+
+    # Step 4: Load previous report for comparison
+    print("Step 4: Loading previous report for comparison...")
+    from pathlib import Path as PPath
+    reports_dir = PPath(EVAL_CONFIG["reports_dir"])
+    report_files = sorted(reports_dir.glob("layer3_videos_*.json"))
+    
+    comparison = {}
+    if len(report_files) >= 1:
+        try:
+            previous_data = json.loads(report_files[-1].read_text())
+            comparison = {
+                "previous_date": previous_data.get("evaluated_at", "Unknown"),
+                "metric_changes": {},
+            }
+        except Exception as e:
+            print(f"Warning: Could not load previous report: {e}")
+
+    # Create final report
+    report = EvaluationReport(
+        report_id=f"layer3_videos_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        evaluated_at=datetime.now().isoformat(),
+        layer_name="layer3_videos",
+        document_results=document_results,
+        aggregate_metrics=aggregate_metrics,
+        comparison_with_previous=comparison,
+    )
+
+    # Save report
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    json_path = reports_dir / f"{report.report_id}.json"
+    json_path.write_text(report.to_json(), encoding="utf-8")
+    md_path = reports_dir / f"{report.report_id}.md"
+    md_path.write_text(report.to_markdown(), encoding="utf-8")
+    print(f"  Report saved: {json_path}")
+    print(f"  Markdown saved: {md_path}")
+
+    elapsed_time = time.time() - start_time
+
+    print(f"\n{'='*60}")
+    print(f"Evaluation complete!")
+    print(f"  Videos evaluated: {len(document_results)}")
+    print(f"  Overall score: {aggregate_metrics.get('overall', 0):.4f}")
+    print(f"  Time elapsed: {elapsed_time:.1f} seconds")
+    print(f"{'='*60}\n")
+
+    return report

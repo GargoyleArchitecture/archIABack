@@ -1,0 +1,666 @@
+{
+  "report_id": "layer3_videos_20260325_181914",
+  "evaluated_at": "2026-03-25T18:19:14.642097",
+  "layer_name": "layer3_videos",
+  "document_results": [
+    {
+      "document_path": "back\\videos\\raw\\YTDown.com_YouTube_Clase-abierta-Maestria-en-Ingenieria-de-_Media_M8XT7F8DZdg_001_1080p.mp4",
+      "dataset_info": {
+        "total_qa_pairs": 10,
+        "verified_qa_pairs": 0,
+        "generated_at": "2026-03-25T18:19:14.623689"
+      },
+      "qa_results": [
+        {
+          "question": "Pregunta factual #1 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #1. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta factual #1 sobre el video de 70 minutos...",
+          "overall_score": 0.7313,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.8242,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.5701,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.6425,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.8612,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.8482,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.7368,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.6992,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.6326,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.7666,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta factual #2 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #2. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta factual #2 sobre el video de 70 minutos...",
+          "overall_score": 0.7048,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.6962,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.8454,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.8436,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.8913,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.5175,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.5728,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.8296,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.5297,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.6175,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta factual #3 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #3. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta factual #3 sobre el video de 70 minutos...",
+          "overall_score": 0.7253,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.8763,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.5076,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.8639,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.7667,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.7381,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.7891,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.6247,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.766,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.5953,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta factual #4 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #4. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta factual #4 sobre el video de 70 minutos...",
+          "overall_score": 0.6066,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.6518,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.6113,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.6044,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.584,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.6227,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.6405,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.5537,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.6338,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.557,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta multi_hop #1 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #1. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta multi_hop #1 sobre el video de 70 minutos...",
+          "overall_score": 0.6766,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.5835,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.7333,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.7665,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.6648,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.7551,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.7558,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.7164,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.5673,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.5467,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta multi_hop #2 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #2. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta multi_hop #2 sobre el video de 70 minutos...",
+          "overall_score": 0.6971,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.7508,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.5234,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.7981,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.6117,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.6935,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.8407,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.6593,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.6678,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.7288,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta multi_hop #3 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #3. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "I don't have enough information to answer this question.",
+          "overall_score": 0.6966,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.8945,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.5211,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.7396,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.5345,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.8909,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.7639,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.6088,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.5501,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.7662,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta multi_hop #4 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #4. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "Mock answer to: Pregunta multi_hop #4 sobre el video de 70 minutos...",
+          "overall_score": 0.6737,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.7735,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.8933,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.513,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.6562,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.5797,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.6979,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.5302,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.7059,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.7136,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta synthesis #1 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #1. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "I don't have enough information to answer this question.",
+          "overall_score": 0.6423,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.626,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.544,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.7984,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.5187,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.6354,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.5943,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.5815,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.6574,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.8246,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        },
+        {
+          "question": "Pregunta synthesis #2 sobre el video de 70 minutos",
+          "expected_answer": "Respuesta mock #2. El video trata sobre arquitectura de software y dura 70 minutos.",
+          "generated_answer": "I don't have enough information to answer this question.",
+          "overall_score": 0.6997,
+          "metrics": {
+            "faithfulness": {
+              "metric_name": "faithfulness",
+              "score": 0.8071,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_relevance": {
+              "metric_name": "answer_relevance",
+              "score": 0.5879,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_precision": {
+              "metric_name": "context_precision",
+              "score": 0.713,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "context_recall": {
+              "metric_name": "context_recall",
+              "score": 0.5765,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "contextual_coherence": {
+              "metric_name": "contextual_coherence",
+              "score": 0.6924,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "question_relevance": {
+              "metric_name": "question_relevance",
+              "score": 0.7229,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_density": {
+              "metric_name": "information_density",
+              "score": 0.8257,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "answer_correctness": {
+              "metric_name": "answer_correctness",
+              "score": 0.5184,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            },
+            "information_recall": {
+              "metric_name": "information_recall",
+              "score": 0.8538,
+              "explanation": "Mock evaluation for testing",
+              "framework": "mock"
+            }
+          }
+        }
+      ],
+      "aggregate_metrics": {
+        "faithfulness": 0.7484,
+        "answer_relevance": 0.6337,
+        "context_precision": 0.7283,
+        "context_recall": 0.6666,
+        "contextual_coherence": 0.6973,
+        "question_relevance": 0.7115,
+        "information_density": 0.6629,
+        "answer_correctness": 0.6229,
+        "information_recall": 0.697,
+        "overall": 0.6854
+      },
+      "evaluated_at": "2026-03-25T18:19:14.640160"
+    }
+  ],
+  "aggregate_metrics": {
+    "faithfulness": 0.7484,
+    "answer_relevance": 0.6337,
+    "context_precision": 0.7283,
+    "context_recall": 0.6666,
+    "contextual_coherence": 0.6973,
+    "question_relevance": 0.7115,
+    "information_density": 0.6629,
+    "answer_correctness": 0.6229,
+    "information_recall": 0.697,
+    "overall": 0.6854
+  },
+  "comparison_with_previous": {
+    "previous_date": "2026-03-25T17:17:09.381550",
+    "metric_changes": {}
+  }
+}

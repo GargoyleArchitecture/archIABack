@@ -9,5 +9,28 @@ from .dataset_generator import (
     DocumentDataset,
     QAPair,
 )
+from .video_dataset_generator import (
+    VideoDataset,
+    VideoDatasetGenerator,
+    generate_video_datasets,
+)
+from .video_processor import (
+    VideoInfo,
+    VideoProcessor,
+    Scene,
+)
 
-__all__ = ["DatasetGenerator", "DocumentDataset", "QAPair"]
+__all__ = [
+    # PDF generators
+    "DatasetGenerator",
+    "DocumentDataset",
+    "QAPair",
+    # Video generators
+    "VideoDataset",
+    "VideoDatasetGenerator",
+    "generate_video_datasets",
+    # Video processor
+    "VideoInfo",
+    "VideoProcessor",
+    "Scene",
+]

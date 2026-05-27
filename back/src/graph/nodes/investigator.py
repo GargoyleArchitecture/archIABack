@@ -1,13 +1,21 @@
-
-from typing import Literal
+import logging
+# pyrefly: ignore [missing-import]
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+# pyrefly: ignore [missing-import]
 from langgraph.prebuilt import create_react_agent
 
+# pyrefly: ignore [missing-import]
 from src.graph.state import GraphState
+# pyrefly: ignore [missing-import]
 from src.graph.resources import llm, _HAS_VERTEX
+# pyrefly: ignore [missing-import]
 from src.graph.consts import prompt_researcher
+# pyrefly: ignore [missing-import]
 from src.graph.utils import _push_turn, _last_k_messages, _clip_text
-from src.graph.nodes.tools import local_RAG, LLM, LLMWithImages
+# pyrefly: ignore [missing-import]
+from src.graph.nodes.tools import local_RAG, video_RAG, LLM, LLMWithImages
+
+log = logging.getLogger("graph")
 
 def researcher_node(state: GraphState) -> GraphState:
     lang = state.get("language", "es")
@@ -50,12 +58,18 @@ def researcher_node(state: GraphState) -> GraphState:
 
     # ---- Agente de investigación (con RAG opcional / DOC-ONLY bloquea RAG) ----
     resolved_index = state.get("resolved_index", "general") or "general"
+    rag_mode = state.get("rag_mode", "both") or "both"
+
+    tool_instruction = "- You MUST call `local_RAG` first to ground your answer."
+    if rag_mode == "video":
+        tool_instruction = "- You MUST call `video_RAG` first to search transcripts and ground your answer."
+    elif rag_mode == "both":
+        tool_instruction = "- You MUST call BOTH `local_RAG` and `video_RAG` first to ground your answer with texts and videos."
 
     sys = (
         prompt_researcher +
         f"Always reply in {('Spanish' if lang=='es' else 'English')}.\n" +
-        ("- If the question is about architecture, you SHOULD call `local_RAG` first to ground your answer, unless force_rag is False."
-         if not doc_only else
+        (tool_instruction if not doc_only else
          "- DOC-ONLY is ON: do NOT call retrieval. Base your answer ONLY on the PROJECT DOCUMENT.\n")
     )
 
@@ -79,14 +93,28 @@ def researcher_node(state: GraphState) -> GraphState:
         SystemMessage(content=f"PROJECT CONTEXT:\n{ctx_for_prompt}") if ctx_for_prompt else None
     )
 
-    # Herramientas: sin RAG en DOC-ONLY
-    tools = ([LLM] + ([LLMWithImages] if _HAS_VERTEX else [])) if doc_only else ([local_RAG, LLM] + ([LLMWithImages] if _HAS_VERTEX else []))
+    # Herramientas: sin RAG en DOC-ONLY; filtradas por rag_mode
+    if doc_only:
+        rag_tools = []
+    elif rag_mode == "text":
+        rag_tools = [local_RAG]
+    elif rag_mode == "video":
+        rag_tools = [video_RAG]
+    else:  # "both"
+        rag_tools = [local_RAG, video_RAG]
+
+    tools = rag_tools + [LLM] + ([LLMWithImages] if _HAS_VERTEX else [])
     agent = create_react_agent(llm, tools=tools)
 
     # HINT corto (solo si no estamos en DOC-ONLY)
     hint_lines = []
     if (force_rag or intent in ("architecture",)) and not doc_only:
-        hint_lines.append("Start by calling the tool `local_RAG` with the user's question.")
+        if rag_mode == "text":
+            hint_lines.append("Start by calling the tool `local_RAG` with the user's question.")
+        elif rag_mode == "video":
+            hint_lines.append("Start by calling the tool `video_RAG` with the user's question to search video transcripts.")
+        else:
+            hint_lines.append("Start by calling `local_RAG` and `video_RAG` with the user's question to get both text and video sources.")
     if intent == "architecture" and state.get("diagram"):
         hint_lines.append("Also explain the tactics in the provided diagram, if any.")
     hint = _clip_text("\n".join(hint_lines).strip(), 100) if hint_lines else ""
@@ -105,29 +133,41 @@ def researcher_node(state: GraphState) -> GraphState:
     try:
         # Limita la recursión para evitar planeos largos del agente
         result = agent.invoke(payload, config={"recursion_limit": 12})
-    except Exception:
+    except Exception as e:
+        log.exception(f"[researcher_node] Error during agent invocation: {e}")
+        # Intento de recuperación con menos contexto
         messages_with_system = [system_message] + _last_k_messages(state["messages"], k=3)
         payload["messages"] = messages_with_system
         result = agent.invoke(payload, config={"recursion_limit": 8})
 
     msgs_out = result.get("messages", [])
-    for m in msgs_out:
-        _push_turn(state, role="assistant", name="researcher", content=str(getattr(m, "content", m)))
-        # NEW: usar la última respuesta del investigador como contexto de negocio/técnico
     if msgs_out:
         last_msg = msgs_out[-1]
         last_text = getattr(last_msg, "content", str(last_msg)) or ""
-        # Lo recortamos para no romper el prompt de los siguientes nodos
+        _push_turn(state, role="assistant", name="researcher", content=last_text)
+
+        # Extraer documentos recuperados para el evaluador/unificador
+        retrieved = []
+        for m in msgs_out:
+            # Si es un mensaje de herramienta y viene de RAG, guardarlo como evidencia
+            if hasattr(m, "tool_call_id") and m.name in ["local_RAG", "video_RAG"]:
+                retrieved.append(str(m.content))
+        
         state["add_context"] = _clip_text(str(last_text).strip(), 2000)
 
         return {
-        **state,
-        "messages": state["messages"] + [
-            AIMessage(
-                content=str(getattr(m, "content", m)),
-                name="researcher"
-            ) for m in msgs_out
-        ],
-        "hasVisitedInvestigator": True
-    }
+            **state,
+            "messages": state["messages"] + [
+                AIMessage(
+                    content=last_text,
+                    name="researcher"
+                )
+            ],
+            "retrieved_docs": retrieved,
+            "hasVisitedInvestigator": True
+        }
     return state
+
+
+
+

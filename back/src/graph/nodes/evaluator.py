@@ -1,13 +1,17 @@
-
 import re
+import logging
+from typing import Optional
 from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from src.graph.state import GraphState
 from src.graph.resources import llm, retriever, _HAS_VERTEX
+from src.graph.consts import MARKDOWN_FORMAT_DIRECTIVE
 from src.graph.utils import _push_turn
 from src.graph.nodes.supervisor import _looks_like_eval
 from src.graph.nodes.tools import theory_tool, viability_tool, needs_tool, analyze_tool
+
+log = logging.getLogger("graph")
 
 def _pick_asr_to_evaluate(state: GraphState) -> str:
     if state.get("last_asr"):
@@ -16,27 +20,30 @@ def _pick_asr_to_evaluate(state: GraphState) -> str:
     m = re.search(r"(evaluate|evalúa|evaluar|check|review)\s+(this|este)\s+asr\s*:?\s*(.+)$", uq, re.I | re.S)
     if m:
         return m.group(3).strip()
-    for m in reversed(state.get("messages", [])):
-        if isinstance(m, AIMessage) and (getattr(m, "name", "") or "") == "asr_recommender" and m.content:
-            return m.content
+    for msg in reversed(state.get("messages", [])):
+        if isinstance(msg, AIMessage) and (getattr(msg, "name", "") or "") == "asr_recommender" and msg.content:
+            return msg.content
     return ""
 
-def _book_snippets_for_eval(retriever, concern_hint: str = "") -> str:
+def _book_snippets_for_eval(retriever_obj, concern_hint: str = "") -> str:
     q = "quality attribute scenario parts stimulus source environment artifact response response measure"
     if concern_hint:
         q = concern_hint + " " + q
     try:
-        docs = list(retriever.invoke(q))
-    except Exception:
+        docs = list(retriever_obj.invoke(q))
+    except Exception as e:
+        log.exception(f"[_book_snippets_for_eval] Error retrieving snippets: {e}")
         docs = []
-    # 4 fragmentos de 300 chars c/u
+    
     seen, out = set(), []
     for d in docs:
         t = (d.page_content or "").strip().replace("\n", " ")
         t = t[:300]
         if t and t not in seen:
-            seen.add(t); out.append(t)
-        if len(out) >= 4: break
+            seen.add(t)
+            out.append(t)
+        if len(out) >= 4:
+            break
     return "\n\n".join(out)
 
 def getEvaluatorPrompt(image_path1: str, image_path2: str) -> str:
@@ -81,25 +88,26 @@ BOOK_SNIPPETS (ground your critique in these ideas; keep it short):
 ASR_TO_EVALUATE:
 {asr_text}
 
-Write a compact evaluation with EXACTLY these sections (plain text, no Markdown):
+Write the evaluation using Markdown with EXACTLY these sections:
 
-Verdict:
-  One line: Good / Weak / Invalid, with a short reason.
+## Verdict
+One line: **Good** / **Weak** / **Invalid**, with a short reason.
 
-Gaps:
-  3–6 bullets pointing missing or vague parts against the canonical QAS fields (Source, Stimulus, Environment, Artifact, Response, Response Measure).
+## Gaps
+3-6 bullets pointing missing or vague parts against the canonical QAS fields (`Source`, `Stimulus`, `Environment`, `Artifact`, `Response`, `Response Measure`).
 
-Quality:
-  3–5 bullets about measurability, precision of Response Measure (p95/p99, thresholds), clarity of stimulus, realism.
+## Quality
+3-5 bullets about measurability, precision of Response Measure (p95/p99, thresholds), clarity of stimulus, realism.
 
-Risks & Tactics:
-  3–5 bullets on plausible risks and which tactics mitigate them (use tactic names verbatim).
+## Risks & Tactics
+3-5 bullets on plausible risks and which tactics mitigate them (use tactic names verbatim in **bold**).
 
-Rewrite (improved ASR):
-  Provide a tightened ASR using the same QAS structure (Summary, Context, Scenario with the 6 fields, Response Measure). Keep it realistic and measurable.
+## Rewrite (improved ASR)
+Provide a tightened ASR using the same QAS structure (Summary, Context, Scenario with the 6 fields, Response Measure). Keep it realistic and measurable.
 
-References:
-  List 2–5 short items only if grounded by BOOK_SNIPPETS; otherwise write "None".
+## References
+List 2-5 short items only if grounded by BOOK_SNIPPETS; otherwise write "None".
+{MARKDOWN_FORMAT_DIRECTIVE}
 """
         eval_prompt = ("DOC-ONLY mode: ON. Reason exclusively from the PROJECT DOCUMENT.\n\n" + eval_prompt) if doc_only else eval_prompt
         result = llm.invoke(eval_prompt)
@@ -137,11 +145,12 @@ References:
         "imagePath2": state.get("imagePath2","")
     })
 
-    for msg in result["messages"]:
-        _push_turn(state, role="assistant", name="evaluator", content=str(getattr(msg, "content", msg)))
+    last_msg = result["messages"][-1]
+    last_text = getattr(last_msg, "content", str(last_msg)) or ""
+    _push_turn(state, role="assistant", name="evaluator", content=last_text)
 
     return {
         **state,
-        "messages": state["messages"] + [AIMessage(content=msg.content, name="evaluator") for msg in result["messages"]],
+        "messages": state["messages"] + [AIMessage(content=last_text, name="evaluator")],
         "hasVisitedEvaluator": True
     }

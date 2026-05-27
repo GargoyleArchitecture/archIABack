@@ -1,0 +1,640 @@
+{
+  "evaluated_at": "2026-03-25T23:51:35.941576",
+  "video_path": "C:\\Users\\arnul\\proyectos\\trabajo\\Tesis\\archIABack\\back\\videos\\raw\\YTDown.com_YouTube_Clase-abierta-Maestria-en-Ingenieria-de-_Media_M8XT7F8DZdg_001_1080p.mp4",
+  "transcript_length": 59691,
+  "total_qa_pairs": 10,
+  "qa_results": [
+    {
+      "question": "Qu es un atributo de calidad segn el profesor Daro Correal?",
+      "expected_answer": "Un atributo de calidad es una propiedad medible de un sistema que indica cmo este satisface las necesidades de los stakeholders. Debe ser cuantificable con nmeros, no se pueden usar frases ambiguas como 'altamente disponible' o 'muy rpido'.",
+      "generated_answer": "Según el video, qu es un atributo de calidad segn el profesor daro correal? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.25555555555555554,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer introduces information not present in the retrieved context. The context only repeats the question without providing any details about what an 'atributo de calidad' is according to Professor Darío Correal. The generated answer claims it is an important concept in software architecture, which cannot be inferred from the context provided.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.5,
+          "explanation": "The generated answer partially addresses the question by mentioning that an 'atributo de calidad' is an important concept in software architecture, which aligns with the context of the question. However, it does not provide a specific definition or explanation of what a 'quality attribute' is according to Professor Darío Correal, which is what the question is asking for. The answer lacks detail and specificity, making it only partially relevant.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question itself without providing any details or explanation about what a 'atributo de calidad' is according to Professor Dario Correal. Therefore, it lacks the necessary information to address the query.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any of the information from the ground truth answer. The ground truth provides a detailed explanation of what a quality attribute is, including its measurability and the importance of avoiding ambiguous terms. None of these details are present in the retrieved context.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.5,
+          "explanation": "The answer partially maintains logical flow by attempting to address the question about what an attribute of quality is according to Professor Daro Correal. However, it lacks coherence because it does not provide a clear definition or explanation of what an attribute of quality is, instead vaguely stating it is an important concept in software architecture. The answer does not effectively connect or elaborate on the retrieved context, leading to a logical gap.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter. The document context explicitly mentions the same question, indicating that the content is directly related to the question being asked. Therefore, someone reading this document would reasonably ask this question.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer contains several issues that reduce its information density. It includes typos ('qu' instead of 'qué', 'segn' instead of 'según', 'daro' instead of 'Darío'), which make it less clear and concise. The phrase 'es un concepto importante de arquitectura de software' is vague and does not provide specific information about what 'qu' refers to as an attribute of quality. Overall, the answer lacks detail and precision, and the presence of errors further diminishes its clarity and usefulness.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not capture the essential meaning of the ground truth. It only states that an attribute of quality is an important concept in software architecture, which is vague and does not address the specific definition provided by the ground truth. The ground truth specifies that an attribute of quality is a measurable property of a system that indicates how it satisfies stakeholder needs and must be quantifiable, which is not mentioned in the generated answer.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth defines an attribute of quality as a measurable property of a system that satisfies stakeholder needs and emphasizes the need for quantifiable metrics. The generated answer only mentions that it is an important concept in software architecture, which is a vague and incomplete representation of the ground truth. Key points such as measurability, stakeholder needs, and the avoidance of ambiguous terms are missing.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Cul es la diferencia entre ISO 25010 y la clasificacin de Bass/SEI?",
+      "expected_answer": "ISO 25010 es un estndar de jure (oficial, legal) con 8 grupos de atributos de calidad. La clasificacin de Bass (Software Architecture in Practice) es un estndar de facto (usado en la prctica pero no oficial). Ambos tienen definiciones similares pero organizadas diferentemente.",
+      "generated_answer": "Según el video, cul es la diferencia entre iso 25010 y la clasificacin de bass/sei? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.13333333333333333,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any information that can be directly inferred from the retrieved context. The context only repeats the question without providing any details or explanations about the difference between ISO 25010 and the Bass/SEI classification. The generated answer introduces the idea that this is an important concept in software architecture, which is not mentioned in the context. Therefore, the answer contains significant hallucinations and lacks support from the context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question about the difference between ISO 25010 and the Bass/SEI classification. It merely repeats the question and adds a vague statement about software architecture, without providing any specific information or comparison between the two concepts. Therefore, it is irrelevant to the question asked.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question without providing any details or explanations about ISO 25010 or the Bass/SEI classification. Therefore, it lacks the necessary information to address the query.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information from the ground truth answer. It only repeats the question without providing any details about ISO 25010 or the Bass/SEI classification. Key facts such as ISO 25010 being a de jure standard with 8 groups of quality attributes and the Bass classification being a de facto standard are missing.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any meaningful information about the difference between ISO 25010 and the Bass/SEI classification. It merely repeats the question and adds a vague statement about software architecture, which does not logically flow or connect with the context. There is no coherent explanation or comparison provided, making the response incoherent in relation to the question asked.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly asks about the difference between ISO 25010 and the classification of Bass/SEI, which is the exact topic mentioned in the document context. Someone reading this document would reasonably ask this question to understand the distinctions between these two frameworks or classifications.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.2,
+          "explanation": "The answer contains several issues that reduce its information density. It starts with 'Según el video,' which is unnecessary context for the question. The phrase 'es un concepto importante de arquitectura de software' is vague and does not provide specific information about the differences between ISO 25010 and the Bass/SEI classification. The core question about the differences is not addressed, making the response largely filler content with minimal useful information.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any factual information about the difference between ISO 25010 and the classification of Bass/SEI. It merely states that it is an important concept in software architecture, which does not address the question or match the ground truth. The ground truth provides specific details about the nature of ISO 25010 as a de jure standard and the classification of Bass as a de facto standard, which are not mentioned in the generated answer.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth provides details about ISO 25010 being an official standard with 8 quality attribute groups and Bass's classification being a de facto standard. The generated answer only mentions that the difference between ISO 25010 and Bass/SEI is an important concept in software architecture, without providing any specific details or comparisons mentioned in the ground truth.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Cules son las 6 partes de un escenario de calidad?",
+      "expected_answer": "1) Fuente del estmulo (quien inicia), 2) Estmulo (lo que sucede), 3) Ambiente (condiciones de operacin), 4) Artefacto (parte del sistema impactada), 5) Respuesta (actividad realizada), 6) Medida de la respuesta (valor cuantificable numrico).",
+      "generated_answer": "Según el video, cules son las 6 partes de un escenario de calidad? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.13333333333333333,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any specific information about the 6 parts of a quality scenario, which is the main focus of the question and the retrieved context. Instead, it introduces the concept of 'arquitectura de software' which is not mentioned in the context. Therefore, the answer contains significant hallucinations and does not faithfully represent the retrieved context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question at all. It repeats the question and adds a vague statement about the importance of the concept in software architecture, but it does not provide any information about the six parts of a quality scenario. Therefore, it is irrelevant to the question asked.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any specific information needed to answer the question about the six parts of a quality scenario. It merely repeats the question without providing any details or answers. Therefore, it lacks the necessary information to be useful in answering the question.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any of the specific details or parts listed in the ground truth answer. It only repeats the question without providing any of the six parts of a quality scenario. Therefore, none of the ground truth information is present in the context.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any coherent information about the 6 parts of a quality scenario. It merely repeats the question and states that it is an important concept in software architecture, without offering any logical flow or connection to the retrieved context. There is no attempt to answer the question or provide relevant details, leading to a lack of coherence.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly asks about the content discussed in the document. The document context explicitly mentions 'Cules son las 6 partes de un escenario de calidad?', indicating that the question is appropriate and expected for someone engaging with this document.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.2,
+          "explanation": "The answer contains mostly filler content and lacks meaningful information. It repeats the question without providing any new details or insights. The phrase 'es un concepto importante de arquitectura de software' is vague and does not add specific value to the answer. Overall, the response does not effectively convey useful information about the six parts of a quality scenario.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any of the six parts of a quality scenario as listed in the ground truth. It only mentions that the concept is important in software architecture, which does not address the question or match the ground truth answer.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth lists six specific components of a quality scenario: 1) Fuente del estmulo, 2) Estmulo, 3) Ambiente, 4) Artefacto, 5) Respuesta, and 6) Medida de la respuesta. The generated answer only mentions that there are six parts to a quality scenario but does not specify any of these components. Therefore, none of the detailed information from the ground truth is present in the answer.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Por qu los atributos de calidad entran en conflicto entre s?",
+      "expected_answer": "Los atributos de calidad tienen una relacin de contienda porque no se pueden satisfacer todos al mximo simultneamente. Por ejemplo, mejorar latencia puede afectar disponibilidad, o aumentar escalabilidad puede impactar seguridad. El arquitecto debe negociar y balancear estos trade-offs.",
+      "generated_answer": "Según el video, por qu los atributos de calidad entran en conflicto entre s? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.2,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.5,
+          "explanation": "The generated answer introduces the idea that the concept of why quality attributes conflict is important in software architecture, which is not directly supported by the retrieved context. The context only repeats the question without providing any additional information. Therefore, while the answer might be a reasonable assumption, it cannot be directly inferred from the context provided.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question of why quality attributes conflict with each other. It merely states that the concept is important in software architecture, which does not provide any explanation or insight into the reasons for the conflict. The answer lacks relevance and does not satisfy the question.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question without providing any details or explanation about why quality attributes conflict with each other. Therefore, it lacks the necessary information to address the question.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any of the specific information found in the ground truth answer. The ground truth explains why quality attributes conflict, providing examples such as the trade-offs between latency and availability, or scalability and security. The retrieved context only repeats the question without offering any of these details.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not maintain a logical flow and lacks coherence with the context. It merely repeats the question and adds a vague statement about software architecture without providing any explanation or connection to why quality attributes might conflict. There is no logical progression or elaboration on the topic, making the response incoherent and uninformative.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly matches the context provided. The document context explicitly mentions the topic of why quality attributes conflict with each other, making the question perfectly aligned with the document's content area. Therefore, someone reading this document would reasonably ask this question.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer is not very concise and contains filler content. The phrase 'es un concepto importante de arquitectura de software' is vague and does not add specific information about why quality attributes conflict. The question 'por qu los atributos de calidad entran en conflicto entre s?' is repeated without providing an answer, reducing the information density. Overall, the response lacks detail and clarity, making it low in information density.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question of why quality attributes conflict with each other. It merely states that it is an important concept in software architecture, without providing any explanation or details. The ground truth explains the trade-offs and conflicts between quality attributes, which is missing in the generated answer.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth explains the trade-offs between quality attributes in software architecture, providing examples such as latency affecting availability and scalability impacting security. The generated answer merely states that quality attributes conflict, without elaborating on the reasons or examples provided in the ground truth. Therefore, no key points from the ground truth are present in the generated answer.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Qu ejemplo usa el profesor para ilustrar un requisito funcional vs atributo de calidad?",
+      "expected_answer": "El ejemplo es 'el comprador debe recibir un nmero de seguimiento para un envo' (requisito funcional). Los atributos de calidad seran: 'en menos de 1 minuto' (desempeo/latencia), '100% de las veces' (disponibilidad), '500 por minuto' (escalabilidad).",
+      "generated_answer": "Según el video, qu ejemplo usa el profesor para ilustrar un requisito funcional vs atributo de calidad? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.14444444444444446,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any specific example or information that can be directly inferred from the retrieved context. Instead, it repeats the question and adds a statement about the importance of the concept in software architecture, which is not present in the context. Therefore, the answer contains significant hallucinations and does not faithfully represent the retrieved context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question at all. It repeats part of the question and adds an unrelated statement about the importance of the concept in software architecture. It does not provide any example or information about a functional requirement versus a quality attribute, which is what the question is asking for.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question itself without providing any details or examples. Therefore, it lacks the necessary information to address the query about the professor's example of a functional requirement versus a quality attribute.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information from the ground truth answer. The ground truth provides specific examples of a functional requirement and quality attributes, which are completely absent in the retrieved context.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any specific example or information related to the question about a functional requirement versus a quality attribute. It merely repeats the question and adds a generic statement about software architecture, which does not logically flow from the context or provide a coherent response. There is no connection between the retrieved context and the generated answer, leading to a lack of coherence.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly asks about an example used by the professor to illustrate a concept, which is exactly what the document context is about. The question is specific to the content area of the document, making it a reasonable inquiry for someone engaging with this material.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer contains a significant amount of filler content and lacks clarity. It starts with 'Según el video,' which is unnecessary without context. The phrase 'qu ejemplo usa el profesor para ilustrar un requisito funcional vs atributo de calidad?' is a question rather than an answer, and it doesn't provide any specific information. The final part, 'es un concepto importante de arquitectura de software,' is vague and doesn't add substantial value. Overall, the answer is not concise and lacks meaningful information.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any specific example or details related to a functional requirement or quality attribute, as mentioned in the ground truth. It only mentions a general concept of software architecture without addressing the question or providing the example given in the ground truth. Therefore, it is factually incorrect in the context of the question.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any information from the ground truth. The ground truth provides a specific example of a functional requirement and its associated quality attributes, while the generated answer only poses a question about the example used by the professor without providing any of the specific details or examples mentioned in the ground truth.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Qu es un estndar de facto vs un estndar de jure en arquitectura de software?",
+      "expected_answer": "Un estndar de jure es oficial/legal (como ISO 25010), aceptado internacionalmente y usable en contratos y auditoras. Un estndar de facto (como la clasificacin de Bass) no es ley pero es lo que se usa comnmente en la prctica. Lo importante es que el equipo se ponga de acuerdo sobre cul adoptar.",
+      "generated_answer": "Según el video, qu es un estndar de facto vs un estndar de jure en arquitectura de software? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.13333333333333333,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any specific information that can be directly inferred from the retrieved context. The context only mentions the topic of 'estándar de facto vs estándar de jure en arquitectura de software' without providing any details or explanations. The generated answer simply repeats the question and adds a vague statement about its importance, which is not supported by the context. Therefore, the answer contains significant hallucinations as it introduces information not present in the context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question about the difference between a de facto standard and a de jure standard in software architecture. It merely repeats the question and states that it is an important concept, without providing any explanation or information. Therefore, it is irrelevant to the question asked.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question without providing any details or explanations about what a 'de facto' or 'de jure' standard is in the context of software architecture. Therefore, it lacks the necessary information to address the query.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any specific information from the ground truth answer. The ground truth provides detailed definitions and examples of 'estándar de facto' and 'estándar de jure', which are not present in the retrieved context. The context only repeats the question without offering any substantive information.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any meaningful information or explanation about the difference between a 'de facto' and a 'de jure' standard in software architecture. It merely repeats the question and states that it is an important concept, without offering any logical flow or connection to the retrieved context. There is no coherence or logical progression in the response.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter. The document context explicitly mentions 'estándar de facto vs estándar de jure en arquitectura de software,' which directly aligns with the question being asked. Therefore, someone reading this document would reasonably ask this question as it pertains directly to the content area being discussed.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.2,
+          "explanation": "The answer contains a significant amount of filler content and lacks meaningful information. It repeats the question without providing a clear explanation or additional details about the difference between 'estándar de facto' and 'estándar de jure' in software architecture. The phrase 'es un concepto importante de arquitectura de software' is vague and does not add substantial value to the answer.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any factual information about the difference between a de facto standard and a de jure standard in software architecture. It merely states that it is an important concept but does not explain what each type of standard means or how they differ, as the ground truth does. Therefore, it does not capture the essential meaning of the ground truth.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth provides a detailed explanation of the differences between de jure and de facto standards, including examples and their implications. The generated answer merely states that the concept is important in software architecture without providing any of the detailed information or examples from the ground truth.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Cmo se mide correctamente un atributo de calidad segn la clase?",
+      "expected_answer": "Con nmeros especficos, no con frases ambiguas. Ejemplos correctos: 'menos de 60 segundos', '100% de las veces', '500 operaciones por minuto'. Ejemplos incorrectos: 'rpido', 'casi siempre', 'muy escalable', 'flexible'.",
+      "generated_answer": "Según el video, cmo se mide correctamente un atributo de calidad segn la clase? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.14444444444444446,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer introduces information not present in the retrieved context. The context only repeats the question without providing any details or explanations. The generated answer claims that the concept is important in software architecture, which is not supported by the context. Therefore, the answer contains significant hallucinations.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question about how to correctly measure a quality attribute according to the class. It merely repeats the question and adds a vague statement about the importance of the concept in software architecture, without providing any specific information or guidance on measurement. Therefore, it is irrelevant to the question asked.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any specific information needed to answer the question. It merely repeats the question without providing any details or examples on how to measure a quality attribute correctly. Therefore, it lacks the necessary information to be useful in answering the question.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any specific information from the ground truth answer. The ground truth provides examples of how to measure a quality attribute with specific numbers, while the retrieved context only repeats the question without providing any of the detailed examples or explanations present in the ground truth.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not maintain a logical flow and is incoherent. It repeats the question without providing any meaningful information or explanation. There is no connection between the retrieved context and the generated answer, and it fails to address how an attribute of quality is measured according to the class. The answer lacks any substantive content or logical progression.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly matches the context provided. The document is about measuring a quality attribute according to a class, and the question asks precisely about this topic. Therefore, someone reading this document would reasonably ask this question.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer contains several issues that reduce its information density. Firstly, there are typographical errors ('cmo' instead of 'cómo', 'segn' instead of 'según') that detract from clarity. The phrase 'es un concepto importante de arquitectura de software' is vague and does not provide specific information about how an attribute of quality is measured. Overall, the answer lacks detail and specificity, making it mostly filler content with little useful information conveyed.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question of how to measure a quality attribute correctly. It merely states that it is an important concept in software architecture, which does not match the ground truth. The ground truth provides specific examples of how to measure quality attributes with precise numbers, whereas the generated answer fails to capture this essential information.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth provides examples of how to measure quality attributes with specific numbers, while the generated answer only mentions the importance of measuring quality attributes in software architecture without any specific details or examples. Key points such as the use of specific numbers and examples of correct and incorrect measurements are missing.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Qu relacin hay entre requisito funcional, atributo de calidad y escenario de calidad?",
+      "expected_answer": "El requisito funcional describe QU debe hacer el sistema. El atributo de calidad agrega propiedades medibles de CMO debe funcionar. El escenario de calidad combina ambos en una especificacin estructurada de 6 partes que incluye fuente, estmulo, ambiente, artefacto, respuesta y medida.",
+      "generated_answer": "Según el video, qu relacin hay entre requisito funcional, atributo de calidad y escenario de calidad? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.14444444444444446,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer introduces information not present in the retrieved context. The context only repeats the question without providing any details or explanations. The generated answer claims that the relationship between functional requirements, quality attributes, and quality scenarios is an important concept in software architecture, which is not supported by the context. Therefore, the answer contains significant hallucinations.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not directly address the question about the relationship between functional requirements, quality attributes, and quality scenarios. It merely states that the question is an important concept in software architecture, without providing any explanation or details about the relationships among the terms mentioned. Therefore, it does not satisfy someone asking this question.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question itself without providing any additional details or explanations. Therefore, it lacks the necessary information to address the relationship between functional requirements, quality attributes, and quality scenarios.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any of the specific information found in the ground truth answer. The ground truth provides detailed explanations of the relationship between functional requirements, quality attributes, and quality scenarios, including the structured specification of six parts. None of these details are present in the retrieved context.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any meaningful information or logical flow related to the question. It merely repeats the question and states that it is an important concept in software architecture without explaining the relationship between functional requirements, quality attributes, and quality scenarios. There is no coherence or connection to the retrieved context, which is also just a repetition of the question.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly matches the context provided in the document. The document context explicitly mentions the relationship between functional requirements, quality attributes, and quality scenarios, which is exactly what the question is asking about. Therefore, someone reading this document would reasonably ask this question.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer is not concise and contains filler content. It repeats the question without providing a clear or detailed explanation of the relationship between functional requirements, quality attributes, and quality scenarios. The phrase 'es un concepto importante de arquitectura de software' is vague and does not add meaningful information. Overall, the answer lacks depth and specificity, resulting in low information density.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any factual information about the relationship between functional requirements, quality attributes, and quality scenarios. It merely states that the question is an important concept in software architecture, which does not address the specifics given in the ground truth. The ground truth explains the distinct roles of functional requirements, quality attributes, and quality scenarios, which is missing in the generated answer.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth provides a detailed explanation of the relationship between functional requirements, quality attributes, and quality scenarios, including their definitions and components. However, the generated answer only mentions that the relationship is an important concept in software architecture without providing any of the specific details or components mentioned in the ground truth.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Qu actividad realizan los estudiantes en la semana 2 del curso segn el video?",
+      "expected_answer": "En la semana 2, los estudiantes leen el proyecto, identifican atributos de calidad del enunciado, los especifican sin ambigedad, estudian las definiciones de atributos de calidad (ISO 25010 o Bass), presentan un quiz sobre las definiciones, y trabajan en el cuaderno de prctica aplicando los conceptos al proyecto.",
+      "generated_answer": "Según el video, qu actividad realizan los estudiantes en la semana 2 del curso segn el video? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.1111111111111111,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any information that can be directly inferred from the retrieved context. The context is a repetition of the question, and the generated answer introduces unrelated information about 'arquitectura de software,' which is not mentioned in the context. Therefore, the answer contains significant hallucinations and does not align with the context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not address the question asked. It repeats part of the question and then provides unrelated information about a concept in software architecture, which is not relevant to the activity students perform in week 2 of the course. Therefore, it would not satisfy someone asking this question.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question itself without providing any details about the activities the students perform in week 2 of the course. Therefore, it lacks the necessary information entirely.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information from the ground truth answer. The ground truth specifies several activities that students perform in week 2, such as reading the project, identifying and specifying quality attributes, studying definitions, taking a quiz, and working on a practice notebook. None of these details are present in the retrieved context, which only repeats the question without providing any substantive information.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not maintain logical flow and is incoherent with the context. The question asks about a specific activity that students perform in week 2 of a course, but the answer does not provide any relevant information about the activity. Instead, it repeats the question and mentions 'arquitectura de software,' which is unrelated to the context provided. There is no logical connection or coherence between the context and the answer.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's domain as it directly asks about the activities of students in week 2 of a course, which is the subject matter of the video. The document context explicitly mentions the same question, indicating that someone reading or watching this document would reasonably ask this question.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.0,
+          "explanation": "The generated answer contains several issues that contribute to a low information density score. Firstly, the sentence is not coherent and seems to be a mix of unrelated phrases. It starts with a question about an activity in week 2 of a course, but then abruptly shifts to mention 'arquitectura de software' without any clear connection. The sentence structure is confusing, and it does not provide any meaningful or useful information about the activity or the course content. Overall, the answer is mostly filler and lacks clarity and relevance.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any of the specific activities that students perform in week 2 as described in the ground truth. Instead, it incorrectly states a general concept related to architecture of software, which is not relevant to the question. Therefore, it is factually incorrect and does not capture the essential meaning of the ground truth.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth details specific activities that students perform in week 2, such as reading the project, identifying and specifying quality attributes, studying definitions, taking a quiz, and applying concepts in a practice notebook. The generated answer, however, only vaguely mentions an activity related to a video and does not cover any of these specific activities or details.",
+          "framework": "ccrs"
+        }
+      }
+    },
+    {
+      "question": "Cul es el objetivo principal de la clase de arquitectura segn el profesor?",
+      "expected_answer": "El objetivo es que los estudiantes aprendan a identificar, especificar y negociar atributos de calidad como arquitectos. Deben entender que no pueden tener todos los atributos al mximo, deben balancear trade-offs, usar medidas cuantificables, y adoptar un vocabulario comn con su equipo y cliente.",
+      "generated_answer": "Según el video, cul es el objetivo principal de la clase de arquitectura segn el profesor? es un concepto importante de arquitectura de software.",
+      "overall_score": 0.14444444444444446,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any information that can be directly inferred from the retrieved context. The context only repeats the question without providing any details about the objective of the architecture class. The generated answer introduces the concept of 'arquitectura de software,' which is not mentioned in the context, making it a hallucination. Therefore, the answer is not faithful to the context.",
+          "framework": "ragas"
+        },
+        "answer_relevance": {
+          "metric_name": "answer_relevance",
+          "score": 0.0,
+          "explanation": "The generated answer does not directly address the question. It repeats part of the question and provides an incomplete and vague statement about architecture of software, which is not relevant to the specific objective of the architecture class according to the professor. The answer lacks any specific information that would satisfy someone asking about the objective of the class.",
+          "framework": "ragas"
+        },
+        "context_precision": {
+          "metric_name": "context_precision",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information needed to answer the question. It merely repeats the question itself without providing any additional details or relevant information. Therefore, it lacks the necessary content to address the query about the professor's stated objective for the architecture class.",
+          "framework": "ragas"
+        },
+        "context_recall": {
+          "metric_name": "context_recall",
+          "score": 0.0,
+          "explanation": "The retrieved context does not contain any information from the ground truth answer. The ground truth specifies the objectives of the architecture class, including learning to identify, specify, and negotiate quality attributes, understanding trade-offs, using quantifiable measures, and adopting a common vocabulary. None of these details are present in the retrieved context, which only repeats the question without providing any substantive information.",
+          "framework": "ragas"
+        },
+        "contextual_coherence": {
+          "metric_name": "contextual_coherence",
+          "score": 0.0,
+          "explanation": "The generated answer does not maintain logical flow and is incoherent with the context. It repeats the question instead of providing an answer and introduces an unrelated concept of 'arquitectura de software' without any logical connection to the context. There are no coherent connections between different pieces of information, and the answer fails to address the question asked.",
+          "framework": "ccrs"
+        },
+        "question_relevance": {
+          "metric_name": "question_relevance",
+          "score": 1.0,
+          "explanation": "The question is highly relevant to the document's subject matter as it directly asks about the main objective of an architecture class according to the professor, which is the focus of the document context provided. Someone reading this document would reasonably ask this question to understand the purpose of the class as explained by the professor.",
+          "framework": "ccrs"
+        },
+        "information_density": {
+          "metric_name": "information_density",
+          "score": 0.3,
+          "explanation": "The answer contains several issues that reduce its information density. Firstly, there are typographical errors ('cul' instead of 'cuál', 'segn' instead of 'según') that make the sentence unclear. Secondly, the answer is vague and lacks specific information about the objective of the architecture class or the important concept of software architecture. It repeats the question without providing a clear or detailed response. Overall, the answer is not concise and does not add meaningful information, resulting in a low information density score.",
+          "framework": "ccrs"
+        },
+        "answer_correctness": {
+          "metric_name": "answer_correctness",
+          "score": 0.0,
+          "explanation": "The generated answer does not provide any of the key facts from the ground truth. It merely states that the objective is an important concept of software architecture, which is vague and does not capture the specific objectives mentioned in the ground truth, such as learning to identify, specify, and negotiate quality attributes, balancing trade-offs, using quantifiable measures, and adopting a common vocabulary.",
+          "framework": "ccrs"
+        },
+        "information_recall": {
+          "metric_name": "information_recall",
+          "score": 0.0,
+          "explanation": "The generated answer does not recall any specific information from the ground truth. The ground truth discusses the objectives for students in an architecture class, focusing on identifying, specifying, and negotiating quality attributes, understanding trade-offs, using quantifiable measures, and adopting a common vocabulary. The generated answer only mentions a general concept of architecture of software without any specific details or objectives mentioned in the ground truth.",
+          "framework": "ccrs"
+        }
+      }
+    }
+  ],
+  "aggregate_metrics": {
+    "faithfulness": 0.05,
+    "answer_relevance": 0.05,
+    "context_precision": 0.0,
+    "context_recall": 0.0,
+    "contextual_coherence": 0.05,
+    "question_relevance": 1.0,
+    "information_density": 0.24,
+    "answer_correctness": 0.0,
+    "information_recall": 0.0,
+    "overall": 0.15444444444444444
+  }
+}

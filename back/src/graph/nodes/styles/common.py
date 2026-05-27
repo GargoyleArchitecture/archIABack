@@ -2,9 +2,11 @@
 
 import json
 
-from src.graph.resources import llm
+from src.graph.resources import llm, rag_trace_record
 from src.graph.state import GraphState
 from src.graph.qa_registry import normalize_qa
+from src.rag_agent import get_indexed_retriever
+from src.graph.utils import _dedupe_snippets
 
 
 def resolve_qa_for_style(state: GraphState, qa_override: str | None = None) -> str:
@@ -51,6 +53,71 @@ def style_node_impl(state: GraphState, qa_override: str | None = None) -> GraphS
     qa = resolve_qa_for_style(state, qa_override=qa_override)
     ctx = (state.get("add_context") or "").strip()
 
+    docs_list = []
+    video_list = []
+    rag_mode = state.get("rag_mode", "both") or "both"
+    
+    try:
+        queries = [
+            f"{qa} architecture style",
+            f"{qa} architectural style patterns",
+            "architecture styles ADD 3.0",
+            "Bass Clements Kazman architecture styles",
+            "microservices layered event-driven architecture styles",
+            "architecture style patterns and tradeoffs",
+        ]
+        
+        # Texto
+        if rag_mode in ("text", "both"):
+            _retriever = get_indexed_retriever(
+                quality_attribute=normalize_qa(state.get("resolved_index") or qa),
+                content_type="estilos",
+                k=6,
+            )
+            seen = set()
+            gathered = []
+            for q in queries:
+                try:
+                    for d in _retriever.invoke(q):
+                        key = (d.metadata.get("source_path"), d.metadata.get("page"))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        gathered.append(d)
+                        if len(gathered) >= 6:
+                            break
+                except Exception:
+                    pass
+                if len(gathered) >= 6:
+                    break
+            docs_list = gathered
+            rag_trace_record(query=" | ".join(queries), docs=docs_list)
+            
+        # Video
+        if rag_mode in ("video", "both"):
+            from evrag.indexer import EVRAGIndexer
+            evrag_mode = state.get("evrag_mode", "hybrid") or "hybrid"
+            indexer = EVRAGIndexer()
+            v_results = indexer.query_multimodal(queries[0], mode=evrag_mode, top_k=3)
+            video_segments = v_results.get("segments", [])
+            video_frames = v_results.get("frames", [])
+            
+    except Exception:
+        docs_list = []
+        video_segments = []
+        video_frames = []
+
+    book_snippets = _dedupe_snippets(docs_list, max_items=5, max_chars=600)
+    
+    video_snippets = ""
+    if video_segments or video_frames:
+        v_lines = []
+        for r in video_segments:
+            v_lines.append(f"[{r.get('video_id', 'vid')}] {r.get('text', '')}")
+        for r in video_frames:
+            v_lines.append(f"[{r.get('video_id', 'vid')}] {r.get('description', '')}")
+        video_snippets = "\n".join(v_lines)[:800]
+
     prompt = f"""{directive}
 You are a software architect applying ADD 3.0.
 
@@ -68,11 +135,17 @@ Business / context:
 ASR:
 {asr_text}
 
+GROUNDING (use this context from architecture documentation; prefer it over general knowledge):
+{book_snippets or "(none)"}
+
+OPTIONAL VIDEO CONTEXT:
+{video_snippets or "None"}
+
 You MUST respond with a VALID JSON object ONLY, with NO extra text, in the following form:
 
 {{
   "style_1": {{
-    "name": "Short name of style 1 (e.g., 'Layered', 'Microservices')",
+    "name": "Exact name of candidate style (e.g., 'Event-Driven', 'Pipe-and-Filter', 'Broker')",
     "impact": "Brief description of how this style impacts the ASR (pros, cons, trade-offs)."
   }},
   "style_2": {{
@@ -127,16 +200,16 @@ Do NOT add comments or any text outside of this JSON object.
     ).strip()
 
     if lang == "es":
-        header = "He identificado dos estilos arquitectónicos candidatos para tu ASR:"
-        rec_label = "Recomendación"
+        header = "## Estilos Arquitectónicos Candidatos"
+        rec_label = "## Recomendación"
         because = "porque"
         followups = [
             f"Explícame tácticas concretas para el ASR usando el estilo recomendado ({chosen_name}).",
             "Compárame más a fondo estos dos estilos para este ASR.",
         ]
     else:
-        header = "I have identified two candidate architecture styles for your ASR:"
-        rec_label = "Recommendation"
+        header = "## Candidate Architecture Styles"
+        rec_label = "## Recommendation"
         because = "because"
         followups = [
             f"Explain concrete tactics for the ASR using the recommended style ({chosen_name}).",
@@ -145,11 +218,13 @@ Do NOT add comments or any text outside of this JSON object.
 
     content = (
         f"{header}\n\n"
-        f"1) {style1_name}\n"
-        f"   - Impact: {style1_impact}\n\n"
-        f"2) {style2_name}\n"
-        f"   - Impact: {style2_impact}\n\n"
-        f"{rec_label}: **{chosen_name}** {because}:\n"
+        f"### 1. {style1_name}\n\n"
+        f"- **Impact:** {style1_impact}\n\n"
+        f"### 2. {style2_name}\n\n"
+        f"- **Impact:** {style2_impact}\n\n"
+        f"---\n\n"
+        f"{rec_label}\n\n"
+        f"**{chosen_name}** {because}:\n\n"
         f"{rationale}\n"
     )
 

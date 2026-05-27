@@ -33,89 +33,32 @@ Classify the user's last message. Return JSON with:
 - use_rag: true if this is a software-architecture question (ADD, tactics, latency, scalability,
   quality attributes, views, styles, diagrams, ASR), else false.
 - quality_attribute: one of [{qa_opts_str}].
-  Use "general" only if no clear quality attribute is requested.
 
-User message:
-{msg}
+Output MUST be JSON only.
+User: {msg}
 """
-    out = llm.with_structured_output(ClassifyOut).invoke(prompt)
+    try:
+        out = llm.with_structured_output(ClassifyOut).invoke(prompt)
+        # 1. Normalizar QA
+        qa = normalize_qa(out.quality_attribute)
+        # 2. Resolver indice físico (p. ej. "latencia" -> "latency")
+        idx = resolve_quality_attribute(qa)
 
-    low = msg.lower()
-    intent = out["intent"]
-
-    #disparadores de estilo arquitectónico
-    style_triggers = [
-        "style", "styles",
-        "architecture style", "architectural style",
-        "estilo", "estilos", "estilo arquitectónico", "estilos arquitectónicos"
-    ]
-    if any(k in low for k in style_triggers):
-        intent = "style"
-
-
-    tactics_triggers = [
-        "tactic", "táctica", "tactica", "tácticas", "tactics", "tactcias",
-        "strategy","estrategia",
-        "cómo cumplir","como cumplir","how to meet","how to satisfy","how to achieve"
-    ]
-    if any(k in low for k in tactics_triggers):
-        intent = "tactics"
-    
-    diagram_keywords = [
-        "component diagram", "diagram", "diagrama", "diagrama de componentes",
-        "diagrama de despliegue", "deployment diagram",
-        "uml", "plantuml", "c4", "bpmn", "despliegue", "deployment", "graphviz", "dot"
-    ]
-    # Evita enrutar a diagrama por frases tipo "ese ASR" sin pedir diagrama explícito.
-    if any(k in low for k in diagram_keywords) and intent not in ("asr", "style", "tactics"):
-        intent = "diagram"
-
-
-    # Prioriza el idioma ya detectado al inicio del turno (último mensaje del usuario)
-    lang = state.get("language") or out["language"]
-
-    # QA primario clasificado junto al intent (misma invocación del classifier).
-    qa_from_classifier = normalize_qa(out.get("quality_attribute", "general"))
-
-    # Resolución del índice QA para RAG.
-    # Regla: usar QA del classifier primero; si no, resolver por fallback.
-    resolved_index = "general"
-    if out["use_rag"]:
-        if qa_from_classifier != "general":
-            resolved_index = qa_from_classifier
-        else:
-            resolved_index = resolve_quality_attribute(msg, llm)
-
-    # QA operativo del turno (prioridad):
-    # 1) QA clasificado junto al intent,
-    # 2) índice resuelto para RAG,
-    # 3) valor previo del estado (continuidad).
-    resolved_qa = normalize_qa(resolved_index)
-    prev_qa = normalize_qa(state.get("quality_attribute", ""))
-
-    if qa_from_classifier != "general":
-        quality_attribute = qa_from_classifier
-    elif resolved_qa != "general":
-        quality_attribute = resolved_qa
-    elif prev_qa != "general":
-        quality_attribute = prev_qa
-    else:
-        quality_attribute = "general"
-
-    return {
-        **state,
-        "language": lang,
-        "intent": intent if intent in [
-        "greeting",
-        "smalltalk",
-        "architecture",
-        "diagram",
-        "asr",
-        "tactics",
-        "style",
-    ] else "general",
-
-        "force_rag": bool(out["use_rag"]),
-        "resolved_index": resolved_index,
-        "quality_attribute": quality_attribute,
-    }
+        return {
+            **state,
+            "language": out.language,
+            "intent": out.intent,
+            "use_rag": out.use_rag,
+            "quality_attribute": qa,
+            "resolved_index": idx
+        }
+    except Exception:
+        # Fallback si falla el LLM o la estructura
+        return {
+            **state,
+            "language": "en",
+            "intent": "architecture",
+            "use_rag": True,
+            "quality_attribute": "general",
+            "resolved_index": "general"
+        }

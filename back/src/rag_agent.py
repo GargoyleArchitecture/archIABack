@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Usa el paquete nuevo si está instalado; si no, cae al community.
 try:
@@ -15,6 +16,10 @@ from langchain_openai import OpenAIEmbeddings
 # ================== Paths / Config ==================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]   # .../back
+
+# Cargar variables de entorno usando ruta absoluta
+load_dotenv(PROJECT_ROOT / ".env")
+
 DEFAULT_CHROMA_DIR = str((PROJECT_ROOT / "chroma_db").resolve())
 
 # Modelo de embeddings por env, con default razonable
