@@ -1,5 +1,15 @@
 # archIABack
 
+## 🚀 Instalación Rápida (Para Evaluadores)
+
+Para evitar el costo económico y temporal de volver a procesar los videos con la API de OpenAI, se provee la base de datos vectorial pre-calculada.
+
+1. Clona este repositorio.
+2. Descarga la base de datos pre-computada desde: **[Google Drive (chroma_db.zip)](https://drive.google.com/file/d/1EvvoCa5fCuBkHfKVrWYyX0FxRVxyYMDG/view?usp=sharing)**
+3. Descomprime el archivo `.zip` y coloca la carpeta `chroma_db` exactamente en la ruta: `back/back/videos/chroma_db/`
+4. Levanta el servidor normal con `poetry run uvicorn src.main:app --port 8000`. El sistema reconocerá automáticamente los embeddings y estará listo para hacer búsquedas híbridas al instante.
+
+---
 ## Requisitos previos
 
 - Python 3.11 o superior (Detectado: 3.13.11)
