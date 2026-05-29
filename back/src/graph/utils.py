@@ -70,13 +70,13 @@ try:
         return len(_enc.encode(text or ""))
 except Exception:
     def _count_tokens(text: str) -> int:
-        # aproximación si no hay tiktoken
+        # Aproximación si no hay tiktoken.
         return max(1, int(len(text or "") / 3))
 
 def _clip_text(text: str, max_tokens: int) -> str:
     if _count_tokens(text) <= max_tokens:
         return text
-    target_chars = max(100, int(max_tokens * 3))  # 3 chars/token aprox
+    target_chars = max(100, int(max_tokens * 3))  # 3 chars/token aprox.
     return (text or "")[:target_chars] + "…"
 
 def _clip_lines(lines: list[str], max_tokens: int) -> list[str]:
@@ -89,7 +89,7 @@ def _clip_lines(lines: list[str], max_tokens: int) -> list[str]:
     return out
 
 def _last_k_messages(msgs, k=6):
-    # Mantén solo los últimos K mensajes de usuario/asistente (sin repetir system)
+    # Mantén solo los últimos K mensajes de usuario/asistente (sin repetir system).
     core = [m for m in msgs if getattr(m, "type", "") != "system"]
     return core[-k:]
 

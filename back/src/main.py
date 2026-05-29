@@ -129,9 +129,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ArquIA API", lifespan=lifespan)
 
 # ===================== UTF-8 Middleware =======================
-# BUG-019: pure ASGI middleware instead of BaseHTTPMiddleware. The latter wraps
-# responses in an anyio cancel scope that fires on client disconnect, which
-# propagates CancelledError into the SSE generator and aborts LangGraph's
+# Pure ASGI middleware instead of BaseHTTPMiddleware. The latter wraps responses
+# in an anyio cancel scope that fires on client disconnect, which propagates
+# CancelledError into the SSE generator and aborts LangGraph's
 # AsyncPregelLoop.__aexit__ before the checkpoint commit completes.
 class UTF8Middleware:
     def __init__(self, app):
@@ -780,11 +780,11 @@ async def message(
 
     has_existing_asr = bool(stored_current_asr)
 
-    # BUG-020: keyword detection beats the "no existing ASR -> asr" fallback.
-    # When state corruption (e.g. from BUG-019) leaves current_asr empty but the
-    # user explicitly asks for styles/tactics/tech/diagram, honor the request so
-    # the supervisor's phase gate can either route correctly or surface a clear
-    # block message — instead of silently falling back to asr.
+    # Keyword detection beats the "no existing ASR -> asr" fallback. When state
+    # corruption leaves current_asr empty but the user explicitly asks for
+    # styles/tactics/tech/diagram, honor the request so the supervisor's phase
+    # gate can either route correctly or surface a clear block message —
+    # instead of silently falling back to asr.
     user_intent = "general"
     if explicit_asr_request:
         user_intent = "asr"
@@ -808,8 +808,8 @@ async def message(
             "turn_messages": [],
             "requested_nodes": [],
             "pending_nodes": [],
-            # Do NOT reset completed_nodes here (BUG-013): boot_node now manages
-            # it phase-aware so overwriting it here would erase session progress.
+            # Do NOT reset completed_nodes here: boot_node now manages it
+            # phase-aware so overwriting it here would erase session progress.
             "current_asr": stored_current_asr,
         })
     except Exception:
@@ -831,8 +831,8 @@ async def message(
         "nextNode": "supervisor",
         "requested_nodes": [],
         "pending_nodes": [],
-        # completed_nodes is NOT reset here (BUG-013): boot_node manages it
-        # phase-aware so the checkpoint value must survive as the base state.
+        # completed_nodes is NOT reset here: boot_node manages it phase-aware
+        # so the checkpoint value must survive as the base state.
         "imagePath1": image_path1,
         "imagePath2": image_path2,
         "doc_only": doc_only,
@@ -842,9 +842,9 @@ async def message(
         "retrieved_docs": [],
         "memory_text": memory_text,
         "suggestions": [],
-        # BUG-014: do NOT override language from main.py's simple detector.
-        # The checkpoint preserves the session language; classifier_node sets it
-        # correctly on the first turn and keeps it sticky for short retries.
+        # Do NOT override language from main.py's simple detector. The checkpoint
+        # preserves the session language; classifier_node sets it correctly on
+        # the first turn and keeps it sticky for short retries.
         "intent": user_intent,
         "force_rag": force_rag,
         "topic_hint": topic_hint,
@@ -865,10 +865,10 @@ async def message(
         "user_style_hint":        turn_style_hint or arch_flow.get("user_style_hint", ""),
         "project_context_loaded": bool(arch_flow.get("project_context_text", "")),
         "user_style_loaded":      bool(turn_style_hint) or bool(arch_flow.get("user_style_hint", "")),
-        # ADD 3.0 candidates and selections are NOT reset here (BUG-013):
-        # these are session-persistent fields managed by boot_node's
-        # preserve-if-not-None logic. Removing them from input_state lets
-        # LangGraph keep the checkpoint values across turns.
+        # ADD 3.0 candidates and selections are NOT reset here: these are
+        # session-persistent fields managed by boot_node's preserve-if-not-None
+        # logic. Removing them from input_state lets LangGraph keep the
+        # checkpoint values across turns.
     }
 
     # Capture variables needed by the generator closure
@@ -888,8 +888,8 @@ async def message(
     async def generate():
         _final: dict = {}
 
-        # BUG-019: run the graph in a detached background task and stream from a
-        # queue. If the client disconnects, we shield the task so it finishes and
+        # Run the graph in a detached background task and stream from a queue.
+        # If the client disconnects, we shield the task so it finishes and
         # commits its SQLite checkpoint. Without this, BaseHTTPMiddleware (or
         # client close) would cancel AsyncPregelLoop.__aexit__ mid-commit and
         # leave state corrupt (current_asr empty, hasVisitedASR false, etc.).
@@ -998,8 +998,8 @@ async def message(
                 log.exception("graph_task failed after client disconnect")
             raise
         except GraphRecursionError:
-            # BUG-013: guard against infinite ASR loops when completed_nodes is
-            # stale. Emit a friendly message rather than a 500.
+            # Guard against infinite ASR loops when completed_nodes is stale.
+            # Emit a friendly message rather than a 500.
             _lang = (input_state.get("language") or user_lang or "es")
             _recovery = (
                 "Algo se enredó procesando tu mensaje. ¿Puedes repetir tu última instrucción?"
@@ -1040,8 +1040,8 @@ async def message(
             yield "data: [DONE]\n\n"
             return
         finally:
-            # BUG-019: ensure the graph task is awaited so its SQLite checkpoint
-            # commit completes before the request lifecycle ends.
+            # Ensure the graph task is awaited so its SQLite checkpoint commit
+            # completes before the request lifecycle ends.
             if not graph_task.done():
                 try:
                     await asyncio.shield(graph_task)

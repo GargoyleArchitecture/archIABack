@@ -31,9 +31,9 @@ _TECHNICAL_TERMS = re.compile(
     r"funciones?|aplicaci[oó]n|aplicaciones|integraci[oó]n|integraciones|"
     r"notificaci[oó]n|notificaciones|videollamadas?|sesiones?|almacenamiento|"
     r"mensajer[ií]a|despliegue|r[eé]plica|r[eé]plicas|cpu|memoria|"
-    # BUG-038: finance / integration vocabulary so fintech inputs like
-    # "Gateway ISO 20022", "core bancario", "RTGS", "bus de eventos",
-    # "payment gateway", "webhook" are recognised as technical terms.
+    # Finance / integration vocabulary so fintech inputs like "Gateway ISO 20022",
+    # "core bancario", "RTGS", "bus de eventos", "payment gateway", "webhook" are
+    # recognised as technical terms.
     r"banco|bancos|banco origen|payment gateway|payment\s*gateway|pasarela de pagos|"
     r"iso\s?20022|swift|sepa|ach|rtgs|core\s+bancario|core\s+banking|core\s+ledger|"
     r"webhook|webhooks|bus de eventos|event bus|stream|streaming|"
@@ -63,9 +63,9 @@ _SOURCE_CATEGORIES = re.compile(
     r"evento interno|internal event|"
     # time / schedule synonyms
     r"tiempo|time|timer|schedule|cron|scheduler|tarea programada|job programado|timeout|"
-    # BUG-038: finance / integration sources so fintech intake answers
-    # (e.g. "banco origen", "API REST", "webhook", "cola Kafka", "payment gateway")
-    # are accepted as stimulus sources.
+    # Finance / integration sources so fintech intake answers (e.g. "banco
+    # origen", "API REST", "webhook", "cola Kafka", "payment gateway") are
+    # accepted as stimulus sources.
     r"banco|banco origen|core\s+bancario|core\s+banking|"
     r"api\s+rest|rest\s+api|webhook|webhooks|"
     r"cola|queue|stream|streaming|"
@@ -190,8 +190,8 @@ def validate_field(index: int, value: str) -> Tuple[bool, str]:
             )
         return (True, "")
 
-    # BUG-030: campo_3 (stimulus) uses a lower word threshold than campo_0/1
-    # because a concise technical description (5+ words) is sufficient.
+    # campo_3 (stimulus) uses a lower word threshold than campo_0/1 because a
+    # concise technical description (5+ words) is sufficient.
     if index == 3:
         tokens = value.split()
         if len(tokens) < 5:

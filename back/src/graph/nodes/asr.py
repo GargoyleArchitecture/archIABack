@@ -294,9 +294,6 @@ def _coerce_single_asr_markdown(content: str) -> str:
     return text
 
 
-# BUG-052: post-selection 6-part expansion. Called by asr_confirm_node when
-# the user picks a candidate ID from the ASR table — turns the short scenario
-# row into the canonical Bass/Clements/Kazman 6-part block.
 def _expand_asr_to_six_part(payload: dict, lang: str) -> tuple[dict, str]:
     """Expand a candidate ASR row into the canonical 6-part Markdown block.
 
@@ -376,7 +373,7 @@ def _expand_asr_to_six_part(payload: dict, lang: str) -> tuple[dict, str]:
     return expanded_payload, md
 
 
-# BUG-042/043/044: candidate-table parser
+# Candidate-table parser.
 # A row looks like:
 #   | A1 | Latencia | p95 ≤ 800ms con 600 CCU | H | H |
 _ASR_TABLE_ROW_RE = re.compile(
@@ -423,8 +420,6 @@ def asr_node(state: GraphState) -> GraphState:
         log.info("asr_node: re-rendering existing ASR (no explicit request to change)")
         requested_nodes = [n for n in (state.get("requested_nodes") or []) if n != "asr"]
         pending_nodes = [n for n in (state.get("pending_nodes") or []) if n != "asr"]
-        # BUG-034: set hasVisitedASR=True so the router does not re-fire the asr
-        # branch on the next supervisor call, preventing a GraphRecursionError loop.
         _done = list(state.get("completed_nodes") or [])
         if "asr" not in _done:
             _done.append("asr")
@@ -638,11 +633,10 @@ def asr_node(state: GraphState) -> GraphState:
         "NEVER interpret ASR as Automatic Speech Recognition or any voice/audio technology."
     )
 
-    # BUG-042/043/044: produce a prioritized CANDIDATE TABLE (one row per QA),
-    # not a single 6-part ASR. The 6-part detail is reserved for AFTER the user
-    # selects an ID. The Response cell must describe WHAT the system must do
-    # (the measurable target) — never tactics like backpressure / circuit
-    # breaker / autoscaling.
+    # Produce a prioritized CANDIDATE TABLE (one row per QA), not a single 6-part ASR.
+    # The 6-part detail is reserved for AFTER the user selects an ID. The Response
+    # cell must describe WHAT the system must do (the measurable target) — never
+    # tactics like backpressure / circuit breaker / autoscaling.
     if lang == "es":
         _col_header = "| ID | Atributo de calidad | Descripción del escenario | Importancia negocio | Riesgo técnico |"
         _table_sep  = "|----|--------------------|----------------------------|---------------------|----------------|"
@@ -734,8 +728,8 @@ After the table, on a new line, write EXACTLY this selection prompt:
     content = _sanitize_response(content_raw)
     content = _strip_tactics_sections(content)
 
-    # BUG-042/043/044: parse the candidate table. If parsing fails (no rows
-    # detected) fall back to the single-ASR coercion to keep degraded mode.
+    # Parse the candidate table. If parsing fails (no rows detected) fall back
+    # to the single-ASR coercion to keep degraded mode.
     _table_rows = _parse_asr_table_rows(content)
     _is_candidate_table = len(_table_rows) >= 1
     _asr_discarded = False
@@ -774,7 +768,7 @@ After the table, on a new line, write EXACTLY this selection prompt:
             ]
 
     # === Fuentes (si hubo RAG) ===
-    # BUG-016: never expose server filesystem paths in references.
+    # Never expose server filesystem paths in references.
     src_lines = []
     for d in docs_list or []:
         md = d.metadata or {}
@@ -801,8 +795,8 @@ After the table, on a new line, write EXACTLY this selection prompt:
         AIMessage(content=src_block, name="asr_sources"),
     ]
 
-    # Memoria viva del chat
-    # BUG-018: when ASR was discarded (within normal operation), `content` is a
+    # Memoria viva del chat.
+    # When ASR was discarded (within normal operation), `content` is a
     # user-facing rejection message — NOT a real ASR. Writing it to current_asr/
     # last_asr/memory_text pollutes the session and makes every subsequent turn
     # think an ASR exists, blocking re-generation.
@@ -832,9 +826,9 @@ After the table, on a new line, write EXACTLY this selection prompt:
             _candidates_for_state: list[dict] = []
 
             if _is_candidate_table:
-                # BUG-042/043: persist ONE ledger decision per candidate row so
-                # downstream nodes (style, tactics) can resolve any selected ID
-                # via get_all_active_asrs / selected_asrs.
+                # Persist ONE ledger decision per candidate row so downstream
+                # nodes (style, tactics) can resolve any selected ID via
+                # get_all_active_asrs / selected_asrs.
                 _last_saved_id = ""
                 for _row in _table_rows:
                     _qa_row = normalize_qa(_row.get("qa", "")) or qa_pipeline
@@ -967,11 +961,10 @@ After the table, on a new line, write EXACTLY this selection prompt:
     state["force_rag"] = False
     state["nextNode"] = "unifier"
 
-    # BUG-013: persist completed_nodes and routing_phase so boot_node does not
-    # reset them on the next turn and the supervisor does not re-run ASR.
-    # BUG-018: but only when a real ASR was produced. On discard, leave
-    # routing_phase at "intake" so the next turn can legitimately retry ASR
-    # generation with new context.
+    # Persist completed_nodes and routing_phase so boot_node does not reset them
+    # on the next turn and the supervisor does not re-run ASR — but only when a
+    # real ASR was produced. On discard, leave routing_phase at "intake" so the
+    # next turn can legitimately retry ASR generation with new context.
     _done = list(state.get("completed_nodes") or [])
     if "asr" not in _done:
         _done.append("asr")

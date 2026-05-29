@@ -72,8 +72,6 @@ def _augment_completed_nodes(state: GraphState, completed: list[str]) -> list[st
     }
     if state.get("hasVisitedASR"):
         _append_unique(out, "asr")
-    # BUG-013: also mark asr as done when routing_phase shows we've already passed it,
-    # so completed_nodes stays consistent across turns even if hasVisitedASR was reset.
     _routing_phase = state.get("routing_phase") or "intake"
     if _routing_phase in ("asr", "style", "tactics", "tech", "done"):
         _append_unique(out, "asr")
@@ -297,14 +295,11 @@ def supervisor_node(state: GraphState):
     if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         return {**state, "nextNode": "intake", "localQuestion": ""}
 
-    # si ya hay un SVG listo en este turno, vamos directo al unifier
+    # Si ya hay un SVG listo en este turno, vamos directo al unifier.
     d = state.get("diagram") or {}
     if d.get("ok") and d.get("svg_b64"):
         return {**state, "nextNode": "unifier", "intent": "diagram"}
 
-    # BUG-025: New project detection — fires when a stale checkpoint has a
-    # mid-session current_phase but the user is clearly starting a fresh project.
-    # Without this, the M1 gate issues a "wrong phase" block instead of intake.
     _phase_now = (state.get("current_phase") or "intro")
     if _phase_now not in ("intro", "diagnosis") and _is_new_project_intro(uq):
         _np_lang = state.get("language") or detect_lang(uq) or "es"
@@ -337,7 +332,6 @@ def supervisor_node(state: GraphState):
             "language": _np_lang,
         }
 
-    # BUG-014: preserve prior language when detect_lang has no signal (returns None).
     state_lang = state.get("language") or detect_lang(uq) or "es"
     state_lang = "es" if state_lang == "es" else "en"
 
@@ -394,9 +388,6 @@ def supervisor_node(state: GraphState):
             block_text = _build_block_message(current_phase, min_phase_key, state_lang)
         _sugs_es = ["Sí, continuemos", "Quiero cambiar el contexto del sistema"]
         _sugs_en = ["Yes, let's continue", "I want to change the system context"]
-        # BUG-002 fix: preserve completed_nodes across phase-gate redirects.
-        # Wiping it caused the supervisor to re-trigger already-done nodes
-        # (e.g. ASR re-generation) on the turn immediately after the block.
         _completed_safe = _augment_completed_nodes(state, list(state.get("completed_nodes") or []))
         return {
             **state,
@@ -412,7 +403,7 @@ def supervisor_node(state: GraphState):
         }
     # ────────────────────────────────────────────────────────────────────────
 
-    # Estado multi-intent del turno
+    # Estado multi-intent del turno.
     completed_nodes = _augment_completed_nodes(state, list(state.get("completed_nodes", []) or []))
 
     if intent_raw == "asr_confirm":
@@ -439,9 +430,6 @@ def supervisor_node(state: GraphState):
             "completed_nodes": completed_nodes,
         }
 
-    # BUG-054 / BUG-055: route the user's style selection directly to the
-    # confirmation node — never to style_node (which would re-generate
-    # candidates) or to the "Bienvenido de vuelta" fallback.
     if intent_raw == "style_confirm":
         return {
             **state,
@@ -453,7 +441,6 @@ def supervisor_node(state: GraphState):
             "completed_nodes": completed_nodes,
         }
 
-    # BUG-012/007/013: route tactics confirmation directly to tactics_confirm_node.
     if intent_raw == "tactics_confirm":
         return {
             **state,
@@ -482,8 +469,7 @@ def supervisor_node(state: GraphState):
                 "pending_nodes": [],
                 "completed_nodes": completed_nodes}
 
-    # Scheduler multi-intent
-    # BUG-013: gate ASR with all available signals to prevent re-running after a failed turn.
+    # Scheduler multi-intent.
     _routing_phase = state.get("routing_phase") or "intake"
     _has_existing_asr = (
         bool((state.get("current_asr") or state.get("last_asr") or "").strip())
@@ -560,7 +546,7 @@ def supervisor_node(state: GraphState):
     else:
         local_q = uq
 
-    # fallback para arquitectura general sin plan explícito: usa LLM del supervisor
+    # Fallback para arquitectura general sin plan explícito: usa LLM del supervisor.
     if not requested_nodes and not pending_nodes and next_node == "investigator":
         sys_messages = [SystemMessage(content=makeSupervisorPrompt(state))]
         try:
@@ -574,7 +560,7 @@ def supervisor_node(state: GraphState):
         except Exception:
             pass
 
-    # evita unifier si no se visitó nada este turno
+    # Evita unifier si no se visitó nada este turno.
     if next_node == "unifier" and not (
         state.get("hasVisitedInvestigator") or
         state.get("hasVisitedEvaluator") or state.get("hasVisitedASR") or

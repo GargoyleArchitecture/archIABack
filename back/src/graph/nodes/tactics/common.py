@@ -43,13 +43,13 @@ _tac_log = logging.getLogger("tactics_node")
 
 
 def _active_view_with_primary_asr(state: GraphState) -> dict:
-    # BUG-056: order matters here. The user types ASRs in priority order
+    # Order matters here. The user types ASRs in priority order
     # (selected_asrs[0] = highest); classifier→asr_confirm preserves that as
     # ledger append order. But state["ledger_active"]["asr"] comes from
     # compute_active_view(), which collapses every active ASR to the
-    # LAST-appended one (ledger/store.py:330-336 — ASRs intentionally do
-    # NOT supersede each other per store.py:72-82). Reading .asr from the
-    # raw view silently swaps in the wrong driver on multi-ASR selection.
+    # LAST-appended one — ASRs intentionally do NOT supersede each other.
+    # Reading .asr from the raw view silently swaps in the wrong driver on
+    # multi-ASR selection.
     view = dict(state.get("ledger_active") or {})
     ledger = state.get("ledger") or {}
     if ledger.get("decisions"):
@@ -198,9 +198,9 @@ def _build_dossier_design_binding(ledger_active: dict, lang: str = "es") -> str:
     qa            = asr.get("qa", "")
     asr_payload   = asr.get("payload") or {}
     rm            = asr_payload.get("response_measure", "")
-    # Bug A fix: prefer the human-friendly ID (A1/A2/…) over the ULID when
-    # building the prompt so the LLM cites "A2" in `traces_to_asr` instead of
-    # emitting the ULID, which leaks into the tactics table column.
+    # Prefer the human-friendly ID (A1/A2/…) over the ULID when building the
+    # prompt so the LLM cites "A2" in `traces_to_asr` instead of emitting the
+    # ULID, which leaks into the tactics table column.
     human_id      = (asr_payload.get("candidate_id") or "").upper().strip()
     asr_ref       = human_id or asr_id
     style_id      = style.get("id", "")
@@ -266,11 +266,13 @@ def _validate_tactic_traces(
     human_asr_id: str = "",
 ) -> list:
     """Post-processing guard:
+
     - If LLM emitted an empty traces_to_asr, fill a sensible default so the
       ledger payload is structurally complete.
-    - Bug A fix: if the LLM emitted the bare ULID (26-char Crockford base32),
-      replace it with the human-friendly ASR id (e.g. "A2") so the rendered
+    - If the LLM emitted the bare ULID (26-char Crockford base32), replace it
+      with the human-friendly ASR id (e.g. "A2") so the rendered
       "ASR al que aplica" column is readable.
+
     Mutates and returns the list.
     """
     fallback = (
@@ -443,9 +445,9 @@ def tactics_node_impl(
         or state.get("last_asr")
         or ""
     )
-    # BUG-050: when state["current_asr"] is empty (e.g. context_loader didn't
-    # repopulate after an in-process turn), read the active ASR from the ledger
-    # so the user does NOT have to paste the ASR context manually.
+    # When state["current_asr"] is empty (e.g. context_loader didn't repopulate
+    # after an in-process turn), read the active ASR from the ledger so the
+    # user does NOT have to paste the ASR context manually.
     if not asr_text:
         _led_asr = (_active_view_with_primary_asr(state).get("asr") or {}).get("payload") or {}
         asr_text = (
@@ -461,8 +463,8 @@ def tactics_node_impl(
 
     qa = resolve_qa_for_tactics(state, asr_text=asr_text, qa_override=qa_override)
     style_text = state.get("style") or state.get("selected_style") or state.get("last_style") or ""
-    # BUG-050: mirror the ASR fallback for style — pull from ledger_active.style
-    # before falling back to the raw user message.
+    # Mirror the ASR fallback for style — pull from ledger_active.style before
+    # falling back to the raw user message.
     if not style_text:
         _led_style = ((state.get("ledger_active") or {}).get("style") or {}).get("payload") or {}
         style_text = (
@@ -557,8 +559,8 @@ Mention specific technologies from the stack when describing how each tactic wou
 """
 
     # ── Dossier design binding (P4) ─────────────────────────────────────────
-    # BUG-056: pass the primary-ASR-corrected view so the dossier binds tactics
-    # to selected_asrs[0], not to whichever ASR was last-appended to the ledger.
+    # Pass the primary-ASR-corrected view so the dossier binds tactics to
+    # selected_asrs[0], not to whichever ASR was last-appended to the ledger.
     _primary_view = _active_view_with_primary_asr(state)
     dossier_binding_block = _build_dossier_design_binding(_primary_view, lang)
     # Extract response_measure for traces validation fallback
@@ -570,10 +572,10 @@ Mention specific technologies from the stack when describing how each tactic wou
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_constraint = _build_multi_asr_tactics_constraint(_all_asrs, lang)
 
-    # BUG-048: produce a tactics CANDIDATE TABLE (T1/T2/T3), not multi-section
-    # prose with code blocks. Internal JSON payload is still required for the
-    # ledger but goes inside a fenced block that we strip BEFORE the user sees
-    # the message (BUG-049).
+    # Produce a tactics CANDIDATE TABLE (T1/T2/T3), not multi-section prose
+    # with code blocks. Internal JSON payload is still required for the ledger
+    # but goes inside a fenced block that we strip BEFORE the user sees the
+    # message.
     _active_asr_payload = _active_asr or {}
     _asr_id_for_tactics = (_active_asr_payload.get("payload") or {}).get("candidate_id") or "A1"
 
@@ -699,21 +701,21 @@ Example JSON shape (values are illustrative — adjust to your tactics):
 
         struct = normalize_tactics_json(struct, top_n=3)
 
-    # BUG-049: never expose the raw JSON payload to the user. The JSON is
-    # internal ledger payload; debugging relies on logs, not chat output.
+    # Never expose the raw JSON payload to the user. The JSON is internal
+    # ledger payload; debugging relies on logs, not chat output.
     md_only = strip_first_json_fence(raw)
     md_only = re.sub(r"\n?\(?2\)?\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
-    # Bug A fix: if the LLM emitted the ASR's ULID in the "ASR al que aplica"
-    # column instead of the friendly id (A1/A2/…), swap it back. The ULID is
-    # internal; users should see "A2", not "01KRQE2BCJ34FPYVT302BYZY3N".
-    # We swap in three places:
+    # If the LLM emitted the ASR's ULID in the "ASR al que aplica" column
+    # instead of the friendly id (A1/A2/…), swap it back. The ULID is internal;
+    # users should see "A2", not "01KRQE2BCJ34FPYVT302BYZY3N". We swap in three
+    # places:
     #   (1) struct items' `traces_to_asr` field — for the fallback renderer and
     #       any downstream consumers that read struct directly.
     #   (2) the markdown the LLM produced — for the user-visible chat bubble.
     #   (3) the ledger write later in the function (handled via the
     #       `human_asr_id` arg to _validate_tactic_traces).
-    # BUG-056: swap ULID→human-id using the primary ASR (selected_asrs[0]),
-    # not whatever last-appended ASR ledger_active.asr happens to point at.
+    # Swap ULID→human-id using the primary ASR (selected_asrs[0]), not whatever
+    # last-appended ASR ledger_active.asr happens to point at.
     _active_asr_for_swap = _active_view_with_primary_asr(state).get("asr") or {}
     _ulid_for_swap = (_active_asr_for_swap.get("id") or "").strip()
     _human_for_swap = ((_active_asr_for_swap.get("payload") or {}).get("candidate_id") or "").upper().strip()
@@ -725,14 +727,14 @@ Example JSON shape (values are illustrative — adjust to your tactics):
                     _val = (_it.get("traces_to_asr") or "").strip()
                     if _val == _ulid_for_swap or _ULID_RE.match(_val):
                         _it["traces_to_asr"] = _human_for_swap
-    # BUG-S3-002: truncate anything the LLM appended after the selection prompt.
+    # Truncate anything the LLM appended after the selection prompt.
     _select_marker = _select_q.strip()
     if _select_marker and _select_marker in md_only:
         _idx = md_only.index(_select_marker)
         md_only = md_only[: _idx + len(_select_marker)].rstrip()
     if (not md_only) and isinstance(struct, list) and struct:
-        # BUG-048 fallback: render as a one-row table per item with the same
-        # column schema as the spec, not a bullet list.
+        # Fallback: render as a one-row table per item with the same column
+        # schema as the spec, not a bullet list.
         md_only = _render_tactics_fallback_table(struct, lang)
 
     # ── Post-LLM conflict flags (P7) ──────────────────────────────────────
@@ -740,7 +742,7 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     if _conflict_block:
         md_only += _conflict_block
 
-    # BUG-016: never expose server filesystem paths in references.
+    # Never expose server filesystem paths in references.
     src_lines = [
         _clip_text(f"- {title}{page_str}", 60)
         for title, page_str, _path in src_meta
@@ -758,8 +760,8 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     state["tactics_md"] = md_only
     _struct_list = struct if isinstance(struct, list) else []
     state["tactics_struct"] = _struct_list
-    # BUG-010/012: populate tactics_candidates so the classifier's tactics_confirm
-    # block can resolve T1/T2/T3 IDs without needing tactics_struct separately.
+    # Populate tactics_candidates so the classifier's tactics_confirm block can
+    # resolve T1/T2/T3 IDs without needing tactics_struct separately.
     state["tactics_candidates"] = _struct_list
     state["tactics_list"] = [(it.get("name") or "").strip() for it in (_struct_list or []) if isinstance(it, dict) and it.get("name")]
     state["quality_attribute"] = qa
@@ -777,7 +779,7 @@ Example JSON shape (values are illustrative — adjust to your tactics):
                 _response_measure,
                 human_asr_id=_asr_id_for_tactics,
             )
-            # BUG-056: parent ref must point at the PRIMARY active ASR.
+            # Parent ref must point at the PRIMARY active ASR.
             _parents = _build_parent_refs(_active_view_with_primary_asr(state))
             _qa      = state.get("quality_attribute") or qa
             _new_decision: dict = {
@@ -815,7 +817,7 @@ Example JSON shape (values are illustrative — adjust to your tactics):
     state["intent"] = "tactics"
     state["nextNode"] = "unifier"
 
-    # BUG-013: persist completed_nodes and routing_phase across turns.
+    # Persist completed_nodes and routing_phase across turns.
     _done = list(state.get("completed_nodes") or [])
     for _n in ("asr", "style", "tactics"):
         if _n not in _done:

@@ -126,7 +126,7 @@ _OVERLOAD_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# BUG-017: collapse Spanish/European thousands separators ("50 000" -> "50000").
+# Collapse Spanish/European thousands separators ("50 000" -> "50000").
 # Matches "digit, space, exactly 3 digits at a word boundary" so it does NOT eat
 # normal whitespace before a unit ("200 ms") or between value and metric name.
 # Loops until stable to handle chained groups ("1 234 567" -> "1234567").
@@ -148,7 +148,7 @@ def _normalize_thousands(text: str) -> str:
 
 def _parse_metrics_from_segment(text: str) -> list[dict]:
     """Extract metric dicts from a text segment."""
-    # BUG-017: normalize "50 000" -> "50000" before any numeric regex runs.
+    # Normalize "50 000" -> "50000" before any numeric regex runs.
     text = _normalize_thousands(text)
     results: list[dict] = []
     matched_spans: set[tuple[int, int]] = set()
@@ -332,7 +332,7 @@ def _failed_entry(index: int, lang: str, reason: str, repair_prompt: str = "") -
     clean_reason = (reason or "").strip() or _semantic_default_reason(lang)
     # Do NOT pass clean_reason to build_repair_prompt — _build_feedback already
     # emits reason as a separate line, so embedding it inside repair_prompt too
-    # would print the same error text twice (BUG-002).
+    # would print the same error text twice.
     clean_repair = (repair_prompt or "").strip() or build_repair_prompt(index, lang)
     return {
         "index": index,
@@ -353,9 +353,9 @@ async def _process_intake_turn(
     Returns: (updated_intake_fields, saved_indices, failed_list[dict])
     Fail-open: si LLM falla, intenta determinista solo en current_index.
     """
-    # BUG-039: skip optional fields from bulk LLM extraction to prevent
-    # "answered_invalid" entries blocking intake. BUG-001: when current_index
-    # IS an optional campo, include it so the LLM tries to extract it.
+    # Skip optional fields from bulk LLM extraction to prevent "answered_invalid"
+    # entries blocking intake. When current_index IS an optional campo, include
+    # it so the LLM tries to extract it.
     pending_indices = [
         i for i, s in enumerate(INTAKE_SCRIPT)
         if s["field"] not in intake_fields
@@ -454,8 +454,8 @@ async def intake_node(state: GraphState) -> GraphState:
                 log.warning("intake_node: intro→diagnosis transition failed (nonfatal): %s", _exc)
 
     # M6: Auto-introducción ADD 3.0 — ocurre exactamente una vez.
-    # BUG-027: also try to extract intake fields from the user's first message
-    # so rich context provided upfront is not discarded.
+    # Also try to extract intake fields from the user's first message so rich
+    # context provided upfront is not discarded.
     if (state.get("current_phase") or "") == "intro":
         _intro = _INTRO_ADD30_ES if lang == "es" else _INTRO_ADD30_EN
 
@@ -471,9 +471,9 @@ async def intake_node(state: GraphState) -> GraphState:
                 8,
             )
 
-        # BUG-051: when the user's first message already contains every
-        # required field, auto-advance straight into asr_table after the
-        # INTRO greeting — never ask "¿Quieres que proponga los ASRs?".
+        # When the user's first message already contains every required field,
+        # auto-advance straight into asr_table after the INTRO greeting — never
+        # ask "¿Quieres que proponga los ASRs?".
         if _first_idx >= 8:
             _autoadvance_msg = (
                 "Diagnóstico completo. Generando candidatos ASR…"
@@ -663,7 +663,7 @@ async def intake_node(state: GraphState) -> GraphState:
                 "intake_complete": True,
                 "current_phase": "asr_table",  # bypass supervisor diagnosis gate regardless of ledger outcome
                 "normal_operation_baseline": _baseline,
-                # BUG-041: explicit confirmation; asr_node may overwrite later
+                # Explicit confirmation; asr_node may overwrite later.
                 "endMessage": _autoadvance_msg,
                 "nextNode": "asr",
                 "intent": "asr",
@@ -705,8 +705,8 @@ async def intake_node(state: GraphState) -> GraphState:
             }
 
     # Rama B: todos los campos requeridos validados en este turno.
-    # BUG-033: auto-advance to ASR instead of showing a permission question,
-    # saving intake_v1 and transitioning the ledger phase in the same turn.
+    # Auto-advance to ASR instead of showing a permission question, saving
+    # intake_v1 and transitioning the ledger phase in the same turn.
     if current_index >= 8:
         _user_id    = (state.get("user_id_for_prefs") or "").strip()
         _project_id = (state.get("project_id") or "").strip() or None
@@ -744,7 +744,7 @@ async def intake_node(state: GraphState) -> GraphState:
             "intake_complete": True,
             "current_phase": "asr_table",
             "normal_operation_baseline": _baseline,
-            # BUG-041: explicit confirmation; asr_node may overwrite later
+            # Explicit confirmation; asr_node may overwrite later.
             "endMessage": _autoadvance_msg,
             "nextNode": "asr",
             "intent": "asr",
@@ -779,9 +779,9 @@ async def intake_node(state: GraphState) -> GraphState:
         intake_fields, saved, failed = await _process_intake_turn(
             uq, intake_fields, 0, project_context_text, lang
         )
-        # BUG-039: skip optional fields (campo_2_fuente, campo_3_estimulo) so
-        # they never become the "next" field to ask. Optional fields can still
-        # be captured opportunistically inside _process_intake_turn.
+        # Skip optional fields (campo_2_fuente, campo_3_estimulo) so they never
+        # become the "next" field to ask. Optional fields can still be captured
+        # opportunistically inside _process_intake_turn.
         new_index = next(
             (i for i, s in enumerate(INTAKE_SCRIPT)
              if s["field"] not in intake_fields and not s.get("optional")),
@@ -790,20 +790,20 @@ async def intake_node(state: GraphState) -> GraphState:
         target_index = min((int(item["index"]) for item in failed), default=new_index)
 
         if not saved and not failed:
-            # BUG-036: only emit the welcome banner during the INTRO phase. After
-            # the M6 block has already greeted the user, current_phase is
-            # "diagnosis"; emitting the welcome again on Turn 2 leaks an
-            # "¡Hola! Soy ArchIA…" line that the spec forbids (INTRO is once-per-session).
+            # Only emit the welcome banner during the INTRO phase. After the M6
+            # block has already greeted the user, current_phase is "diagnosis";
+            # emitting the welcome again on Turn 2 leaks an "¡Hola! Soy ArchIA…"
+            # line that the spec forbids (INTRO is once-per-session).
             _first_q = INTAKE_SCRIPT[0][f"question_{lang}"]
             if (state.get("current_phase") or "") == "intro":
                 end_msg = f"{_welcome_message(lang)}\n\n{_first_q}"
             else:
                 end_msg = _first_q
         elif saved and new_index >= 8:
-            # BUG-051: Rama C all-fields-on-first-turn auto-advance (mirrors
-            # Rama B at lines 670-720). User dumped the full project context
-            # on their first message — skip the permission question and
-            # transition diagnosis→asr_table immediately.
+            # Rama C all-fields-on-first-turn auto-advance (mirrors Rama B).
+            # User dumped the full project context on their first message —
+            # skip the permission question and transition diagnosis→asr_table
+            # immediately.
             _user_id    = (state.get("user_id_for_prefs") or "").strip()
             _project_id = (state.get("project_id") or "").strip() or None
             _ts = datetime.now(timezone.utc).isoformat()
@@ -887,8 +887,8 @@ async def intake_node(state: GraphState) -> GraphState:
         uq, intake_fields, current_index, project_context_text, lang
     )
 
-    # BUG-001: if current_index is optional and the user didn't provide an
-    # answer, auto-skip it so the next campo is asked on the next turn.
+    # If current_index is optional and the user didn't provide an answer,
+    # auto-skip it so the next campo is asked on the next turn.
     _current_spec = INTAKE_SCRIPT[current_index] if current_index < len(INTAKE_SCRIPT) else None
     if _current_spec and _current_spec.get("optional") and _current_spec["field"] not in intake_fields:
         intake_fields = dict(intake_fields)
@@ -915,9 +915,9 @@ async def intake_node(state: GraphState) -> GraphState:
         }
 
     if new_index >= 8:
-        # BUG-002: show permission question instead of auto-advancing to ASR.
-        # Persist intake_v1 in the ledger but do NOT transition to asr_table yet —
-        # that happens in Rama A when the user confirms they want ASRs proposed.
+        # Show permission question instead of auto-advancing to ASR. Persist
+        # intake_v1 in the ledger but do NOT transition to asr_table yet — that
+        # happens in Rama A when the user confirms they want ASRs proposed.
         summary = _build_feedback(saved, failed, 8, lang)
         _user_id    = (state.get("user_id_for_prefs") or "").strip()
         _project_id = (state.get("project_id") or "").strip() or None

@@ -118,12 +118,10 @@ def classifier_node(state: GraphState) -> GraphState:
     # but still detect language so intake_node responds in the user's language.
     # Gate: diagnosis phase only applies in professional mode.
     #
-    # BUG-020: if the message contains an explicit phase-advancing keyword
-    # (style / tactics / tech / diagram), fall through into the full classifier
-    # so the intent is set correctly. The supervisor's phase gate will still
-    # block routing when current_phase doesn't permit it, but the user will get
-    # the correct "we must finish phase X first" message instead of being
-    # silently misrouted with a stale unifier response.
+    # If the message contains an explicit phase-advancing keyword (style /
+    # tactics / tech / diagram), fall through into the full classifier so the
+    # intent is set correctly. The supervisor's phase gate will still block
+    # routing when current_phase doesn't permit it.
     if (state.get("current_phase") or "") in ("intro", "diagnosis") and (state.get("mode") or "professional") != "tutor":
         msg = state.get("userQuestion", "") or ""
         low = msg.lower()
@@ -135,8 +133,8 @@ def classifier_node(state: GraphState) -> GraphState:
         )
         if not any(k in low for k in _phase_advancing_kw):
             prior_lang = state.get("language") or "es"
-            # BUG-014: too few words → keep the prior language; only switch when
-            # signal is strong enough (> 3 tokens) or the fast detector is sure.
+            # Too few words → keep the prior language; only switch when signal is
+            # strong enough (> 3 tokens) or the fast detector is sure.
             if prior_lang and len(msg.split()) <= 3:
                 lang = prior_lang
             else:
@@ -154,7 +152,7 @@ def classifier_node(state: GraphState) -> GraphState:
     low = msg.lower()
     intent = intent_raw
 
-    #disparadores de estilo arquitectónico
+    # Disparadores de estilo arquitectónico.
     style_triggers = [
         "style", "styles",
         "architecture style", "architectural style",
@@ -206,8 +204,8 @@ def classifier_node(state: GraphState) -> GraphState:
             "ese asr me sirve", "me sirve ese asr",
             "confirm", "i confirm", "approve",
             "looks good", "yes that asr", "sí ese asr", "si ese asr",
-            # BUG-045: natural-language selection phrases the architect uses when
-            # picking an ASR by ID from the candidate table.
+            # Natural-language selection phrases the architect uses when picking
+            # an ASR by ID from the candidate table.
             "tomo ese", "tomo el asr", "me quedo con", "elijo", "voy con",
             "ese me sirve", "perfecto ese", "ok ese", "de acuerdo", "dale",
             "vale ese", "i'll take", "let's go with", "pick", "i pick",
@@ -217,9 +215,9 @@ def classifier_node(state: GraphState) -> GraphState:
             "rechazo", "ese no", "no me convence", "otro asr", "otro distinto",
             "reject", "another asr", "different asr", "not that one",
         ]
-        # BUG-045: ID-pattern matcher — when the user types just "a1", "A2",
-        # "tomo A1", "voy con a3", we extract the matched IDs and route to
-        # asr_confirm so the supervisor can advance the M1 gate to STYLE_TABLE.
+        # ID-pattern matcher — when the user types just "a1", "A2", "tomo A1",
+        # "voy con a3", we extract the matched IDs and route to asr_confirm so
+        # the supervisor can advance the M1 gate to STYLE_TABLE.
         _asr_id_matches = re.findall(r"\b[Aa](\d+)\b", msg)
         _bare_id = re.match(r"^\s*[Aa]\d+\s*$", msg)
         if any(k in low for k in asr_confirm_triggers) or _asr_id_matches or _bare_id:
@@ -253,7 +251,7 @@ def classifier_node(state: GraphState) -> GraphState:
                 intent = "asr_detail"
                 state["asr_detail_ids"] = [rid for rid in _requested_ids if rid in _confirmed_ids]
 
-    # BUG-054 / BUG-055: style selection — mirror of the asr_confirm block.
+    # Style selection — mirror of the asr_confirm block.
     # When the user is in style_table and types `S1`, `Selecciono el estilo S2`,
     # etc., classify the intent as `style_confirm` and seed selected_style.
     _in_style_phase = (state.get("current_phase") or "") == "style_table"
@@ -274,7 +272,7 @@ def classifier_node(state: GraphState) -> GraphState:
             if _style_id_matches:
                 state["selected_style"] = f"S{_style_id_matches[0]}"
 
-    # BUG-012/007/013: tactics selection — mirror of the style_confirm block.
+    # Tactics selection — mirror of the style_confirm block.
     # When the user is in tactics_table and types `T1`, `acepto las tácticas`, etc.
     # classify as `tactics_confirm` so the supervisor routes to tactics_confirm_node
     # instead of firing "Bienvenido de vuelta".
@@ -299,9 +297,9 @@ def classifier_node(state: GraphState) -> GraphState:
             if _tactics_id_matches:
                 state["selected_tactics"] = [f"T{n}" for n in _tactics_id_matches]
 
-    # BUG-047: when the architect picked a style and is now in TACTICS_TABLE,
-    # natural continuation verbs ("Continuemos", "adelante", "ok") should route
-    # to tactics generation instead of looping on a confirmation question.
+    # When the architect picked a style and is now in TACTICS_TABLE, natural
+    # continuation verbs ("Continuemos", "adelante", "ok") should route to
+    # tactics generation instead of looping on a confirmation question.
     _in_tactics_phase = (state.get("current_phase") or "") == "tactics_table"
     _has_style = bool(
         state.get("selected_style") or state.get("style") or state.get("last_style")
@@ -316,7 +314,7 @@ def classifier_node(state: GraphState) -> GraphState:
         if any(k in low for k in _continue_triggers):
             intent = "tactics"
 
-    # BUG-014: language is sticky for short, low-signal messages (e.g. "S2", "ok").
+    # Language is sticky for short, low-signal messages (e.g. "S2", "ok").
     # Only switch when there are enough tokens to classify reliably, OR the user
     # explicitly typed something that triggers the opposite-language detector.
     prior_lang = state.get("language")
@@ -374,9 +372,9 @@ def classifier_node(state: GraphState) -> GraphState:
     # Defense-in-depth: if QA lock-in has not been reached yet, do not let an
     # incidental mention of a quality attribute (e.g. "latencia") during a
     # non-intake turn override the state before the user has explicitly chosen
-    # an ASR (BUG-006).  context_loader sets qa_locked_in=True once the phase
-    # advances past diagnosis, so this guard is a no-op in normal post-intake
-    # flow and only fires in edge cases where context_loader did not run.
+    # an ASR. context_loader sets qa_locked_in=True once the phase advances
+    # past diagnosis, so this guard is a no-op in normal post-intake flow and
+    # only fires in edge cases where context_loader did not run.
     if not state.get("qa_locked_in", True):
         quality_attribute = "general"
 

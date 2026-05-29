@@ -86,10 +86,6 @@ async def boot_node(state: GraphState) -> GraphState:
             )
             user_profile = {}
 
-    # BUG-013: only reset ASR + completed_nodes when we are still in intake
-    # (i.e. no ASR has been produced yet). Once routing_phase advances past
-    # "intake", these are session-level state and must survive boot_node so the
-    # supervisor does not re-generate an ASR on the next turn.
     _routing_phase = state.get("routing_phase") or "intake"
     _asr_produced  = bool(state.get("selected_asrs")) or bool(state.get("current_asr")) or bool(state.get("last_asr"))
     _asr_session_done = _routing_phase != "intake" or _asr_produced
@@ -148,8 +144,6 @@ def router(state: GraphState) -> str:
     if state["nextNode"] == "style_tactics_parallel":
         return "style_tactics_parallel"
 
-    # BUG-003: always run investigator before ASR so references ground the output.
-    # The old force_rag guard is removed — ASR always benefits from RAG.
     if state["nextNode"] == "asr" and not state.get("hasVisitedASR", False):
         if (
             not state.get("hasVisitedInvestigator", False)

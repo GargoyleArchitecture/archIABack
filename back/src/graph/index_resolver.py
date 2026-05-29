@@ -26,9 +26,7 @@ def _load_indices_config() -> dict:
 
 
 def resolve_quality_attribute(question: str, llm) -> str:
-    """
-    Usa LLM para determinar qué atributo de calidad (índice) corresponde
-    a la pregunta del usuario.
+    """Usa LLM para determinar qué atributo de calidad (índice) corresponde a la pregunta del usuario.
 
     Retorna el 'id' del atributo (e.g., "escalabilidad", "latencia")
     o "general" si no hay match claro o si ocurre un error.
@@ -75,8 +73,8 @@ def resolve_quality_attribute(question: str, llm) -> str:
 
 
 def get_available_indices() -> list[dict]:
-    """
-    Retorna la lista de atributos de calidad disponibles desde la config.
+    """Retorna la lista de atributos de calidad disponibles desde la config.
+
     Útil para listar índices sin abrir el JSON directamente.
     """
     config = _load_indices_config()

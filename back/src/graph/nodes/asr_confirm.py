@@ -6,17 +6,11 @@ ledger), expande el candidato a sus 6 partes canónicas vía LLM, escribe el
 ASR expandido como una nueva decisión activa (lo que supersede a A4/etc. en
 el ledger), commitea la transición asr_table → style_table y enruta a unifier.
 
-BUG-052 / BUG-053: antes este nodo seleccionaba `candidates[-1]` (siempre A4
-en una tabla de 4 candidatos) y emitía solo "✅ ASR confirmado" sin expandir
-el detalle 6-partes. Ahora resuelve por `state["selected_asrs"]`, llama a
-`_expand_asr_to_six_part` y persiste el detalle estructurado en el ledger
-para que los nodos downstream (style, tactics) usen el QA correcto.
-
-BUG-056 (multi-selección): cuando el usuario confirma varios IDs ("confirmo
-A1, A2, A3"), el nodo ahora expande y escribe al ledger TODOS los candidatos
-seleccionados. El primario (A1) determina quality_attribute y endMessage;
-los secundarios se añaden al ledger y quedan en state["selected_asrs"] para
-que tech_node tenga contexto de todos los ASRs activos.
+Multi-selección: cuando el usuario confirma varios IDs ("confirmo A1, A2, A3"),
+el nodo expande y escribe al ledger TODOS los candidatos seleccionados. El
+primario (A1) determina quality_attribute y endMessage; los secundarios se
+añaden al ledger y quedan en state["selected_asrs"] para que tech_node tenga
+contexto de todos los ASRs activos.
 """
 
 import logging
@@ -199,7 +193,7 @@ def asr_confirm_node(state: GraphState) -> GraphState:
     # Structure: [ULID_A1, "A1", ULID_A2, "A2", ...] so both styles/common.py
     # (needs an A\d+ entry for the display label) and tech/common.py (iterates
     # all IDs for context) work correctly. Single-confirm path produces
-    # [ULID, "A1"] — identical to the pre-fix behaviour.
+    # [ULID, "A1"].
     new_selected_asrs: list[str] = []
     for ulid_or_fallback, human_id in confirmed_pairs:
         if ulid_or_fallback and ulid_or_fallback not in new_selected_asrs:
@@ -242,7 +236,7 @@ def asr_confirm_node(state: GraphState) -> GraphState:
         except Exception as exc:
             log.warning("asr_confirm: unexpected ledger error (nonfatal): %s", exc)
 
-    # BUG-005: clear candidates so the table is not re-echoed in the style phase.
+    # Clear candidates so the table is not re-echoed in the style phase.
     state["asr_candidates"] = []
 
     state["routing_phase"] = "style"

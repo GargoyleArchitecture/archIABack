@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from dotenv import load_dotenv, find_dotenv
-# Automatically find and load .env regardless of where the script is started
+# Automatically find and load .env regardless of where the script is started.
 load_dotenv(find_dotenv())
 
 from src.services.llm_factory import get_chat_model
@@ -21,12 +21,12 @@ except Exception:
     GenerativeModel = None
     Image = None
 
-# LangGraph builder + checkpointer
+# LangGraph builder + checkpointer.
 from langgraph.graph import StateGraph
 from langgraph.store.memory import InMemoryStore
 from src.graph.state import GraphState
 
-# Setup Logging
+# Setup Logging.
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 log = logging.getLogger("graph")
@@ -99,7 +99,7 @@ def _get_retriever():
         _retriever = get_retriever()
     return _retriever
 
-# Property-like access — modules that import `retriever` will get this proxy
+# Property-like access — modules that import `retriever` will get this proxy.
 class _LazyRetriever:
     """Proxy that delays retriever creation until first method call."""
     def __getattr__(self, name):

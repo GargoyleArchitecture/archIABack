@@ -6,7 +6,7 @@ from src.graph.nodes.styles.common import style_node_impl
 
 def style_availability_node(state: GraphState) -> GraphState:
     """Nodo de estilos especializado para QA de disponibilidad (availability).
-    
+
     Propone estilos arquitectónicos que maximicen la disponibilidad del sistema,
     considerando redundancia, recuperación de fallos, y tácticas de resiliencia.
     """

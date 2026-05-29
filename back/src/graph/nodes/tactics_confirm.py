@@ -5,9 +5,6 @@ Resuelve la selección del usuario (IDs T1/T2/… o "acepto las tácticas") cont
 `state["tactics_candidates"]`, persiste los IDs confirmados en `selected_tactics`,
 escribe la decisión en el ledger, avanza la fase tactics_table → tech_proposals
 y enruta a unifier.
-
-BUG-012/007/013: antes `T1` caía en "Bienvenido de vuelta" porque el classifier
-no tenía un bloque para `tactics_confirm` ni el supervisor tenía el branch.
 """
 
 import logging
@@ -174,7 +171,7 @@ def tactics_confirm_node(state: GraphState) -> GraphState:
     state["selected_tactics"] = confirmed_ids
     # Clear stale markdown so the unifier doesn't echo the previous tactics table.
     state["tactics_md"] = ""
-    # BUG-015: clear candidates so the tech node uses only selected_tactics.
+    # Clear candidates so the tech node uses only selected_tactics.
     state["tactics_candidates"] = []
 
     state["routing_phase"] = "tech"

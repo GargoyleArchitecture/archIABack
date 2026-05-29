@@ -4,11 +4,8 @@
 Resuelve la selección del usuario (mapeando el ID humano S1/S2 al estilo de
 `state["style_candidates"]`), persiste el estilo elegido como decisión activa
 del ledger (auto-supersede de cualquier estilo previo), commitea la transición
-style_table → tactics_table y enruta a unifier.
-
-BUG-054 / BUG-055: antes este flujo no existía — escribir `"S1"` caía en
-"Bienvenido de vuelta… ¿Continuamos?" y `"Selecciono el estilo S1"` producía
-`"No style content."`. Este nodo es la analogía a `asr_confirm_node`.
+style_table → tactics_table y enruta a unifier. Este nodo es la analogía a
+`asr_confirm_node`.
 """
 
 import logging

@@ -31,13 +31,13 @@ log = logging.getLogger("style_node")
 
 
 def _active_view_with_primary_asr(state: GraphState) -> dict:
-    # BUG-056: order matters here. The user types ASRs in priority order
+    # Order matters here. The user types ASRs in priority order
     # (selected_asrs[0] = highest); classifier→asr_confirm preserves that as
     # ledger append order. But state["ledger_active"]["asr"] comes from
     # compute_active_view(), which collapses every active ASR to the
-    # LAST-appended one (ledger/store.py:330-336 — ASRs intentionally do
-    # NOT supersede each other per store.py:72-82). Reading .asr from the
-    # raw view silently swaps in the wrong driver on multi-ASR selection.
+    # LAST-appended one — ASRs intentionally do NOT supersede each other.
+    # Reading .asr from the raw view silently swaps in the wrong driver on
+    # multi-ASR selection.
     view = dict(state.get("ledger_active") or {})
     ledger = state.get("ledger") or {}
     if ledger.get("decisions"):
@@ -343,8 +343,8 @@ the specific technologies listed. Business rules must be respected in all trade-
 """
 
     # ── Dossier ASR binding (P4) ────────────────────────────────────────────
-    # BUG-056: bind the prompt to selected_asrs[0] (the user's highest-priority
-    # ASR), not to whatever ASR was last-appended in the ledger.
+    # Bind the prompt to selected_asrs[0] (the user's highest-priority ASR),
+    # not to whatever ASR was last-appended in the ledger.
     _primary_view = _active_view_with_primary_asr(state)
     dossier_binding_block = _build_dossier_asr_binding(_primary_view, lang)
 
@@ -353,10 +353,10 @@ the specific technologies listed. Business rules must be respected in all trade-
     _all_asrs = get_all_active_asrs(_ledger) if _ledger.get("decisions") else []
     multi_asr_block = _build_multi_asr_constraint_block(_all_asrs, lang)
 
-    # BUG-053 defense-in-depth: if the user explicitly selected an ASR but
-    # the active primary ASR doesn't match, refuse to render and ask them to
-    # re-select. Prevents silent wrong-QA generation if a future change
-    # breaks the supersession logic in asr_confirm_node.
+    # Defense-in-depth: if the user explicitly selected an ASR but the active
+    # primary ASR doesn't match, refuse to render and ask them to re-select.
+    # Prevents silent wrong-QA generation if a future change breaks the
+    # supersession logic in asr_confirm_node.
     _selected_asrs_check = [str(x).strip().upper() for x in (state.get("selected_asrs") or [])]
     _active_asr_payload = (_primary_view.get("asr") or {}).get("payload") or {}
     _active_candidate_id = str(_active_asr_payload.get("candidate_id") or "").strip().upper()
@@ -461,9 +461,9 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     style2_justification = style2.get("justification", "").strip()
     style2_tradeoff = style2.get("tradeoff", "").strip()
     best_key = (data.get("best_style") or "").strip()
-    # BUG-001 fix: the LLM JSON schema has no top-level "rationale" field.
-    # Use the chosen style's own "tradeoff" field as the rationale so the
-    # ledger payload's "tradeoffs" and tactics binding block are never empty.
+    # The LLM JSON schema has no top-level "rationale" field. Use the chosen
+    # style's own "tradeoff" field as the rationale so the ledger payload's
+    # "tradeoffs" and tactics binding block are never empty.
     _chosen_data = style2 if best_key == "style_2" else style1
     rationale = _chosen_data.get("tradeoff", "").strip()
 
@@ -474,8 +474,8 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     state["selected_style"] = chosen_name
     state["last_style"] = chosen_name
     state["quality_attribute"] = qa
-    # BUG-022: populate style_candidates so the dossier and future queries
-    # can surface both options without re-invoking the LLM.
+    # Populate style_candidates so the dossier and future queries can surface
+    # both options without re-invoking the LLM.
     state["style_candidates"] = [
         {
             "id": "S1",
@@ -498,7 +498,7 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     if _user_id:
         try:
             _payload = _build_style_payload(data, chosen_name, style1, style2, rationale)
-            # BUG-056: parent ref must point at the PRIMARY active ASR.
+            # Parent ref must point at the PRIMARY active ASR.
             _parents = _build_asr_parent_ref(_active_view_with_primary_asr(state))
             _new_decision: dict = {
                 "id":               "",
@@ -557,15 +557,15 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
             "Compare these two styles in more depth for this ASR.",
         ]
 
-    # BUG-046: show the ASR ID the user selected (e.g. "A1 (Latencia)"), not a
-    # truncated free-text scenario. The architect already saw the scenario in
-    # the ASR table; what they need here is to recognise which row was picked.
-    # BUG-056: read from the primary-ASR view, not raw ledger_active.
+    # Show the ASR ID the user selected (e.g. "A1 (Latencia)"), not a truncated
+    # free-text scenario. The architect already saw the scenario in the ASR
+    # table; what they need here is to recognise which row was picked. Read
+    # from the primary-ASR view, not raw ledger_active.
     _ledger_asr_payload = (_active_view_with_primary_asr(state).get("asr") or {}).get("payload") or {}
     _selected_asr_ids = state.get("selected_asrs") or []
     _selected_id = ""
     if _selected_asr_ids:
-        # BUG-006: prefer the human-readable ID (e.g. "A1") over the ULID.
+        # Prefer the human-readable ID (e.g. "A1") over the ULID.
         # asr_confirm stores [ULID, "A1"] — scan for the readable one first.
         for _sid in _selected_asr_ids:
             _s = str(_sid).strip()
@@ -629,7 +629,7 @@ All string values in the JSON (name, justification, tradeoff) MUST be written in
     state["endMessage"] = content
     state["nextNode"] = "unifier"
 
-    # BUG-013: persist completed_nodes and routing_phase across turns.
+    # Persist completed_nodes and routing_phase across turns.
     _done = list(state.get("completed_nodes") or [])
     for _n in ("asr", "style"):
         if _n not in _done:

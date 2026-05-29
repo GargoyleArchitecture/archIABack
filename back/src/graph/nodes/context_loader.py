@@ -40,10 +40,10 @@ def _mirror_legacy(active: dict, updates: dict, qa_locked_in: bool = True) -> No
     and has a non-empty value. An empty ledger must not clear state already
     populated by worker nodes in earlier turns.
 
-    qa_locked_in controls whether quality_attribute may be written.  It is
+    qa_locked_in controls whether quality_attribute may be written. It is
     False while the session is still in the intake (intro/diagnosis) phase so
     that a stale ledger entry from a previous session cannot pre-set the QA
-    before the user has explicitly chosen one (BUG-006).
+    before the user has explicitly chosen one.
     """
     asr = active.get("asr")
     if asr:
@@ -90,8 +90,7 @@ def _mirror_legacy(active: dict, updates: dict, qa_locked_in: bool = True) -> No
 
 
 def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState:
-    """
-    Nodo de carga de contexto dual. Se ejecuta en cada turno.
+    """Nodo de carga de contexto dual. Se ejecuta en cada turno.
 
     - ProjectContext / UserPreferences: cargados UNA VEZ por sesión
       (guardados por flags project_context_loaded / user_style_loaded).
@@ -153,14 +152,14 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             raw_phase = ledger.get("current_phase") or "intro"
             mapped_phase = _LEGACY_PHASE_MAP.get(raw_phase, raw_phase)
 
-            # BUG-025: When supervisor has detected a new project introduction and set
+            # When supervisor has detected a new project introduction and set
             # new_project_flow=True, the stale ledger phase must NOT override the
-            # "intro"/"diagnosis" that supervisor/intake_node established.  Also skip
+            # "intro"/"diagnosis" that supervisor/intake_node established. Also skip
             # _mirror_legacy so old-session ASR/style/tactic scalars are not restored.
-            _new_project_flow = bool(state.get("new_project_flow"))
-            # BUG-035: guard must fire unconditionally on new_project_flow so that
+            # The guard must fire unconditionally on new_project_flow so that
             # _mirror_legacy cannot restore stale current_asr from a prior session
             # when the old ledger phase is "intro" or "diagnosis".
+            _new_project_flow = bool(state.get("new_project_flow"))
             if _new_project_flow:
                 updates["ledger_active"] = {}
                 updates["qa_locked_in"]  = False

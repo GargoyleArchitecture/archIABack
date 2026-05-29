@@ -349,8 +349,8 @@ Example shape (values are illustrative):
     # Compute markdown view first so the fallback parser can use it.
     md_only = strip_first_json_fence(raw)
     md_only = re.sub(r"\n?###\s+2\.\s*JSON\s*:?\s*$", "", md_only, flags=re.I | re.M).rstrip()
-    # BUG-017: strip any remaining trailing code fences (bare JSON arrays that
-    # the LLM appends after the markdown section).
+    # Strip any remaining trailing code fences (bare JSON arrays that the LLM
+    # appends after the markdown section).
     md_only = re.sub(r"\n*```(?:json|JSON)?\s*\[[\s\S]*?\]\s*```\s*$", "", md_only).rstrip()
 
     struct = extract_json_array(raw) or []
@@ -378,7 +378,7 @@ Example shape (values are illustrative):
             for it in struct
         )
 
-    # BUG-016: never expose server filesystem paths in references.
+    # Never expose server filesystem paths in references.
     src_lines = [
         _clip_text(f"- {title}{page_str}", 60)
         for title, page_str, _path in src_meta
@@ -498,7 +498,7 @@ Example shape (values are illustrative):
     state["nextNode"] = "unifier"
     state["hasVisitedTech"] = True
 
-    # BUG-013: persist completed_nodes and routing_phase across turns.
+    # Persist completed_nodes and routing_phase across turns.
     _done = list(state.get("completed_nodes") or [])
     for _n in ("asr", "tech"):
         if _n not in _done:

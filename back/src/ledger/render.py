@@ -322,7 +322,7 @@ def render_dossier_compact(ledger: DesignLedger, *, lang: str = "es") -> str:
     asr = active.get("asr")
     if asr:
         summary = _clip_text((asr.get("payload") or {}).get("summary", ""), 200)
-        # BUG-009: use human-readable candidate_id (e.g. "A1"), never the internal ULID.
+        # Use human-readable candidate_id (e.g. "A1"), never the internal ULID.
         _asr_disp = (asr.get("payload") or {}).get("candidate_id") or ""
         if not _asr_disp:
             _asr_disp = asr.get("id", "")[:8]
@@ -331,7 +331,7 @@ def render_dossier_compact(ledger: DesignLedger, *, lang: str = "es") -> str:
     style = active.get("style")
     if style:
         chosen = (style.get("payload") or {}).get("chosen", "")
-        # BUG-009: show the style name only, not the internal ULID.
+        # Show the style name only, not the internal ULID.
         lines.append(f"**{T['style_section']}:** {chosen}")
 
     tactic = active.get("tactic")
