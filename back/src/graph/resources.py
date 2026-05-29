@@ -1,11 +1,8 @@
 
 import os
 import threading
-import requests
 import logging
 from pathlib import Path
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 
 from dotenv import load_dotenv, find_dotenv
 # Automatically find and load .env regardless of where the script is started
@@ -183,24 +180,3 @@ def make_inmemory_store() -> InMemoryStore:
     `langgraph-checkpoint-postgres` tambien para Store), reemplazar aqui.
     """
     return InMemoryStore()
-
-# Sesión HTTP con retries y timeouts
-def _make_http() -> requests.Session:
-    s = requests.Session()
-    retries = Retry(
-        total=3,
-        backoff_factor=0.5,
-        connect=3,
-        read=3,
-        status=3,
-        status_forcelist=(502, 503, 504),
-        allowed_methods=frozenset(["GET","POST"]),
-        raise_on_status=False
-    )
-    adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
-    s.mount("http://", adapter)
-    s.mount("https://", adapter)
-    s.headers.update({"User-Agent": "ArchIA/diagram-orchestrator"})
-    return s
-
-_HTTP = _make_http()

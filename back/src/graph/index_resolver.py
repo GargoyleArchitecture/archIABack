@@ -81,11 +81,3 @@ def get_available_indices() -> list[dict]:
     """
     config = _load_indices_config()
     return config.get("quality_attributes", [])
-
-
-def get_content_types() -> list[dict]:
-    """
-    Retorna la lista de tipos de contenido disponibles desde la config.
-    """
-    config = _load_indices_config()
-    return config.get("content_types", [])
