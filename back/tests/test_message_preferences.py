@@ -82,10 +82,17 @@ def test_form_seeded_hint_skips_negocio_fetch():
 
 def test_fallback_fetches_negocio_when_not_form_seeded():
     """Sin hint por Form (user_style_loaded=False) con user_id real: se cae
-    al fetch a Negocio (fallback intacto, cliente antiguo sin regresión)."""
+    al fetch a Negocio (fallback intacto, cliente antiguo sin regresión).
+
+    F20-T2: si el fetch devuelve vacío (e.g. usuario legacy sin fila de
+    preferencias), `user_style_loaded` permanece en False para que el
+    siguiente turno reintente — antes se cementaba a True y requería F5.
+    Con F20-T4 (defaults ANALOGY/MEDIUM en Negocio), en producción el fetch
+    casi nunca devuelve vacío; este test cubre la rama de robustez.
+    """
     result, mock_prefs = _run(_state(user_style_loaded=False, user_style_hint=""))
 
     mock_prefs.assert_called_once()
-    # degradación silenciosa: fetch devolvió {} → hint vacío, loaded marcado.
+    # F20-T2: fetch devolvió {} → hint vacío, loaded=False (retry next turn).
     assert result["user_style_hint"] == ""
-    assert result["user_style_loaded"] is True
+    assert result["user_style_loaded"] is False

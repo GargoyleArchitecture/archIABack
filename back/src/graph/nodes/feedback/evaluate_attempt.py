@@ -79,11 +79,11 @@ def _fallback_feedback(payload: EvaluateAttemptInput) -> RoutineFeedback:
         criteria=[],
         strengths=[],
         improvements=[
-            "La evaluación automática no pudo procesarse. Reintentá en unos segundos.",
+            "La evaluación automática no pudo procesarse. Reinténtalo en unos segundos.",
         ],
         socratic_comment=(
-            "El evaluador no respondió a tiempo. ¿Podés releer tu solución y "
-            "marcar mentalmente qué criterios de la rúbrica creés que cumple, "
+            "El evaluador no respondió a tiempo. ¿Puedes releer tu solución y "
+            "marcar mentalmente qué criterios de la rúbrica crees que cumple, "
             "antes de reintentar el envío?"
         ),
     )

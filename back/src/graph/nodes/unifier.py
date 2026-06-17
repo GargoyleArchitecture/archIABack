@@ -296,13 +296,13 @@ async def unifier_node(state: GraphState) -> GraphState:
 
     # 🔴 Caso especial para TECNOLOGÍAS
     if intent == "tech":
-        tech_md = (
-            _last_ai_by(state, "tech_advisor")
-            or state.get("endMessage")
-            or "No technology content."
-        )
+        advisor_md = _last_ai_by(state, "tech_advisor")
+        end_msg    = state.get("endMessage") or ""
+        tech_md    = advisor_md or end_msg
+
         src_txt = _last_ai_by(state, "tech_sources")
-        refs_block = _extract_rag_sources_from(src_txt) if src_txt else "None"
+        refs_extracted = _extract_rag_sources_from(src_txt) if src_txt else ""
+        has_refs = bool(refs_extracted and refs_extracted.strip() and refs_extracted.strip().lower() != "none")
 
         if lang == "es":
             followups = [
@@ -317,7 +317,50 @@ async def unifier_node(state: GraphState) -> GraphState:
             ]
             refs_label = "### References"
 
-        end_text = f"{tech_md}\n\n---\n\n{refs_label}\n\n{refs_block}"
+        # F20-T1: el caso degenerado (tech_advisor vacío Y endMessage vacío)
+        # antes producía un mensaje literal "No technology content." + bloque
+        # "Referencias / None" que el usuario veía como respuesta del agente.
+        # Eso ocurre típicamente cuando el supervisor enruta una pregunta
+        # educativa a intent=tech pero el nodo `tech_advisor` no aportó
+        # contenido (e.g. faltan tácticas confirmadas). Ahora producimos un
+        # mensaje útil que redirige la conversación.
+        if not tech_md.strip():
+            if lang == "es":
+                tech_md = (
+                    "Necesito un poco más de contexto para recomendarte "
+                    "tecnologías concretas.\n\n"
+                    "Si quieres una explicación conceptual (qué es y un "
+                    "ejemplo mínimo), dímelo y lo abordamos como pregunta "
+                    "educativa.\n\n"
+                    "Si lo que buscas es una decisión de stack, primero "
+                    "definimos el atributo de calidad y las tácticas que "
+                    "guían la elección."
+                )
+                followups = [
+                    "Explícame el concepto y dame un ejemplo mínimo.",
+                    "Definamos primero el atributo de calidad y las tácticas.",
+                ]
+            else:
+                tech_md = (
+                    "I need a bit more context before recommending concrete "
+                    "technologies.\n\n"
+                    "If you want a conceptual explanation (what it is + a "
+                    "minimal example), tell me and I'll treat this as an "
+                    "educational question.\n\n"
+                    "If you want a stack decision, we first define the "
+                    "quality attribute and the tactics that drive the choice."
+                )
+                followups = [
+                    "Explain the concept and give me a minimal example.",
+                    "Let's first define the quality attribute and tactics.",
+                ]
+
+        # F20-T1: omitir el bloque "Referencias" cuando no hay fuentes — antes
+        # se emitía "### Referencias\n\nNone" que es ruido visual.
+        if has_refs:
+            end_text = f"{tech_md}\n\n---\n\n{refs_label}\n\n{refs_extracted}"
+        else:
+            end_text = tech_md
 
         state["suggestions"] = followups
         state["turn_messages"] = state.get("turn_messages", []) + [

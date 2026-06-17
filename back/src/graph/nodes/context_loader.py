@@ -119,24 +119,42 @@ def context_loader_node(state: GraphState, config: RunnableConfig) -> GraphState
             raw  = fetch_project_context(project_id, api_token)
             text = format_project_context_text(raw)
             updates["project_context_text"]   = text
-            updates["project_context_loaded"] = True
-            log.info("context_loader: project context cargado project_id=%s", project_id)
+            # F20-T2: solo marcamos loaded=True si la respuesta trajo contenido
+            # útil. Antes se marcaba True siempre, lo que cementaba un fallo
+            # transitorio del fetch (token race, 404 si el proyecto aún no
+            # tenía context configurado, network blip) hasta que el usuario
+            # reiniciaba la sesión con F5. Ahora un turno posterior reintenta
+            # automáticamente sin intervención del usuario.
+            updates["project_context_loaded"] = bool(text)
+            log.info(
+                "context_loader: project context fetch project_id=%s loaded=%s",
+                project_id, bool(text),
+            )
         except Exception as exc:
             log.warning("context_loader: fallo al cargar project context: %s", exc)
             updates["project_context_text"]   = ""
-            updates["project_context_loaded"] = True
+            # F20-T2: fallo → loaded=False para que el siguiente turno reintente.
+            updates["project_context_loaded"] = False
 
     if need_prefs:
         try:
             raw  = fetch_user_preferences(user_id, api_token)
             hint = format_user_style_hint(raw)
             updates["user_style_hint"]   = hint
-            updates["user_style_loaded"] = True
-            log.info("context_loader: user preferences cargadas user_id=%s", user_id)
+            # F20-T2: simétrico al fetch de project context — solo marcamos
+            # loaded=True si el hint es útil. Con F20-T4, Negocio devuelve
+            # siempre defaults ANALOGY/MEDIUM, así que en la práctica el hint
+            # casi nunca queda vacío; este guard es para entornos legacy o
+            # fallos transitorios del fetch.
+            updates["user_style_loaded"] = bool(hint)
+            log.info(
+                "context_loader: user prefs fetch user_id=%s loaded=%s",
+                user_id, bool(hint),
+            )
         except Exception as exc:
             log.warning("context_loader: fallo al cargar user preferences: %s", exc)
             updates["user_style_hint"]   = ""
-            updates["user_style_loaded"] = True
+            updates["user_style_loaded"] = False
 
     if need_ledger:
         try:
